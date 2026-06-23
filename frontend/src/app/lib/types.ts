@@ -33,6 +33,7 @@ export interface SandboxState {
 export interface GenerateResponse {
   project_id: string;
   project_name: string;
+  message: string;
   files: ProjectFile[];
 }
 
@@ -42,4 +43,13 @@ export interface ChatMessage {
   content: string;
   files?: ProjectFile[];
   timestamp: string;
+}
+
+export interface ChatMessageSchema {
+  id: number;
+  project_id: string;
+  role: string;
+  content: string;
+  files: ProjectFile[];
+  created_at: string;
 }

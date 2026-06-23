@@ -34,7 +34,7 @@ async def generate(body: PromptRequest):
         )
 
     try:
-        files = await _provider.generate(body.prompt)
+        message, files = await _provider.generate(body.prompt)
     except RuntimeError as e:
         raise HTTPException(status_code=502, detail=str(e))
 
@@ -67,5 +67,6 @@ async def generate(body: PromptRequest):
     return GenerateResponse(
         project_id=project_id,
         project_name=project_name,
+        message=message,
         files=files,
     )

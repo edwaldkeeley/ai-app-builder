@@ -2,7 +2,6 @@
 
 import { useState, useEffect, useCallback } from "react";
 import Sidebar from "./components/Sidebar";
-import PromptBar from "./components/PromptBar";
 import MainContent from "./components/MainContent";
 import { api } from "./lib/api";
 import type { ChatMessage, Project, ProjectFile } from "./lib/types";
@@ -27,10 +26,6 @@ export default function Home() {
       setError(null);
       const data = await api.listProjects();
       setProjects(data);
-      setActiveProjectId((prev) => {
-        if (!prev && data.length > 0) return data[0].id;
-        return prev;
-      });
     } catch (err) {
       const msg = err instanceof Error ? err.message : "Failed to connect to server";
       setError(msg);
@@ -43,6 +38,27 @@ export default function Home() {
     fetchProjects();
   }, [fetchProjects]);
 
+  // Load chat messages when a project is selected
+  useEffect(() => {
+    if (!activeProjectId) {
+      setChatMessages([]);
+      return;
+    }
+    api.getChatMessages(activeProjectId).then((msgs) => {
+      const converted: ChatMessage[] = msgs.map((m) => ({
+        id: `chat-${m.id}`,
+        role: m.role as "user" | "assistant",
+        content: m.content,
+        files: m.files,
+        timestamp: m.created_at,
+      }));
+      setChatMessages(converted);
+      // Set chatIdCounter past the highest ID
+      const maxId = msgs.reduce((max, m) => Math.max(max, m.id), 0);
+      chatIdCounter = maxId + 1;
+    }).catch(() => {});
+  }, [activeProjectId]);
+
   // Fetch project files when active project changes
   useEffect(() => {
     if (!activeProjectId) {
@@ -51,9 +67,7 @@ export default function Home() {
     }
     api.getProject(activeProjectId).then((detail) => {
       setFiles(detail.files);
-    }).catch(() => {
-      // Silently fail — the main fetch will surface errors
-    });
+    }).catch(() => {});
   }, [activeProjectId]);
 
   // Create new project
@@ -62,9 +76,19 @@ export default function Home() {
     setCreating(true);
     try {
       const project = await api.createProject(`Project ${projects.length + 1}`);
-      setProjects((prev) => [project, ...prev]);
+      const projectSummary: Project = {
+        id: project.id,
+        name: project.name,
+        description: project.description,
+        status: project.status,
+        file_count: project.files.length,
+        created_at: project.created_at,
+        updated_at: project.updated_at,
+      };
+      setProjects((prev) => [projectSummary, ...prev]);
       setActiveProjectId(project.id);
       setFiles(project.files);
+      setChatMode(true);
     } catch (err) {
       setError(err instanceof Error ? err.message : "Failed to create project");
     } finally {
@@ -81,7 +105,11 @@ export default function Home() {
       setProjects((prev) => {
         const updated = prev.filter((p) => p.id !== id);
         setActiveProjectId((current) => {
-          if (current === id) return updated[0]?.id ?? null;
+          if (current === id) {
+            const next = updated[0]?.id ?? null;
+            if (!next) setChatMode(false);
+            return next;
+          }
           return current;
         });
         return updated;
@@ -93,9 +121,61 @@ export default function Home() {
     }
   };
 
-  // Handle AI prompt
+  // Select a project — switch to chat mode
+  const handleSelectProject = (id: string) => {
+    setActiveProjectId(id);
+    setChatMode(true);
+  };
+
+  // Back to projects — exit chat mode
+  const handleBackToProjects = () => {
+    setActiveProjectId(null);
+    setChatMode(false);
+  };
+
+  // Save a chat message to the backend
+  const saveMessage = async (projectId: string, role: string, content: string, files?: ProjectFile[]) => {
+    try {
+      await api.saveChatMessage(projectId, role, content, files);
+    } catch (err) {
+      console.error("Failed to save chat message:", err);
+    }
+  };
+
+  // Handle AI prompt — works with or without an active project
   const handlePrompt = async (prompt: string) => {
-    if (generating || !activeProjectId) return;
+    if (generating) return;
+
+    // If no active project, create one first
+    let projectId = activeProjectId;
+    if (!projectId) {
+      setCreating(true);
+      try {
+        const project = await api.createProject(`Project ${projects.length + 1}`);
+        const projectSummary: Project = {
+          id: project.id,
+          name: project.name,
+          description: project.description,
+          status: project.status,
+          file_count: project.files.length,
+          created_at: project.created_at,
+          updated_at: project.updated_at,
+        };
+        setProjects((prev) => [projectSummary, ...prev]);
+        setActiveProjectId(project.id);
+        setFiles(project.files);
+        setChatMode(true);
+        projectId = project.id;
+      } catch (err) {
+        setError(err instanceof Error ? err.message : "Failed to create project");
+        setCreating(false);
+        return;
+      } finally {
+        setCreating(false);
+      }
+    }
+
+    if (!projectId) return;
 
     // Add user message
     const userMsg: ChatMessage = {
@@ -105,21 +185,26 @@ export default function Home() {
       timestamp: new Date().toISOString(),
     };
     setChatMessages((prev) => [...prev, userMsg]);
-    setChatMode(true);
     setGenerating(true);
 
-    try {
-      const result = await api.generate(prompt, activeProjectId);
+    // Save user message to backend
+    saveMessage(projectId, "user", prompt);
 
-      // Add AI response
+    try {
+      const result = await api.generate(prompt, projectId);
+
+      // Add AI response with the message from the AI
       const aiMsg: ChatMessage = {
         id: `chat-${++chatIdCounter}`,
         role: "assistant",
-        content: `Generated ${result.files.length} file${result.files.length !== 1 ? "s" : ""}`,
+        content: result.message || `Generated ${result.files.length} file${result.files.length !== 1 ? "s" : ""}`,
         files: result.files,
         timestamp: new Date().toISOString(),
       };
       setChatMessages((prev) => [...prev, aiMsg]);
+
+      // Save AI response to backend
+      saveMessage(projectId, "assistant", aiMsg.content, result.files);
 
       // Refresh project files
       const detail = await api.getProject(result.project_id);
@@ -150,42 +235,39 @@ export default function Home() {
     setFiles(updatedFiles);
   }, []);
 
-  const activeProject = projects.find((p) => p.id === activeProjectId);
+  const activeProject: Project | null = projects.find((p) => p.id === activeProjectId) ?? null;
 
   return (
-    <div className="h-dvh flex flex-col">
-      <div className="flex flex-1 overflow-hidden">
-        <Sidebar
-          projects={projects}
-          activeProjectId={activeProjectId}
-          onSelectProject={(id) => {
-            setActiveProjectId(id);
-            if (chatMode) setChatMode(false);
-          }}
-          onNewProject={handleNewProject}
-          onDeleteProject={handleDeleteProject}
+    <div className="h-dvh flex">
+      <Sidebar
+        projects={projects}
+        activeProjectId={activeProjectId}
+        onSelectProject={handleSelectProject}
+        onNewProject={handleNewProject}
+        onDeleteProject={handleDeleteProject}
+        creating={creating}
+        deleting={deleting}
+        chatMode={chatMode}
+        chatMessages={chatMessages}
+        generating={generating}
+        onSendPrompt={handlePrompt}
+        onBackToProjects={handleBackToProjects}
+      />
+
+      <main className="flex-1 flex flex-col min-w-0">
+        <MainContent
+          loading={loading}
+          error={error}
+          activeProject={activeProject}
+          files={files}
+          onRetry={fetchProjects}
+          onCreateProject={handleNewProject}
           creating={creating}
-          deleting={deleting}
-          chatMode={chatMode}
-          chatMessages={chatMessages}
-          onToggleChat={() => setChatMode(!chatMode)}
+          onFilesChange={handleFilesChange}
+          onSendPrompt={handlePrompt}
+          generating={generating}
         />
-
-        <main className="flex-1 flex flex-col min-w-0">
-          <MainContent
-            loading={loading}
-            error={error}
-            activeProject={activeProject}
-            files={files}
-            onRetry={fetchProjects}
-            onCreateProject={handleNewProject}
-            creating={creating}
-            onFilesChange={handleFilesChange}
-          />
-        </main>
-      </div>
-
-      <PromptBar onSend={handlePrompt} disabled={!activeProject || generating} />
+      </main>
     </div>
   );
 }

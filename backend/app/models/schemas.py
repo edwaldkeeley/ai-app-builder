@@ -103,6 +103,7 @@ class GenerateResponse(BaseModel):
 
     project_id: UUID
     project_name: str
+    message: str = ""
     files: list[ProjectFile] = []
 
 
@@ -136,3 +137,17 @@ class ExportResponse(BaseModel):
 
     download_url: str
     project_id: UUID
+
+
+# ── Chat ────────────────────────────────────────────────────
+
+
+class ChatMessageSchema(BaseModel):
+    """A single chat message in a project conversation."""
+
+    id: int | None = None
+    project_id: UUID
+    role: str
+    content: str
+    files: list[ProjectFile] = []
+    created_at: datetime | None = None

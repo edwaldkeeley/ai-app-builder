@@ -6,6 +6,7 @@ All methods are async.  The connection pool is obtained from
 
 from __future__ import annotations
 
+import json
 from pathlib import Path
 from uuid import UUID
 
@@ -13,6 +14,7 @@ import asyncpg
 
 from app.db.database import get_pool
 from app.models.schemas import (
+    ChatMessageSchema,
     FileType,
     Project,
     ProjectCreate,
@@ -214,6 +216,50 @@ class ProjectService:
             if deleted:
                 await conn.execute("UPDATE projects SET updated_at = NOW() WHERE id = $1", project_id)
             return deleted
+
+    # ── Chat messages ───────────────────────────────────────────
+
+    async def get_chat_messages(self, project_id: UUID) -> list[ChatMessageSchema]:
+        pool = get_pool()
+        async with pool.acquire() as conn:
+            rows = await conn.fetch(
+                "SELECT id, project_id, role, content, files, created_at "
+                "FROM chat_messages WHERE project_id = $1 ORDER BY created_at",
+                project_id,
+            )
+        return [
+            ChatMessageSchema(
+                id=r["id"],
+                project_id=r["project_id"],
+                role=r["role"],
+                content=r["content"],
+                files=[ProjectFile(**f) for f in (json.loads(r["files"]) if isinstance(r["files"], str) else (r["files"] or []))],
+                created_at=r["created_at"].replace(tzinfo=None),
+            )
+            for r in rows
+        ]
+
+    async def save_chat_message(self, project_id: UUID, role: str, content: str, files: list[ProjectFile] | None = None) -> ChatMessageSchema:
+        pool = get_pool()
+        files_json = json.dumps([f.model_dump() for f in (files or [])])
+        async with pool.acquire() as conn:
+            row = await conn.fetchrow(
+                "INSERT INTO chat_messages (project_id, role, content, files) "
+                "VALUES ($1, $2, $3, $4) "
+                "RETURNING id, project_id, role, content, files, created_at",
+                project_id,
+                role,
+                content,
+                files_json,
+            )
+        return ChatMessageSchema(
+            id=row["id"],
+            project_id=row["project_id"],
+            role=row["role"],
+            content=row["content"],
+            files=[ProjectFile(**f) for f in (json.loads(row["files"]) if isinstance(row["files"], str) else (row["files"] or []))],
+            created_at=row["created_at"].replace(tzinfo=None),
+        )
 
 
 # ── Boilerplate templates ──────────────────────────────────

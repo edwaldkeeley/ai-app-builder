@@ -25,7 +25,7 @@ if str(_backend_dir) not in sys.path:
 
 from app.config import settings  # noqa: E402
 from app.db.database import close_pool, init_pool, run_migrations  # noqa: E402
-from app.routers import ai, projects, sandbox  # noqa: E402
+from app.routers import ai, chat, projects, sandbox  # noqa: E402
 from app.services.ai_service import create_provider  # noqa: E402
 from app.services.project_service import ProjectService  # noqa: E402
 
@@ -83,6 +83,7 @@ app.add_middleware(
 app.include_router(projects.router)
 app.include_router(sandbox.router)
 app.include_router(ai.router)
+app.include_router(chat.router)
 
 
 @app.get("/api/health")

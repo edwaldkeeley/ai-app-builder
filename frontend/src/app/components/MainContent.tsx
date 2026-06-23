@@ -1,6 +1,6 @@
 "use client";
 
-import { useState, useCallback } from "react";
+import { useState, useCallback, useRef, useEffect } from "react";
 import type { Project, ProjectFile } from "../lib/types";
 import EditorPane from "./EditorPane";
 import LiveCanvas from "./LiveCanvas";
@@ -14,6 +14,8 @@ interface MainContentProps {
   onCreateProject: () => void;
   creating: boolean;
   onFilesChange: (files: ProjectFile[]) => void;
+  onSendPrompt: (prompt: string) => void;
+  generating: boolean;
 }
 
 export default function MainContent({
@@ -25,8 +27,12 @@ export default function MainContent({
   onCreateProject,
   creating,
   onFilesChange,
+  onSendPrompt,
+  generating,
 }: MainContentProps) {
   const [activeFilePath, setActiveFilePath] = useState<string | null>(null);
+  const [promptValue, setPromptValue] = useState("");
+  const promptTextareaRef = useRef<HTMLTextAreaElement>(null);
 
   // When files change, auto-select the first file
   const effectiveActiveFile = activeFilePath && files.find((f) => f.path === activeFilePath)
@@ -42,6 +48,29 @@ export default function MainContent({
     },
     [files, onFilesChange],
   );
+
+  // Auto-resize landing prompt textarea
+  useEffect(() => {
+    const el = promptTextareaRef.current;
+    if (el) {
+      el.style.height = "auto";
+      el.style.height = Math.min(el.scrollHeight, 200) + "px";
+    }
+  }, [promptValue]);
+
+  const handleLandingSend = () => {
+    const trimmed = promptValue.trim();
+    if (!trimmed || generating) return;
+    onSendPrompt(trimmed);
+    setPromptValue("");
+  };
+
+  const handleLandingKeyDown = (e: React.KeyboardEvent) => {
+    if (e.key === "Enter" && !e.shiftKey) {
+      e.preventDefault();
+      handleLandingSend();
+    }
+  };
 
   // Loading state
   if (loading) {
@@ -107,26 +136,55 @@ export default function MainContent({
     );
   }
 
-  // Empty state — no projects
+  // Centered chat landing page — no project selected
   return (
     <div className="flex-1 flex items-center justify-center">
-      <div className="flex flex-col items-center gap-3 text-center px-4">
-        <div className="w-12 h-12 rounded-full bg-accent/10 flex items-center justify-center">
-          <svg className="w-6 h-6 text-accent" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={1.5}>
-            <path strokeLinecap="round" strokeLinejoin="round" d="M12 4v16m8-8H4" />
+      <div className="flex flex-col items-center gap-6 w-full max-w-xl px-6">
+        {/* Logo / Brand */}
+        <div className="w-12 h-12 rounded-xl bg-accent flex items-center justify-center">
+          <svg className="w-7 h-7 text-white" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={1.5}>
+            <path strokeLinecap="round" strokeLinejoin="round" d="M9.53 16.122a3 3 0 00-5.78 1.128 2.25 2.25 0 01-2.4 2.245 4.5 4.5 0 008.4-2.245c0-.399-.078-.78-.22-1.128zm0 0a15.998 15.998 0 003.388-1.62m-5.043-.025a15.994 15.994 0 011.622-3.395m3.42 3.42a15.995 15.995 0 004.764-4.648l3.876-5.814a1.151 1.151 0 00-1.597-1.597L14.146 6.32a15.996 15.996 0 00-4.649 4.763m3.42 3.42a6.776 6.776 0 00-3.42-3.42" />
           </svg>
         </div>
-        <p className="text-sm font-medium text-foreground">No projects yet</p>
-        <p className="text-xs text-text-secondary max-w-xs">
-          Create your first project to start building with AI.
+
+        {/* Heading */}
+        <div className="text-center">
+          <h1 className="text-2xl font-semibold text-foreground">What do you want to build?</h1>
+          <p className="text-sm text-text-secondary mt-1">
+            Describe your idea and AI will generate the code for you.
+          </p>
+        </div>
+
+        {/* Prompt input */}
+        <div className="w-full flex items-end gap-2 bg-input border border-border rounded-2xl px-4 py-3 focus-within:border-accent/50 focus-within:ring-1 focus-within:ring-accent/20 transition-all">
+          <textarea
+            ref={promptTextareaRef}
+            value={promptValue}
+            onChange={(e) => setPromptValue(e.target.value)}
+            onKeyDown={handleLandingKeyDown}
+            placeholder="e.g. Build a landing page with a hero section..."
+            rows={1}
+            disabled={generating}
+            className="flex-1 bg-transparent text-sm text-foreground placeholder-text-secondary resize-none outline-none max-h-[200px]"
+          />
+          <button
+            onClick={handleLandingSend}
+            disabled={!promptValue.trim() || generating}
+            className="flex-shrink-0 p-2 rounded-xl bg-accent text-white hover:bg-accent-hover disabled:opacity-40 disabled:cursor-not-allowed transition-colors"
+          >
+            {generating ? (
+              <div className="w-4 h-4 border-2 border-white border-t-transparent rounded-full animate-spin" />
+            ) : (
+              <svg className="w-4 h-4" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2}>
+                <path strokeLinecap="round" strokeLinejoin="round" d="M5 12h14M12 5l7 7-7 7" />
+              </svg>
+            )}
+          </button>
+        </div>
+
+        <p className="text-xs text-text-secondary text-center">
+          AI-generated code may not always be perfect. Review and test before using.
         </p>
-        <button
-          onClick={onCreateProject}
-          disabled={creating}
-          className="px-4 py-2 text-sm font-medium rounded-lg bg-accent text-white hover:bg-accent-hover disabled:opacity-50 disabled:cursor-not-allowed transition-colors"
-        >
-          {creating ? "Creating..." : "Create Project"}
-        </button>
       </div>
     </div>
   );

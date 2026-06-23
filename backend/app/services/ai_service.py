@@ -23,8 +23,8 @@ class BaseAIProvider(ABC):
     """Abstract interface for AI code generation."""
 
     @abstractmethod
-    async def generate(self, prompt: str) -> list[ProjectFile]:
-        """Send a prompt and return generated project files."""
+    async def generate(self, prompt: str) -> tuple[str, list[ProjectFile]]:
+        """Send a prompt and return (message, list of project files)."""
         ...
 
 
@@ -55,18 +55,22 @@ class HttpAIProvider(BaseAIProvider):
         self._model = model
         self._timeout = timeout
 
-    async def generate(self, prompt: str) -> list[ProjectFile]:
+    async def generate(self, prompt: str) -> tuple[str, list[ProjectFile]]:
         headers = {
             "Authorization": f"Bearer {self._jwt_token}",
             "Content-Type": "application/json",
         }
 
-        # Instruct the model to return JSON with a files array
+        # Instruct the model to return JSON with a message and files array
         system_prompt = (
             "You are a web developer. Generate the requested project files. "
-            "Return ONLY valid JSON with NO markdown formatting, NO code blocks. "
-            'The JSON must have a "files" array where each file has: '
-            '"path" (string), "content" (string), "file_type" (one of: html, css, javascript, json, python, other).'
+            "Return ONLY valid JSON. Do NOT wrap the JSON in markdown code blocks. "
+            'The JSON must have a "message" field (string, explain what you built in a friendly conversational tone) '
+            'and a "files" array where each file has: '
+            '"path" (string), "content" (string), "file_type" (one of: html, css, javascript, json, python, other). '
+            "IMPORTANT: Preserve proper indentation and line breaks in file content. "
+            "Use standard filenames (index.html, style.css, script.js, app.js, etc.). "
+            "If a file with the same name already exists, update it rather than creating a duplicate."
         )
 
         payload = {
@@ -121,13 +125,14 @@ class HttpAIProvider(BaseAIProvider):
             ) from e
 
         raw_files = parsed.get("files", [])
+        message = parsed.get("message", "")
 
         if not raw_files:
             raise RuntimeError(
                 "AI provider returned no files. Expected a 'files' array in the response."
             )
 
-        return [
+        return message, [
             ProjectFile(
                 path=f["path"],
                 content=f.get("content", ""),

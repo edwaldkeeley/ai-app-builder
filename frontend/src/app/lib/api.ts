@@ -1,4 +1,4 @@
-import type { GenerateResponse, Project, ProjectDetail, ProjectFile, SandboxState } from "./types";
+import type { ChatMessageSchema, GenerateResponse, Project, ProjectDetail, ProjectFile, SandboxState } from "./types";
 
 const BASE = process.env.NEXT_PUBLIC_API_URL || "http://localhost:8000";
 
@@ -83,6 +83,19 @@ export const api = {
     return request("/api/ai/generate", {
       method: "POST",
       body: JSON.stringify({ prompt, project_id: projectId }),
+    });
+  },
+
+  // ── Chat ─────────────────────────────────────────────────
+
+  getChatMessages(projectId: string): Promise<ChatMessageSchema[]> {
+    return request(`/api/projects/${projectId}/chat`);
+  },
+
+  saveChatMessage(projectId: string, role: string, content: string, files?: ProjectFile[]): Promise<ChatMessageSchema> {
+    return request(`/api/projects/${projectId}/chat`, {
+      method: "POST",
+      body: JSON.stringify({ role, content, files: files || [] }),
     });
   },
 
