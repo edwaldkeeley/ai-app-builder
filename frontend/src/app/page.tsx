@@ -1,12 +1,15 @@
 "use client";
 
-import { useState, useEffect, useCallback } from "react";
+import { useState, useEffect, useCallback, useRef } from "react";
 import Sidebar from "./components/Sidebar";
 import MainContent from "./components/MainContent";
 import { api } from "./lib/api";
 import type { ChatMessage, Project, ProjectFile } from "./lib/types";
 
 let chatIdCounter = 0;
+
+/** Debounce delay for auto-saving file edits (ms). */
+const SAVE_DEBOUNCE_MS = 800;
 
 export default function Home() {
   const [projects, setProjects] = useState<Project[]>([]);
@@ -19,6 +22,8 @@ export default function Home() {
   const [chatMode, setChatMode] = useState(false);
   const [chatMessages, setChatMessages] = useState<ChatMessage[]>([]);
   const [files, setFiles] = useState<ProjectFile[]>([]);
+  const [savingFiles, setSavingFiles] = useState<Set<string>>(new Set());
+  const saveTimersRef = useRef<Map<string, ReturnType<typeof setTimeout>>>(new Map());
 
   // Fetch projects
   const fetchProjects = useCallback(async () => {
@@ -230,10 +235,40 @@ export default function Home() {
     }
   };
 
-  // Handle file changes from editor
+  // Handle file changes from editor — detect which file changed and set a save timer
   const handleFilesChange = useCallback((updatedFiles: ProjectFile[]) => {
-    setFiles(updatedFiles);
-  }, []);
+    setFiles((prev) => {
+      // Find which file(s) actually changed content
+      for (const updated of updatedFiles) {
+        const prevFile = prev.find((f) => f.path === updated.path);
+        if (!prevFile || prevFile.content !== updated.content) {
+          // Cancel any existing timer for this path
+          const existing = saveTimersRef.current.get(updated.path);
+          if (existing) clearTimeout(existing);
+
+          // Set a new debounced save timer
+          const timer = setTimeout(async () => {
+            saveTimersRef.current.delete(updated.path);
+            setSavingFiles((s) => new Set(s).add(updated.path));
+            try {
+              await api.upsertFile(activeProjectId!, updated.path, updated.content);
+            } catch (err) {
+              console.error(`Failed to save ${updated.path}:`, err);
+            } finally {
+              setSavingFiles((s) => {
+                const next = new Set(s);
+                next.delete(updated.path);
+                return next;
+              });
+            }
+          }, SAVE_DEBOUNCE_MS);
+
+          saveTimersRef.current.set(updated.path, timer);
+        }
+      }
+      return updatedFiles;
+    });
+  }, [activeProjectId]);
 
   const activeProject: Project | null = projects.find((p) => p.id === activeProjectId) ?? null;
 

@@ -153,13 +153,13 @@ The `.env` file lives at the **project root** (`./.env`) — not in `backend/`. 
 4. **Chat persistence** — `chat_messages` table + API endpoints. Messages survive page refresh.
 5. **No auto-select** — App starts with centered chat landing, no project auto-selected.
 6. **Auto-create project on prompt** — Sending a prompt from the landing page creates a project automatically.
+7. **File saving to backend** — Edits in Monaco are auto-saved to the backend via debounced `PUT /api/sandbox/{id}/files` (800ms debounce). File changes persist across page refresh.
 
 ## Planned Features (not yet implemented)
 
 - WebSocket streaming for AI generation
 - Figma OAuth integration
 - ZIP export endpoint
-- File saving to backend (edits are in-memory only)
 - Add/delete files from UI
 - Design Upload, Figma Import, Download Button
 
