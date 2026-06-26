@@ -11,18 +11,6 @@ from app.services.project_service import ProjectService
 
 router = APIRouter(prefix="/api/projects", tags=["projects"])
 
-
-def _get_service() -> ProjectService:
-    """Dependency — grab the singleton from app state."""
-    from fastapi import Request
-
-    # NOTE: this is injected by main.py; we use a closure trick so the
-    # router doesn't need a direct import of the FastAPI app object.
-    # A cleaner approach is to use ``request.app.state.project_service``.
-    # We expose a setter below.
-    raise NotImplementedError("Call set_project_service() during startup")
-
-
 _service: ProjectService | None = None
 
 

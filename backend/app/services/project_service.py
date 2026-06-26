@@ -12,7 +12,7 @@ from uuid import UUID
 
 import asyncpg
 
-from app.db.database import get_pool
+from app.db.database import acquire_with_retry, get_pool
 from app.models.schemas import (
     ChatMessageSchema,
     FileType,
@@ -22,6 +22,20 @@ from app.models.schemas import (
     ProjectSummary,
     ProjectUpdate,
 )
+
+
+def _parse_jsonb_files(raw: str | list | None) -> list[dict]:
+    """Parse a JSONB column value into a list of dicts.
+
+    Handles both string (JSON-encoded) and already-parsed list forms
+    that asyncpg may return depending on the driver version.
+    """
+    if raw is None:
+        return []
+    if isinstance(raw, str):
+        return json.loads(raw) if raw else []
+    # Already a list (asyncpg may return parsed JSONB as list)
+    return list(raw)
 
 
 class ProjectService:
@@ -40,15 +54,15 @@ class ProjectService:
                 ProjectFile(path=r["path"], content=r["content"], file_type=r["file_type"])
                 for r in file_rows
             ],
-            created_at=row["created_at"].replace(tzinfo=None),
-            updated_at=row["updated_at"].replace(tzinfo=None),
+            created_at=row["created_at"],
+            updated_at=row["updated_at"],
         )
 
     # ── CRUD ──────────────────────────────────────────────────────
 
     async def create(self, data: ProjectCreate) -> Project:
         pool = get_pool()
-        async with pool.acquire() as conn:
+        async with await acquire_with_retry(pool) as conn:
             async with conn.transaction():
                 row = await conn.fetchrow(
                     """
@@ -86,7 +100,7 @@ class ProjectService:
 
     async def get(self, project_id: UUID) -> Project | None:
         pool = get_pool()
-        async with pool.acquire() as conn:
+        async with await acquire_with_retry(pool) as conn:
             row = await conn.fetchrow(
                 "SELECT id, name, description, status, created_at, updated_at FROM projects WHERE id = $1",
                 project_id,
@@ -101,7 +115,7 @@ class ProjectService:
 
     async def list_all(self) -> list[ProjectSummary]:
         pool = get_pool()
-        async with pool.acquire() as conn:
+        async with await acquire_with_retry(pool) as conn:
             rows = await conn.fetch(
                 """
                 SELECT p.id, p.name, p.description, p.status,
@@ -120,8 +134,8 @@ class ProjectService:
                 description=r["description"],
                 status=r["status"],
                 file_count=r["file_count"],
-                created_at=r["created_at"].replace(tzinfo=None),
-                updated_at=r["updated_at"].replace(tzinfo=None),
+                created_at=r["created_at"],
+                updated_at=r["updated_at"],
             )
             for r in rows
         ]
@@ -144,7 +158,7 @@ class ProjectService:
             return await self.get(project_id)
 
         pool = get_pool()
-        async with pool.acquire() as conn:
+        async with await acquire_with_retry(pool) as conn:
             params.append(project_id)
             sql = (
                 f"UPDATE projects SET {', '.join(sets)} WHERE id = ${idx}"
@@ -161,7 +175,7 @@ class ProjectService:
 
     async def delete(self, project_id: UUID) -> bool:
         pool = get_pool()
-        async with pool.acquire() as conn:
+        async with await acquire_with_retry(pool) as conn:
             result = await conn.execute("DELETE FROM projects WHERE id = $1", project_id)
         return int(result.split()[-1]) > 0
 
@@ -180,7 +194,7 @@ class ProjectService:
         file_type = type_map.get(ext, FileType.other)
 
         pool = get_pool()
-        async with pool.acquire() as conn:
+        async with await acquire_with_retry(pool) as conn:
             exists = await conn.fetchval("SELECT 1 FROM projects WHERE id = $1", project_id)
             if exists is None:
                 return None
@@ -204,9 +218,56 @@ class ProjectService:
 
         return ProjectFile(path=row["path"], content=row["content"], file_type=row["file_type"])
 
+    async def upsert_files_transactional(
+        self, project_id: UUID, files: list[ProjectFile],
+    ) -> list[ProjectFile]:
+        """Upsert multiple files in a single transaction.
+
+        All files are written atomically — if any insert fails, none are persisted.
+        """
+        if not files:
+            return []
+
+        pool = get_pool()
+        async with await acquire_with_retry(pool) as conn:
+            async with conn.transaction():
+                exists = await conn.fetchval("SELECT 1 FROM projects WHERE id = $1", project_id)
+                if exists is None:
+                    return []
+
+                for f in files:
+                    ext = Path(f.path).suffix.lower()
+                    type_map: dict[str, FileType] = {
+                        ".html": FileType.html,
+                        ".htm": FileType.html,
+                        ".css": FileType.css,
+                        ".js": FileType.js,
+                        ".json": FileType.json,
+                        ".py": FileType.python,
+                    }
+                    file_type = type_map.get(ext, FileType.other)
+
+                    await conn.execute(
+                        """
+                        INSERT INTO files (project_id, path, content, file_type)
+                        VALUES ($1, $2, $3, $4)
+                        ON CONFLICT (project_id, path)
+                        DO UPDATE SET content = EXCLUDED.content, file_type = EXCLUDED.file_type
+                        """,
+                        project_id,
+                        f.path,
+                        f.content,
+                        file_type.value,
+                    )
+
+                # Touch project updated_at once
+                await conn.execute("UPDATE projects SET updated_at = NOW() WHERE id = $1", project_id)
+
+        return files
+
     async def delete_file(self, project_id: UUID, path: str) -> bool:
         pool = get_pool()
-        async with pool.acquire() as conn:
+        async with await acquire_with_retry(pool) as conn:
             result = await conn.execute(
                 "DELETE FROM files WHERE project_id = $1 AND path = $2",
                 project_id,
@@ -221,7 +282,7 @@ class ProjectService:
 
     async def get_chat_messages(self, project_id: UUID) -> list[ChatMessageSchema]:
         pool = get_pool()
-        async with pool.acquire() as conn:
+        async with await acquire_with_retry(pool) as conn:
             rows = await conn.fetch(
                 "SELECT id, project_id, role, content, files, created_at "
                 "FROM chat_messages WHERE project_id = $1 ORDER BY created_at",
@@ -233,8 +294,8 @@ class ProjectService:
                 project_id=r["project_id"],
                 role=r["role"],
                 content=r["content"],
-                files=[ProjectFile(**f) for f in (json.loads(r["files"]) if isinstance(r["files"], str) else (r["files"] or []))],
-                created_at=r["created_at"].replace(tzinfo=None),
+                files=[ProjectFile(**f) for f in _parse_jsonb_files(r["files"])],
+                created_at=r["created_at"],
             )
             for r in rows
         ]
@@ -242,7 +303,7 @@ class ProjectService:
     async def save_chat_message(self, project_id: UUID, role: str, content: str, files: list[ProjectFile] | None = None) -> ChatMessageSchema:
         pool = get_pool()
         files_json = json.dumps([f.model_dump() for f in (files or [])])
-        async with pool.acquire() as conn:
+        async with await acquire_with_retry(pool) as conn:
             row = await conn.fetchrow(
                 "INSERT INTO chat_messages (project_id, role, content, files) "
                 "VALUES ($1, $2, $3, $4) "
@@ -252,13 +313,15 @@ class ProjectService:
                 content,
                 files_json,
             )
+            # Touch project updated_at so active conversations surface to top of list
+            await conn.execute("UPDATE projects SET updated_at = NOW() WHERE id = $1", project_id)
         return ChatMessageSchema(
             id=row["id"],
             project_id=row["project_id"],
             role=row["role"],
             content=row["content"],
-            files=[ProjectFile(**f) for f in (json.loads(row["files"]) if isinstance(row["files"], str) else (row["files"] or []))],
-            created_at=row["created_at"].replace(tzinfo=None),
+            files=[ProjectFile(**f) for f in _parse_jsonb_files(row["files"])],
+            created_at=row["created_at"],
         )
 
 

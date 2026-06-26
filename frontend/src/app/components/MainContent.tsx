@@ -5,18 +5,29 @@ import type { Project, ProjectFile } from "../lib/types";
 import EditorPane from "./EditorPane";
 import LiveCanvas from "./LiveCanvas";
 
+type ViewMode = "preview" | "code" | "split";
+
 interface MainContentProps {
   loading: boolean;
   error: string | null;
   activeProject: Project | null;
   files: ProjectFile[];
   onRetry: () => void;
-  onCreateProject: () => void;
-  creating: boolean;
   onFilesChange: (files: ProjectFile[]) => void;
   onSendPrompt: (prompt: string) => void;
   generating: boolean;
+  onAddFile: (path: string) => void;
+  activeFilePath: string | null;
+  onActiveFileChange: (path: string | null) => void;
+  showExplorer: boolean;
+  onToggleExplorer: () => void;
 }
+
+const VIEW_BUTTONS: { mode: ViewMode; label: string }[] = [
+  { mode: "preview", label: "Preview" },
+  { mode: "code", label: "Code" },
+  { mode: "split", label: "Split" },
+];
 
 export default function MainContent({
   loading,
@@ -24,29 +35,44 @@ export default function MainContent({
   activeProject,
   files,
   onRetry,
-  onCreateProject,
-  creating,
   onFilesChange,
   onSendPrompt,
   generating,
+  onAddFile,
+  activeFilePath,
+  onActiveFileChange,
+  showExplorer,
+  onToggleExplorer,
 }: MainContentProps) {
-  const [activeFilePath, setActiveFilePath] = useState<string | null>(null);
   const [promptValue, setPromptValue] = useState("");
+  const [viewMode, setViewMode] = useState<ViewMode>("preview");
   const promptTextareaRef = useRef<HTMLTextAreaElement>(null);
+  const filesRef = useRef(files);
+  useEffect(() => {
+    filesRef.current = files;
+  }, [files]);
 
   // When files change, auto-select the first file
   const effectiveActiveFile = activeFilePath && files.find((f) => f.path === activeFilePath)
     ? activeFilePath
     : files[0]?.path ?? null;
 
+  // When the active file is deleted, switch to the next available file
+  useEffect(() => {
+    if (activeFilePath && !files.find((f) => f.path === activeFilePath)) {
+      onActiveFileChange(files[0]?.path ?? null);
+    }
+  }, [files]); // eslint-disable-line react-hooks/exhaustive-deps
+
   const handleFileContentChange = useCallback(
     (path: string, content: string) => {
-      const updated = files.map((f) =>
+      const currentFiles = filesRef.current;
+      const updated = currentFiles.map((f) =>
         f.path === path ? { ...f, content } : f,
       );
       onFilesChange(updated);
     },
-    [files, onFilesChange],
+    [onFilesChange],
   );
 
   // Auto-resize landing prompt textarea
@@ -107,31 +133,87 @@ export default function MainContent({
     );
   }
 
-  // Active project — show editor + canvas
+  // Active project — show editor + canvas with view mode toggle
   if (activeProject) {
     return (
       <div className="flex-1 flex flex-col min-h-0">
-        {/* Project name bar */}
+        {/* Project name bar with view mode toggle */}
         <div className="flex items-center gap-2 px-4 py-2 border-b border-border bg-sidebar/50">
+          {/* Explorer toggle */}
+          <button
+            onClick={onToggleExplorer}
+            className={`p-1 rounded-md transition-colors ${
+              showExplorer
+                ? "bg-surface text-foreground"
+                : "text-text-secondary hover:text-foreground hover:bg-surface"
+            }`}
+            title={showExplorer ? "Collapse explorer" : "Show explorer"}
+          >
+            <svg className="w-4 h-4" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2}>
+              <path strokeLinecap="round" strokeLinejoin="round" d="M4 6h16M4 12h16M4 18h16" />
+            </svg>
+          </button>
+
           <span className="text-sm font-medium truncate">{activeProject.name}</span>
           <span className="text-xs text-text-secondary">
             {files.length} file{files.length !== 1 ? "s" : ""}
           </span>
+
+          {/* Spacer */}
+          <div className="flex-1" />
+
+          {/* View mode toggle */}
+          <div className="flex items-center gap-0.5 bg-surface rounded-lg p-0.5">
+            {VIEW_BUTTONS.map(({ mode, label }) => (
+              <button
+                key={mode}
+                onClick={() => setViewMode(mode)}
+                className={`px-2.5 py-1 text-xs font-medium rounded-md transition-colors ${
+                  viewMode === mode
+                    ? "bg-accent text-white shadow-sm"
+                    : "text-text-secondary hover:text-foreground"
+                }`}
+              >
+                {label}
+              </button>
+            ))}
+          </div>
         </div>
-        {/* Editor + Canvas split */}
-        <div className="flex-1 flex min-h-0">
-          <div className="flex-1 flex flex-col min-w-0 border-r border-border">
+
+        {/* Content area based on view mode */}
+        {viewMode === "split" ? (
+          /* Split: editor left, canvas right */
+          <div className="flex-1 flex min-h-0">
+            <div className="flex-1 flex flex-col min-w-0 border-r border-border">
+              <EditorPane
+                files={files}
+                activeFilePath={effectiveActiveFile}
+                onSelectFile={onActiveFileChange}
+                onFileContentChange={handleFileContentChange}
+                onAddFile={onAddFile}
+              />
+            </div>
+            <div className="flex-1 flex flex-col min-w-0">
+              <LiveCanvas files={files} />
+            </div>
+          </div>
+        ) : viewMode === "code" ? (
+          /* Code only: editor fills the area */
+          <div className="flex-1 flex min-h-0">
             <EditorPane
               files={files}
               activeFilePath={effectiveActiveFile}
-              onSelectFile={setActiveFilePath}
+              onSelectFile={onActiveFileChange}
               onFileContentChange={handleFileContentChange}
+              onAddFile={onAddFile}
             />
           </div>
-          <div className="flex-1 flex flex-col min-w-0">
+        ) : (
+          /* Preview only (default): canvas fills the area */
+          <div className="flex-1 flex min-h-0">
             <LiveCanvas files={files} />
           </div>
-        </div>
+        )}
       </div>
     );
   }
@@ -163,13 +245,13 @@ export default function MainContent({
             onChange={(e) => setPromptValue(e.target.value)}
             onKeyDown={handleLandingKeyDown}
             placeholder="e.g. Build a landing page with a hero section..."
-            rows={1}
             disabled={generating}
             className="flex-1 bg-transparent text-sm text-foreground placeholder-text-secondary resize-none outline-none max-h-[200px]"
           />
           <button
             onClick={handleLandingSend}
             disabled={!promptValue.trim() || generating}
+            aria-label="Send prompt"
             className="flex-shrink-0 p-2 rounded-xl bg-accent text-white hover:bg-accent-hover disabled:opacity-40 disabled:cursor-not-allowed transition-colors"
           >
             {generating ? (

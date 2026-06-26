@@ -2,6 +2,7 @@
 
 import { useState } from "react";
 import type { ChatMessage, Project } from "../lib/types";
+import type { WritingStatus } from "../hooks/useChat";
 import ChatPanel from "./ChatPanel";
 
 interface SidebarProps {
@@ -15,6 +16,7 @@ interface SidebarProps {
   chatMode: boolean;
   chatMessages: ChatMessage[];
   generating: boolean;
+  writingStatus?: WritingStatus | null;
   onSendPrompt: (prompt: string) => void;
   onBackToProjects: () => void;
 }
@@ -30,6 +32,7 @@ export default function Sidebar({
   chatMode,
   chatMessages,
   generating,
+  writingStatus,
   onSendPrompt,
   onBackToProjects,
 }: SidebarProps) {
@@ -110,6 +113,7 @@ export default function Sidebar({
             onSend={onSendPrompt}
             disabled={false}
             generating={generating}
+            writingStatus={writingStatus}
           />
         </div>
       </aside>
@@ -185,13 +189,13 @@ export default function Sidebar({
                   </div>
                 )}
                 <div
-                  key={project.id}
                   onClick={() => {
                     setConfirmDelete(null);
                     onSelectProject(project.id);
                   }}
                   role="button"
-                  tabIndex={0}
+                  tabIndex={isConfirming ? -1 : 0}
+                  aria-hidden={isConfirming}
                   onKeyDown={(e) => {
                     if (e.key === "Enter" || e.key === " ") {
                       e.preventDefault();
@@ -203,7 +207,7 @@ export default function Sidebar({
                     activeProjectId === project.id
                       ? "bg-surface text-foreground"
                       : "text-text-secondary hover:bg-surface hover:text-foreground"
-                  }`}
+                  } ${isConfirming ? "opacity-40 pointer-events-none" : ""}`}
                 >
                   <div className="flex items-center justify-between">
                     <span className="truncate font-medium">{project.name}</span>

@@ -1,6 +1,6 @@
 "use client";
 
-import { useMemo, useState } from "react";
+import { useMemo, useState, useEffect, useRef } from "react";
 import type { ProjectFile } from "../lib/types";
 
 interface LiveCanvasProps {
@@ -9,34 +9,91 @@ interface LiveCanvasProps {
 
 export default function LiveCanvas({ files }: LiveCanvasProps) {
   const [iframeError, setIframeError] = useState(false);
+  const iframeRef = useRef<HTMLIFrameElement>(null);
 
   const htmlContent = useMemo(() => {
     const htmlFile = files.find((f) => f.path === "index.html" || f.path.endsWith(".html"));
-    const cssFile = files.find((f) => f.path === "style.css" || f.path.endsWith(".css"));
-    const jsFile = files.find((f) => f.path === "script.js" || f.path.endsWith(".js"));
-
     if (!htmlFile) return null;
+
+    // Build maps of filename → content for CSS and JS files
+    const cssMap = new Map<string, string>();
+    const jsMap = new Map<string, string>();
+    for (const f of files) {
+      if (f.path.endsWith(".css")) {
+        const name = f.path.split("/").pop() || f.path;
+        cssMap.set(name, f.content);
+      } else if (f.path.endsWith(".js")) {
+        const name = f.path.split("/").pop() || f.path;
+        jsMap.set(name, f.content);
+      }
+    }
 
     let html = htmlFile.content;
 
-    // Inline CSS if linked via <link>
-    if (cssFile) {
+    // Inline CSS: match each <link href="..."> to the correct CSS file by filename
+    if (cssMap.size > 0) {
       html = html.replace(
         /<link[^>]*href=["']([^"']*\.css)["'][^>]*\/?>/gi,
-        () => `<style>\n${cssFile.content}\n</style>`,
+        (_match, href: string) => {
+          const cssFileName = href.split("/").pop() || href;
+          const content = cssMap.get(cssFileName);
+          if (content !== undefined) {
+            return `<style>\n${content}\n</style>`;
+          }
+          // If no matching CSS file found, remove the link tag to avoid 404s
+          return "";
+        },
       );
     }
 
-    // Inline JS if linked via <script src>
-    if (jsFile) {
+    // Inline JS: match each <script src="..."> to the correct JS file by filename
+    // Handles both regular and type="module" scripts
+    if (jsMap.size > 0) {
       html = html.replace(
         /<script[^>]*src=["']([^"']*\.js)["'][^>]*><\/script>/gi,
-        () => `<script>\n${jsFile.content}\n</script>`,
+        (_match, src: string) => {
+          const jsFileName = src.split("/").pop() || src;
+          const content = jsMap.get(jsFileName);
+          if (content !== undefined) {
+            return `<script>\n${content}\n</script>`;
+          }
+          // If no matching project JS file found, preserve the original script tag
+          // (it may be a CDN or external script)
+          return _match;
+        },
       );
     }
 
     return html;
   }, [files]);
+
+  // Reset iframe error when content changes
+  useEffect(() => {
+    if (iframeError) {
+      const timer = setTimeout(() => setIframeError(false), 0);
+      return () => clearTimeout(timer);
+    }
+  }, [htmlContent]); // eslint-disable-line react-hooks/exhaustive-deps
+
+  // Detect iframe load failure: if srcdoc is set but iframe has no content
+  // after a short delay, assume rendering failed
+  useEffect(() => {
+    if (!htmlContent) return;
+    const timer = setTimeout(() => {
+      try {
+        const iframe = iframeRef.current;
+        if (iframe && iframe.contentDocument) {
+          const body = iframe.contentDocument.body;
+          if (body && body.innerHTML === "" && htmlContent.includes("<body")) {
+            setIframeError(true);
+          }
+        }
+      } catch {
+        // Cross-origin errors are expected and not a real failure
+      }
+    }, 2000);
+    return () => clearTimeout(timer);
+  }, [htmlContent]);
 
   if (!htmlContent) {
     return (
@@ -58,12 +115,11 @@ export default function LiveCanvas({ files }: LiveCanvasProps) {
       {/* Iframe */}
       <div className="flex-1 min-h-0">
         <iframe
-          key={htmlContent.slice(0, 100)}
+          ref={iframeRef}
           srcDoc={htmlContent}
-          sandbox="allow-scripts"
+          sandbox="allow-scripts allow-same-origin"
           title="Live Preview"
           className="w-full h-full border-0"
-          onError={() => setIframeError(true)}
         />
       </div>
     </div>

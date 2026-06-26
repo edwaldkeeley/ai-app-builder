@@ -2,11 +2,19 @@
 
 from __future__ import annotations
 
+import asyncio
+import logging
 from pathlib import Path
 
 import asyncpg
 
+logger = logging.getLogger(__name__)
+
 _pool: asyncpg.Pool | None = None
+
+# Retry settings for connection acquisition
+_MAX_RETRIES = 3
+_BASE_DELAY = 0.5  # seconds
 
 
 async def init_pool(
@@ -42,6 +50,45 @@ def get_pool() -> asyncpg.Pool:
     return _pool
 
 
+async def acquire_with_retry(pool: asyncpg.Pool) -> asyncpg.Connection:
+    """Acquire a connection from the pool with exponential backoff retry.
+
+    Retries up to ``_MAX_RETRIES`` times with exponential backoff when the
+    pool is exhausted or a connection cannot be established.
+    Includes a health check (simple SELECT) to detect stale connections.
+    """
+    last_error: Exception | None = None
+    delay = _BASE_DELAY
+
+    for attempt in range(_MAX_RETRIES):
+        try:
+            conn = await pool.acquire()
+            # Health check: verify connection is alive
+            try:
+                await conn.execute("SELECT 1")
+            except (asyncpg.PostgresError, ConnectionError) as e:
+                # Stale connection — release and retry
+                await pool.release(conn)
+                last_error = e
+                if attempt < _MAX_RETRIES - 1:
+                    await asyncio.sleep(delay)
+                    delay *= 2
+                continue
+            return conn
+        except asyncpg.PoolAcquireError as e:
+            last_error = e
+            if attempt < _MAX_RETRIES - 1:
+                await asyncio.sleep(delay)
+                delay *= 2  # exponential backoff
+        except asyncpg.PostgresError as e:
+            # Non-retryable errors are re-raised immediately
+            raise
+
+    raise RuntimeError(
+        f"Failed to acquire database connection after {_MAX_RETRIES} retries"
+    ) from last_error
+
+
 async def run_migrations(pool: asyncpg.Pool) -> None:
     """Execute all pending SQL migration files in order (append-only).
 
@@ -67,7 +114,7 @@ async def run_migrations(pool: asyncpg.Pool) -> None:
             version = int(sql_file.stem.split("_")[0])
 
             if version in applied:
-                print(f"  [MIGRATION] Skipping {sql_file.name} (already applied)")
+                logger.info("Skipping %s (already applied)", sql_file.name)
                 continue
 
             sql = sql_file.read_text(encoding="utf-8")
@@ -78,4 +125,4 @@ async def run_migrations(pool: asyncpg.Pool) -> None:
                     version,
                     sql_file.name,
                 )
-            print(f"  [MIGRATION] Applied {sql_file.name}")
+            logger.info("Applied %s", sql_file.name)

@@ -2,7 +2,7 @@
 
 from __future__ import annotations
 
-from datetime import datetime
+from datetime import datetime, timezone
 from enum import Enum
 from uuid import UUID, uuid4
 
@@ -33,7 +33,7 @@ class FileType(str, Enum):
 class ProjectFile(BaseModel):
     """A single file within a sandbox project."""
 
-    path: str = Field(..., description="Relative path, e.g. 'index.html' or 'src/app.js'")
+    path: str = Field(..., max_length=512, description="Relative path, e.g. 'index.html' or 'src/app.js'")
     content: str = ""
     file_type: FileType = FileType.other
 
@@ -54,8 +54,8 @@ class Project(BaseModel):
     description: str = ""
     status: ProjectStatus = ProjectStatus.idle
     files: list[ProjectFile] = []
-    created_at: datetime = Field(default_factory=datetime.utcnow)
-    updated_at: datetime = Field(default_factory=datetime.utcnow)
+    created_at: datetime = Field(default_factory=lambda: datetime.now(timezone.utc))
+    updated_at: datetime = Field(default_factory=lambda: datetime.now(timezone.utc))
 
 
 class ProjectSummary(BaseModel):
@@ -76,7 +76,7 @@ class ProjectSummary(BaseModel):
 class SandboxFileUpdate(BaseModel):
     """Payload to upsert a file in the sandbox."""
 
-    path: str
+    path: str = Field(..., max_length=512)
     content: str
 
 
@@ -147,7 +147,7 @@ class ChatMessageSchema(BaseModel):
 
     id: int | None = None
     project_id: UUID
-    role: str
-    content: str
+    role: str = Field(..., pattern="^(user|assistant)$")
+    content: str = Field(..., max_length=100_000)
     files: list[ProjectFile] = []
     created_at: datetime | None = None

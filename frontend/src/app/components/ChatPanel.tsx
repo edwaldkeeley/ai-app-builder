@@ -4,12 +4,46 @@ import { useState, useRef, useEffect } from "react";
 import ReactMarkdown from "react-markdown";
 import remarkGfm from "remark-gfm";
 import type { ChatMessage } from "../lib/types";
+import type { WritingStatus } from "../hooks/useChat";
 
 interface ChatPanelProps {
   messages: ChatMessage[];
   onSend: (prompt: string) => void;
   disabled?: boolean;
   generating?: boolean;
+  writingStatus?: WritingStatus | null;
+}
+
+function WritingIndicator({ status }: { status: WritingStatus }) {
+  return (
+    <div className="flex items-center gap-2 text-xs text-text-secondary">
+      <div className="w-3 h-3 border-2 border-accent border-t-transparent rounded-full animate-spin" />
+      <div className="flex items-center gap-1.5">
+        {status.type === "thinking" && <span>AI is thinking...</span>}
+        {status.type === "writing" && (
+          <>
+            <span>Writing</span>
+            <code className="px-1 py-0.5 rounded bg-surface text-accent text-[10px] font-mono">
+              {status.file}
+            </code>
+            <span>...</span>
+          </>
+        )}
+        {status.type === "fixing" && (
+          <>
+            <span className="text-amber-500" role="img" aria-label="Fixing">🔧</span>
+            <span>{status.message || "Fixing issue..."}</span>
+          </>
+        )}
+        {status.type === "done" && (
+          <>
+            <span className="text-green-500">✓</span>
+            <span>Done</span>
+          </>
+        )}
+      </div>
+    </div>
+  );
 }
 
 export default function ChatPanel({
@@ -17,6 +51,7 @@ export default function ChatPanel({
   onSend,
   disabled,
   generating,
+  writingStatus,
 }: ChatPanelProps) {
   const [value, setValue] = useState("");
   const textareaRef = useRef<HTMLTextAreaElement>(null);
@@ -63,7 +98,7 @@ export default function ChatPanel({
       </div>
 
       {/* Messages */}
-      <div className="flex-1 overflow-y-auto px-3 py-4 space-y-4">
+      <div className="flex-1 overflow-y-auto px-3 py-4 space-y-4" role="log" aria-live="polite" aria-label="Chat messages">
         {messages.length === 0 ? (
           <div className="flex flex-col items-center justify-center h-full text-center px-4">
             <div className="w-10 h-10 rounded-full bg-accent/10 flex items-center justify-center mb-3">
@@ -112,11 +147,8 @@ export default function ChatPanel({
             </div>
           ))
         )}
-        {generating && (
-          <div className="flex items-center gap-2 text-xs text-text-secondary">
-            <div className="w-3 h-3 border-2 border-accent border-t-transparent rounded-full animate-spin" />
-            <span>AI is thinking...</span>
-          </div>
+        {generating && writingStatus && (
+          <WritingIndicator status={writingStatus} />
         )}
         <div ref={bottomRef} />
       </div>
@@ -137,6 +169,7 @@ export default function ChatPanel({
           <button
             onClick={handleSend}
             disabled={!value.trim() || disabled || generating}
+            aria-label="Send message"
             className="flex-shrink-0 p-1.5 rounded-lg bg-accent text-white hover:bg-accent-hover disabled:opacity-40 disabled:cursor-not-allowed transition-colors"
           >
             <svg className="w-4 h-4" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2}>

@@ -4,6 +4,9 @@ The ``BaseAIProvider`` abstract class defines the interface for code generation.
 ``HttpAIProvider`` sends prompts to a configurable ``TARGET_URL`` using JWT
 bearer authentication in OpenAI-compatible chat format and parses the response
 into project files.
+
+``StreamingHttpAIProvider`` extends this with a streaming variant that yields
+events as the response is received, enabling real-time UI updates.
 """
 
 from __future__ import annotations
@@ -11,7 +14,7 @@ from __future__ import annotations
 import json
 import re
 from abc import ABC, abstractmethod
-from typing import Any
+from typing import Any, AsyncIterator
 
 import httpx
 
@@ -23,9 +26,184 @@ class BaseAIProvider(ABC):
     """Abstract interface for AI code generation."""
 
     @abstractmethod
-    async def generate(self, prompt: str) -> tuple[str, list[ProjectFile]]:
-        """Send a prompt and return (message, list of project files)."""
+    async def generate(
+        self,
+        prompt: str,
+        existing_files: list[ProjectFile] | None = None,
+        chat_history: list[dict[str, str]] | None = None,
+    ) -> tuple[str, list[ProjectFile]]:
+        """Send a prompt and return (message, list of project files).
+
+        Args:
+            prompt: The latest user prompt.
+            existing_files: Current files in the project (for context).
+            chat_history: Previous conversation messages.
+        """
         ...
+
+    @abstractmethod
+    async def generate_stream(
+        self,
+        prompt: str,
+        existing_files: list[ProjectFile] | None = None,
+        chat_history: list[dict[str, str]] | None = None,
+    ) -> AsyncIterator[dict[str, Any]]:
+        """Stream generation events.
+
+        Args:
+            prompt: The latest user prompt.
+            existing_files: Current files in the project (for context).
+            chat_history: Previous conversation messages.
+
+        Yields dicts with a ``type`` key:
+        - ``{"type": "message_chunk", "delta": "..."}`` — partial message text
+        - ``{"type": "file_start", "path": "...", "file_type": "..."}`` — new file
+        - ``{"type": "file_chunk", "path": "...", "delta": "..."}`` — partial file content
+        - ``{"type": "file_done", "path": "..."}`` — file complete
+        - ``{"type": "done", "message": "...", "files": [...]}`` — generation complete
+        """
+        ...
+
+
+_SYSTEM_PROMPT = (
+    "You are a Full-Stack Software Engineer and a brilliant Product Designer. "
+    "Your goal is to build fully functional, production-ready web applications based on user descriptions.\n\n"
+    "You will receive the conversation history and the current list of project files. "
+    "Your job is to respond to the latest user request by modifying, adding, or deleting files as needed.\n\n"
+    "GUIDELINES:\n"
+    "1. Analyze First: Before writing any code, think through the user personas, core data models, "
+    "and main user flows. Consider business logic, edge cases, and design preferences.\n"
+    "2. Architecture: Use modern, clean, and secure frameworks. Default to vanilla HTML/CSS/JS "
+    "unless the user specifies a framework.\n"
+    "3. Modularity: Keep code clean, well-organized, and properly commented.\n"
+    "4. Error Handling: Include graceful error handling, loading states, and form validations.\n"
+    "5. Design: Make it look professional — use proper spacing, typography, color schemes, "
+    "and responsive layouts. Think like a product designer.\n\n"
+    "OUTPUT FORMAT:\n"
+    "Return ONLY valid JSON. Do NOT wrap the JSON in markdown code blocks.\n"
+    'The JSON must have a "message" field (string, explain what you built in a friendly conversational tone) '
+    'and a "files" array where each file has: '
+    '"path" (string), "content" (string), "file_type" (one of: html, css, javascript, json, python, other).\n\n'
+    "CONVERSATION RULES:\n"
+    "6. Only include files you want to CREATE or MODIFY. Files you don't include will be left unchanged by the system. "
+    "Do NOT echo back files that haven't changed.\n"
+    "7. If the user asks to modify something specific (e.g. 'add a chart', 'fix the layout'), only include the changed files. "
+    "Do NOT regenerate the entire project.\n"
+    "8. If the user asks to delete a file, omit it from the files array (the system will handle deletion).\n"
+    "9. Preserve proper indentation and line breaks in file content.\n"
+    "10. Use standard filenames (index.html, style.css, script.js, app.js, etc.).\n\n"
+    "BUG FIXING RULES:\n"
+    "11. When the user reports a bug, first identify the root cause by reading the relevant file content. "
+    "Then output the FULL corrected file — never output only the changed lines or a diff.\n"
+    "12. Be thorough: check for common issues like missing imports, incorrect selectors, "
+    "unclosed tags, mismatched brackets, wrong API endpoints, and CSS specificity problems.\n"
+    "13. If a fix requires changes to multiple files, include ALL of them in the files array "
+    "with their COMPLETE updated content.\n"
+    "14. After fixing, explain in the 'message' field what the bug was and how you fixed it."
+)
+
+
+def _build_payload(
+    prompt: str,
+    existing_files: list[ProjectFile] | None = None,
+    chat_history: list[dict[str, str]] | None = None,
+) -> dict[str, Any]:
+    """Build the OpenAI-compatible messages payload.
+
+    Args:
+        prompt: The latest user prompt.
+        existing_files: Current files in the project (sent as context).
+        chat_history: Previous messages in the conversation.
+    """
+    messages: list[dict[str, str]] = [
+        {"role": "system", "content": _SYSTEM_PROMPT},
+    ]
+
+    # Include existing file list with full content as context
+    if existing_files:
+        file_sections = []
+        for f in existing_files:
+            file_sections.append(
+                f"--- {f.path} ({f.file_type.value}) ---\n{f.content}"
+            )
+        messages.append({
+            "role": "system",
+            "content": "Current project files (with full contents):\n\n" + "\n\n".join(file_sections),
+        })
+
+    # Include conversation history (limited to prevent context overflow)
+    if chat_history:
+        # Keep only the last 10 messages to bound context growth
+        MAX_HISTORY_MESSAGES = 10
+        # Truncate individual message content to 2000 chars to save context
+        MAX_MESSAGE_LENGTH = 2000
+        recent_history = chat_history[-MAX_HISTORY_MESSAGES:]
+        for msg in recent_history:
+            truncated = {**msg}
+            if isinstance(truncated.get("content"), str) and len(truncated["content"]) > MAX_MESSAGE_LENGTH:
+                truncated["content"] = truncated["content"][:MAX_MESSAGE_LENGTH] + "\n\n[content truncated]"
+            messages.append(truncated)
+
+    # Add the latest user prompt
+    messages.append({"role": "user", "content": prompt})
+
+    return {
+        "messages": messages,
+        "model": None,  # set by the provider
+    }
+
+
+def _parse_final_json(
+    content: str,
+    existing_files: list[ProjectFile] | None = None,
+) -> tuple[str, list[ProjectFile]]:
+    """Parse the final JSON response into (message, files).
+
+    Merges AI output with existing files: only files the AI explicitly returns
+    are updated; all other existing files are preserved unchanged.
+    """
+    # Strip markdown code block if present
+    content = re.sub(r"^```(?:json)?\s*", "", content.strip())
+    content = re.sub(r"\s*```$", "", content)
+
+    # Find the first '{' and last '}' to extract JSON robustly
+    first_brace = content.find("{")
+    last_brace = content.rfind("}")
+    if first_brace != -1 and last_brace != -1 and last_brace > first_brace:
+        content = content[first_brace : last_brace + 1]
+
+    parsed = json.loads(content)
+    raw_files = parsed.get("files", [])
+    message = parsed.get("message", "")
+
+    # Build merged file list: AI files override existing files by path
+    ai_files_map: dict[str, ProjectFile] = {}
+    for f in raw_files:
+        # Handle unknown file_type gracefully — default to "other"
+        raw_type = f.get("file_type", "other")
+        try:
+            file_type = FileType(raw_type)
+        except ValueError:
+            file_type = FileType.other
+
+        ai_files_map[f["path"]] = ProjectFile(
+            path=f["path"],
+            content=f.get("content", ""),
+            file_type=file_type,
+        )
+
+    # Start with existing files, then overlay AI changes
+    merged_map: dict[str, ProjectFile] = {}
+    if existing_files:
+        for ef in existing_files:
+            merged_map[ef.path] = ef
+
+    # AI files override existing ones
+    merged_map.update(ai_files_map)
+
+    merged_files = list(merged_map.values())
+
+    return message, merged_files
 
 
 class HttpAIProvider(BaseAIProvider):
@@ -48,40 +226,29 @@ class HttpAIProvider(BaseAIProvider):
         target_url: str,
         jwt_token: str,
         model: str,
-        timeout: float = 120.0,
+        timeout: float = 300.0,
     ) -> None:
         self._target_url = target_url
         self._jwt_token = jwt_token
         self._model = model
         self._timeout = timeout
+        self._connect_timeout = 30.0  # separate connect timeout to avoid proxy timeouts
 
-    async def generate(self, prompt: str) -> tuple[str, list[ProjectFile]]:
+    async def generate(
+        self,
+        prompt: str,
+        existing_files: list[ProjectFile] | None = None,
+        chat_history: list[dict[str, str]] | None = None,
+    ) -> tuple[str, list[ProjectFile]]:
         headers = {
             "Authorization": f"Bearer {self._jwt_token}",
             "Content-Type": "application/json",
         }
 
-        # Instruct the model to return JSON with a message and files array
-        system_prompt = (
-            "You are a web developer. Generate the requested project files. "
-            "Return ONLY valid JSON. Do NOT wrap the JSON in markdown code blocks. "
-            'The JSON must have a "message" field (string, explain what you built in a friendly conversational tone) '
-            'and a "files" array where each file has: '
-            '"path" (string), "content" (string), "file_type" (one of: html, css, javascript, json, python, other). '
-            "IMPORTANT: Preserve proper indentation and line breaks in file content. "
-            "Use standard filenames (index.html, style.css, script.js, app.js, etc.). "
-            "If a file with the same name already exists, update it rather than creating a duplicate."
-        )
+        payload = _build_payload(prompt, existing_files, chat_history)
+        payload["model"] = self._model
 
-        payload = {
-            "messages": [
-                {"role": "system", "content": system_prompt},
-                {"role": "user", "content": prompt},
-            ],
-            "model": self._model,
-        }
-
-        async with httpx.AsyncClient(timeout=self._timeout) as client:
+        async with httpx.AsyncClient(timeout=httpx.Timeout(self._timeout, connect=self._connect_timeout)) as client:
             response = await client.post(self._target_url, json=payload, headers=headers)
 
         if response.status_code == 401:
@@ -105,46 +272,233 @@ class HttpAIProvider(BaseAIProvider):
                 f"Unexpected AI response format. Expected 'choices[0].message.content'. Got: {str(data)[:300]}"
             ) from e
 
-        # Strip markdown code block if present
-        content = re.sub(r"^```(?:json)?\s*", "", content.strip())
-        content = re.sub(r"\s*```$", "", content)
+        return _parse_final_json(content, existing_files)
 
-        # Find the first '{' and last '}' to extract JSON robustly,
-        # even if the model returns extra text before/after the JSON block.
-        first_brace = content.find("{")
-        last_brace = content.rfind("}")
-        if first_brace != -1 and last_brace != -1 and last_brace > first_brace:
-            content = content[first_brace : last_brace + 1]
+    async def generate_stream(
+        self,
+        prompt: str,
+        existing_files: list[ProjectFile] | None = None,
+        chat_history: list[dict[str, str]] | None = None,
+    ) -> AsyncIterator[dict[str, Any]]:
+        """Non-streaming fallback — yields the complete result as a single event."""
+        message, files = await self.generate(prompt, existing_files, chat_history)
+        for f in files:
+            yield {"type": "file_start", "path": f.path, "file_type": f.file_type.value}
+            yield {"type": "file_chunk", "path": f.path, "delta": f.content}
+            yield {"type": "file_done", "path": f.path}
+        yield {"type": "done", "message": message, "files": [f.model_dump() for f in files]}
 
-        # Parse the JSON
+
+class StreamingHttpAIProvider(BaseAIProvider):
+    """AI provider that streams responses from an OpenAI-compatible endpoint.
+
+    Uses ``stream: true`` to receive SSE chunks. Message text is extracted from
+    the streaming JSON and yielded character-by-character. File definitions are
+    parsed from the complete JSON after the stream ends.
+    """
+
+    def __init__(
+        self,
+        target_url: str,
+        jwt_token: str,
+        model: str,
+        timeout: float = 300.0,
+    ) -> None:
+        self._target_url = target_url
+        self._jwt_token = jwt_token
+        self._model = model
+        self._timeout = timeout
+        self._connect_timeout = 30.0  # separate connect timeout to avoid proxy timeouts
+
+    async def generate(
+        self,
+        prompt: str,
+        existing_files: list[ProjectFile] | None = None,
+        chat_history: list[dict[str, str]] | None = None,
+    ) -> tuple[str, list[ProjectFile]]:
+        """Non-streaming fallback — delegates to HttpAIProvider logic."""
+        provider = HttpAIProvider(
+            self._target_url, self._jwt_token, self._model, self._timeout
+        )
+        return await provider.generate(prompt, existing_files, chat_history)
+
+    async def generate_stream(
+        self,
+        prompt: str,
+        existing_files: list[ProjectFile] | None = None,
+        chat_history: list[dict[str, str]] | None = None,
+    ) -> AsyncIterator[dict[str, Any]]:
+        headers = {
+            "Authorization": f"Bearer {self._jwt_token}",
+            "Content-Type": "application/json",
+        }
+
+        payload = _build_payload(prompt, existing_files, chat_history)
+        payload["model"] = self._model
+        payload["stream"] = True
+
+        accumulated_content = ""
+        prev_message = ""
+        # Track files we've already announced so we don't repeat
+        announced_files: set[str] = set()
+        # Track file content we've already streamed
+        streamed_file_content: dict[str, str] = {}
+        # Pre-populate announced_files with existing files (they're preserved, not streamed)
+        if existing_files:
+            for ef in existing_files:
+                announced_files.add(ef.path)
+
+        # Regex to extract the top-level "message" field value from partial JSON.
+        # Only matches the first occurrence before "files" to avoid matching
+        # "message" keys inside file content strings.
+        message_re = re.compile(r'"message"\s*:\s*"((?:[^"\\]|\\.)*)"\s*,\s*"files"')
+
+        async with httpx.AsyncClient(timeout=httpx.Timeout(self._timeout, connect=self._connect_timeout)) as client:
+            async with client.stream(
+                "POST", self._target_url, json=payload, headers=headers
+            ) as response:
+                if response.status_code == 401:
+                    raise RuntimeError("AI provider authentication failed (401). Check your JWT_TOKEN.")
+                if response.status_code == 404:
+                    raise RuntimeError(f"AI provider endpoint not found (404). Check your TARGET_URL.")
+                if response.status_code == 429:
+                    raise RuntimeError("AI provider rate limited (429). Try again later.")
+                if not response.is_success:
+                    raise RuntimeError(
+                        f"AI provider returned {response.status_code}"
+                    )
+
+                # Read SSE stream
+                async for line in response.aiter_lines():
+                    if not line.startswith("data: "):
+                        continue
+
+                    data_str = line[6:].strip()
+
+                    # Skip [DONE] sentinel
+                    if data_str == "[DONE]":
+                        break
+
+                    try:
+                        chunk = json.loads(data_str)
+                    except json.JSONDecodeError:
+                        continue
+
+                    # Extract delta content from OpenAI streaming format
+                    try:
+                        delta = chunk["choices"][0]["delta"]
+                    except (KeyError, IndexError, TypeError):
+                        continue
+
+                    content_delta = delta.get("content", "")
+                    if not content_delta:
+                        continue
+
+                    accumulated_content += content_delta
+
+                    # --- Extract message text via regex ---
+                    msg_match = message_re.search(accumulated_content)
+                    if msg_match:
+                        current_message = msg_match.group(1)
+                        new_part = current_message[len(prev_message):]
+                        if new_part:
+                            prev_message = current_message
+                            yield {"type": "message_chunk", "delta": new_part}
+
+                    # --- Try to parse partial JSON for file content ---
+                    # Strip markdown fences and extract JSON from accumulated content
+                    partial = re.sub(r"^```(?:json)?\s*", "", accumulated_content.strip())
+                    partial = re.sub(r"\s*```$", "", partial)
+                    first_brace = partial.find("{")
+                    last_brace = partial.rfind("}")
+                    if first_brace != -1 and last_brace != -1 and last_brace > first_brace:
+                        partial = partial[first_brace : last_brace + 1]
+
+                    try:
+                        parsed = json.loads(partial)
+                        raw_files = parsed.get("files", [])
+                        for f in raw_files:
+                            fpath = f.get("path", "")
+                            fcontent = f.get("content", "")
+                            ftype = f.get("file_type", "other")
+                            if not fpath:
+                                continue
+
+                            # Announce new files
+                            if fpath not in announced_files:
+                                announced_files.add(fpath)
+                                yield {
+                                    "type": "file_start",
+                                    "path": fpath,
+                                    "file_type": ftype,
+                                }
+
+                            # Stream new content — only if the new content extends the previous
+                            prev_content = streamed_file_content.get(fpath, "")
+                            if fcontent.startswith(prev_content) and len(fcontent) > len(prev_content):
+                                new_content = fcontent[len(prev_content):]
+                                streamed_file_content[fpath] = fcontent
+                                yield {
+                                    "type": "file_chunk",
+                                    "path": fpath,
+                                    "delta": new_content,
+                                }
+                            elif not fcontent.startswith(prev_content) and len(fcontent) > len(prev_content):
+                                # Content changed unexpectedly (partial JSON parse shifted).
+                                # Send the full corrected content as a delta.
+                                streamed_file_content[fpath] = fcontent
+                                yield {
+                                    "type": "file_chunk",
+                                    "path": fpath,
+                                    "delta": fcontent,
+                                }
+                    except (json.JSONDecodeError, RuntimeError):
+                        # Partial JSON not yet parseable — expected during streaming
+                        pass
+
+        # After the stream ends, parse the full accumulated content
         try:
-            parsed = json.loads(content)
-        except json.JSONDecodeError as e:
-            raise RuntimeError(
-                f"AI response is not valid JSON: {e}. Content: {content[:500]}"
-            ) from e
+            message, files = _parse_final_json(accumulated_content, existing_files)
+        except (json.JSONDecodeError, RuntimeError) as e:
+            # On parse failure, preserve existing files so the project isn't wiped
+            fallback_files = existing_files or []
+            yield {
+                "type": "done",
+                "message": prev_message or accumulated_content,
+                "files": [f.model_dump() for f in fallback_files],
+            }
+            return
 
-        raw_files = parsed.get("files", [])
-        message = parsed.get("message", "")
+        # Yield file_done for any files that were streamed
+        for f in files:
+            if f.path not in announced_files:
+                yield {
+                    "type": "file_start",
+                    "path": f.path,
+                    "file_type": f.file_type.value,
+                }
+                yield {"type": "file_chunk", "path": f.path, "delta": f.content}
+            else:
+                # Check if final content differs from streamed content and send corrective delta
+                streamed = streamed_file_content.get(f.path, "")
+                if streamed != f.content:
+                    yield {
+                        "type": "file_chunk",
+                        "path": f.path,
+                        "delta": f.content,
+                    }
+            yield {"type": "file_done", "path": f.path}
 
-        if not raw_files:
-            raise RuntimeError(
-                "AI provider returned no files. Expected a 'files' array in the response."
-            )
-
-        return message, [
-            ProjectFile(
-                path=f["path"],
-                content=f.get("content", ""),
-                file_type=f.get("file_type", FileType.other),
-            )
-            for f in raw_files
-        ]
+        yield {
+            "type": "done",
+            "message": message,
+            "files": [f.model_dump() for f in files],
+        }
 
 
 def create_provider() -> BaseAIProvider:
     """Factory — create an AI provider from the current settings."""
-    return HttpAIProvider(
+    return StreamingHttpAIProvider(
         target_url=settings.target_url,
         jwt_token=settings.jwt_token,
         model=settings.model,

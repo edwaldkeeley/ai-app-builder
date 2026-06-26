@@ -5,7 +5,7 @@ from __future__ import annotations
 from uuid import UUID
 
 from fastapi import APIRouter, HTTPException
-from pydantic import BaseModel
+from pydantic import BaseModel, Field
 
 from app.models.schemas import ChatMessageSchema, ProjectFile
 from app.routers.projects import get_service
@@ -14,8 +14,8 @@ router = APIRouter(prefix="/api/projects", tags=["chat"])
 
 
 class SaveChatMessageRequest(BaseModel):
-    role: str
-    content: str
+    role: str = Field(..., pattern="^(user|assistant)$")
+    content: str = Field(..., max_length=100_000)
     files: list[ProjectFile] = []
 
 
