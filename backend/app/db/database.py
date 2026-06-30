@@ -31,6 +31,7 @@ async def init_pool(
         min_size=min_size,
         max_size=max_size,
         command_timeout=30,
+        timeout=10,  # seconds to wait for pool creation / initial connection
     )
     return _pool
 
@@ -62,7 +63,7 @@ async def acquire_with_retry(pool: asyncpg.Pool) -> asyncpg.Connection:
 
     for attempt in range(_MAX_RETRIES):
         try:
-            conn = await pool.acquire()
+            conn = await pool.acquire(timeout=10)
             # Health check: verify connection is alive
             try:
                 await conn.execute("SELECT 1")
@@ -98,7 +99,7 @@ async def run_migrations(pool: asyncpg.Pool) -> None:
     migrations_dir = Path(__file__).resolve().parent / "migrations"
     sql_files = sorted(migrations_dir.glob("*.sql"))
 
-    async with pool.acquire() as conn:
+    async with pool.acquire(timeout=10) as conn:
         # Bootstrap the tracking table
         await conn.execute("""
             CREATE TABLE IF NOT EXISTS schema_migrations (

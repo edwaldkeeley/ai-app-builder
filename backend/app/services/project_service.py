@@ -62,7 +62,8 @@ class ProjectService:
 
     async def create(self, data: ProjectCreate) -> Project:
         pool = get_pool()
-        async with await acquire_with_retry(pool) as conn:
+        conn = await acquire_with_retry(pool)
+        try:
             async with conn.transaction():
                 row = await conn.fetchrow(
                     """
@@ -95,12 +96,15 @@ class ProjectService:
                     "SELECT path, content, file_type FROM files WHERE project_id = $1 ORDER BY path",
                     row["id"],
                 )
+        finally:
+            await pool.release(conn)
 
         return self._row_to_project(row, file_rows)
 
     async def get(self, project_id: UUID) -> Project | None:
         pool = get_pool()
-        async with await acquire_with_retry(pool) as conn:
+        conn = await acquire_with_retry(pool)
+        try:
             row = await conn.fetchrow(
                 "SELECT id, name, description, status, created_at, updated_at FROM projects WHERE id = $1",
                 project_id,
@@ -111,11 +115,14 @@ class ProjectService:
                 "SELECT path, content, file_type FROM files WHERE project_id = $1 ORDER BY path",
                 project_id,
             )
+        finally:
+            await pool.release(conn)
         return self._row_to_project(row, file_rows)
 
     async def list_all(self) -> list[ProjectSummary]:
         pool = get_pool()
-        async with await acquire_with_retry(pool) as conn:
+        conn = await acquire_with_retry(pool)
+        try:
             rows = await conn.fetch(
                 """
                 SELECT p.id, p.name, p.description, p.status,
@@ -127,6 +134,8 @@ class ProjectService:
                 ORDER BY p.updated_at DESC
                 """
             )
+        finally:
+            await pool.release(conn)
         return [
             ProjectSummary(
                 id=r["id"],
@@ -158,7 +167,8 @@ class ProjectService:
             return await self.get(project_id)
 
         pool = get_pool()
-        async with await acquire_with_retry(pool) as conn:
+        conn = await acquire_with_retry(pool)
+        try:
             params.append(project_id)
             sql = (
                 f"UPDATE projects SET {', '.join(sets)} WHERE id = ${idx}"
@@ -171,12 +181,17 @@ class ProjectService:
                 "SELECT path, content, file_type FROM files WHERE project_id = $1 ORDER BY path",
                 project_id,
             )
+        finally:
+            await pool.release(conn)
         return self._row_to_project(row, file_rows)
 
     async def delete(self, project_id: UUID) -> bool:
         pool = get_pool()
-        async with await acquire_with_retry(pool) as conn:
+        conn = await acquire_with_retry(pool)
+        try:
             result = await conn.execute("DELETE FROM projects WHERE id = $1", project_id)
+        finally:
+            await pool.release(conn)
         return int(result.split()[-1]) > 0
 
     # ── File operations ───────────────────────────────────────────
@@ -194,7 +209,8 @@ class ProjectService:
         file_type = type_map.get(ext, FileType.other)
 
         pool = get_pool()
-        async with await acquire_with_retry(pool) as conn:
+        conn = await acquire_with_retry(pool)
+        try:
             exists = await conn.fetchval("SELECT 1 FROM projects WHERE id = $1", project_id)
             if exists is None:
                 return None
@@ -215,6 +231,8 @@ class ProjectService:
 
             # Touch project updated_at so list order reflects latest activity
             await conn.execute("UPDATE projects SET updated_at = NOW() WHERE id = $1", project_id)
+        finally:
+            await pool.release(conn)
 
         return ProjectFile(path=row["path"], content=row["content"], file_type=row["file_type"])
 
@@ -229,7 +247,8 @@ class ProjectService:
             return []
 
         pool = get_pool()
-        async with await acquire_with_retry(pool) as conn:
+        conn = await acquire_with_retry(pool)
+        try:
             async with conn.transaction():
                 exists = await conn.fetchval("SELECT 1 FROM projects WHERE id = $1", project_id)
                 if exists is None:
@@ -262,12 +281,15 @@ class ProjectService:
 
                 # Touch project updated_at once
                 await conn.execute("UPDATE projects SET updated_at = NOW() WHERE id = $1", project_id)
+        finally:
+            await pool.release(conn)
 
         return files
 
     async def delete_file(self, project_id: UUID, path: str) -> bool:
         pool = get_pool()
-        async with await acquire_with_retry(pool) as conn:
+        conn = await acquire_with_retry(pool)
+        try:
             result = await conn.execute(
                 "DELETE FROM files WHERE project_id = $1 AND path = $2",
                 project_id,
@@ -277,17 +299,22 @@ class ProjectService:
             if deleted:
                 await conn.execute("UPDATE projects SET updated_at = NOW() WHERE id = $1", project_id)
             return deleted
+        finally:
+            await pool.release(conn)
 
     # ── Chat messages ───────────────────────────────────────────
 
     async def get_chat_messages(self, project_id: UUID) -> list[ChatMessageSchema]:
         pool = get_pool()
-        async with await acquire_with_retry(pool) as conn:
+        conn = await acquire_with_retry(pool)
+        try:
             rows = await conn.fetch(
                 "SELECT id, project_id, role, content, files, created_at "
                 "FROM chat_messages WHERE project_id = $1 ORDER BY created_at",
                 project_id,
             )
+        finally:
+            await pool.release(conn)
         return [
             ChatMessageSchema(
                 id=r["id"],
@@ -303,7 +330,8 @@ class ProjectService:
     async def save_chat_message(self, project_id: UUID, role: str, content: str, files: list[ProjectFile] | None = None) -> ChatMessageSchema:
         pool = get_pool()
         files_json = json.dumps([f.model_dump() for f in (files or [])])
-        async with await acquire_with_retry(pool) as conn:
+        conn = await acquire_with_retry(pool)
+        try:
             row = await conn.fetchrow(
                 "INSERT INTO chat_messages (project_id, role, content, files) "
                 "VALUES ($1, $2, $3, $4) "
@@ -315,6 +343,8 @@ class ProjectService:
             )
             # Touch project updated_at so active conversations surface to top of list
             await conn.execute("UPDATE projects SET updated_at = NOW() WHERE id = $1", project_id)
+        finally:
+            await pool.release(conn)
         return ChatMessageSchema(
             id=row["id"],
             project_id=row["project_id"],

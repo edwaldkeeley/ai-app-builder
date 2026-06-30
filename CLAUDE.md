@@ -117,6 +117,7 @@ New projects get boilerplate: `index.html`, `style.css`, `script.js`.
 - **File type inference**: From extension — `.html`, `.css`, `.js`, `.json`, `.py`, or `other`.
 - **No tests yet** — add them when implementing new features.
 - **Root `.gitignore`** exists — excludes `.env`, `__pycache__/`, `node_modules/`, `.next/`, etc.
+- **Zero lint/type errors** — `npx tsc --noEmit` and `npx eslint src/` both pass clean. Maintain this standard before committing.
 
 ## Environment Variables (.env at project root)
 
@@ -238,6 +239,32 @@ All bugs from the [[frontend-bug-audit]] and [[backend-ai-bug-audit]] have been 
 42. **Duplicate key in Sidebar** — Removed duplicate `key={project.id}` from inner div.
 43. **Emoji accessibility** — Added `role="img"` and `aria-label` to wrench emoji in writing indicator.
 44. **Unused imports** — Removed unused `useId` and `useMemo` imports.
+
+## Cleanup Session (June 2026)
+
+After the 44-bug fix session, a full project audit was performed. **20 items** fixed:
+- **Backend**: Removed dead code `_get_service()` from `projects.py`
+- **Frontend ESLint errors (9)**: Ref assignments moved to `useEffect`, setState wrapped in `setTimeout`, `monacoRef` typed properly, unused eslint-disable removed
+- **Frontend ESLint warnings (9)**: Unused props/variables/imports removed, dead `loadingMessagesRef` removed
+- **Git**: All 22 files committed as `6c7c40e` with descriptive message
+- **Verification**: TypeScript zero errors, ESLint zero errors/warnings, Python all files compile
+
+## Post-Cleanup Bug Fixes (June 2026)
+
+### Bug 45: `async with await acquire_with_retry(pool)` TypeError
+**File**: `backend/app/services/project_service.py`
+**Root cause**: `acquire_with_retry()` returns a raw `asyncpg.Connection`, but all 10 call sites used `async with await acquire_with_retry(pool) as conn:`. `asyncpg.Connection` does not support `async with` — only `Pool.acquire()` returns a context-manager proxy.
+**Fix**: Changed all 10 call sites to `conn = await acquire_with_retry(pool)` with explicit `pool.release(conn)` in a `finally` block.
+
+### Bug 46: `connect_timeout` not supported by asyncpg 0.30.0
+**File**: `backend/app/db/database.py`
+**Root cause**: `connect_timeout` is not a valid parameter for `asyncpg.create_pool()` in version 0.30.0.
+**Fix**: Removed `connect_timeout=10` from `create_pool()` call.
+
+### Bug 47: Server hangs when pool is exhausted or DB unreachable
+**File**: `backend/app/db/database.py`
+**Root cause**: `pool.acquire()` had no timeout — blocks forever when all connections are busy or DB is unreachable.
+**Fix**: Added `timeout=10` to `create_pool()`, `pool.acquire()` in `acquire_with_retry()`, and `pool.acquire()` in `run_migrations()`. Server now fails fast (~15s) instead of hanging indefinitely.
 
 ## Phase 3 (Not Started)
 
