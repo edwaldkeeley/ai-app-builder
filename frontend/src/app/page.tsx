@@ -191,6 +191,7 @@ export default function Home() {
       {/* File Explorer (only when a project is active) */}
       {activeProject && (
         <FileExplorer
+          key={activeProjectId}
           files={files}
           activeFilePath={activeFilePath}
           onSelectFile={setActiveFilePath}

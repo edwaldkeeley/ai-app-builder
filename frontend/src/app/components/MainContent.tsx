@@ -1,6 +1,6 @@
 "use client";
 
-import { useState, useCallback, useRef, useEffect } from "react";
+import { useState, useCallback, useRef, useEffect, useMemo } from "react";
 import type { Project, ProjectFile } from "../lib/types";
 import type { SaveStatus } from "../hooks/useFileSave";
 import EditorPane from "./EditorPane";
@@ -55,14 +55,17 @@ export default function MainContent({
     filesRef.current = files;
   }, [files]);
 
+  // Build a Map for O(1) file lookups instead of O(n) scans
+  const filesMap = useMemo(() => new Map(files.map((f) => [f.path, f])), [files]);
+
   // When files change, auto-select the first file
-  const effectiveActiveFile = activeFilePath && files.find((f) => f.path === activeFilePath)
+  const effectiveActiveFile = activeFilePath && filesMap.has(activeFilePath)
     ? activeFilePath
     : files[0]?.path ?? null;
 
   // When the active file is deleted, switch to the next available file
   useEffect(() => {
-    if (activeFilePath && !files.find((f) => f.path === activeFilePath)) {
+    if (activeFilePath && !filesMap.has(activeFilePath)) {
       onActiveFileChange(files[0]?.path ?? null);
     }
   }, [files]); // eslint-disable-line react-hooks/exhaustive-deps

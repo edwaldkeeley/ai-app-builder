@@ -21,6 +21,7 @@ export function useChat() {
   const [writingStatus, setWritingStatus] = useState<WritingStatus | null>(null);
   const chatIdCounterRef = useRef(0);
   const loadRequestIdRef = useRef(0);
+  const generatingRef = useRef(false);
   const { showToast } = useToast();
 
   const saveMessage = useCallback(
@@ -69,7 +70,9 @@ export function useChat() {
       fetchProjects: () => void,
       setError: (err: string | null) => void,
     ) => {
-      if (generating) return;
+      // Use ref-based guard to prevent double-invocation before React re-renders
+      if (generatingRef.current) return;
+      generatingRef.current = true;
 
       setGenerating(true);
       setWritingStatus({ type: "thinking" });
@@ -150,6 +153,7 @@ export function useChat() {
             saveMessage(resolvedProjectId, "assistant", finalContent, generatedFiles);
             fetchProjects();
             setWritingStatus({ type: "done", message: "Complete" });
+            generatingRef.current = false;
             setGenerating(false);
             session.close();
             resolve();
@@ -195,8 +199,7 @@ export function useChat() {
             return updated;
           });
           saveMessage(resolvedProjectId, "assistant", finalContent, result.files);
-          const detail = await api.getProject(result.project_id);
-          setFiles(detail.files);
+          setFiles(result.files);
           await fetchProjects();
           setWritingStatus({ type: "done", message: "Complete" });
         } catch (err) {
@@ -212,14 +215,16 @@ export function useChat() {
           });
         } finally {
           setWritingStatus(null);
-          setGenerating(false);
+          generatingRef.current = false;
+            setGenerating(false);
         }
       } else {
         // WebSocket succeeded but onDone may not have fired (edge case)
-        setGenerating(false);
+        generatingRef.current = false;
+            setGenerating(false);
       }
     },
-    [generating, saveMessage, showToast],
+    [saveMessage, showToast],
   );
 
   return {

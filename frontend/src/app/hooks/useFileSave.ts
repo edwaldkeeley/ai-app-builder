@@ -18,9 +18,15 @@ export function useFileSave(activeProjectId: string | null) {
   const filesRef = useRef(files);
   const savedTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
   const { showToast } = useToast();
-  useEffect(() => {
-    filesRef.current = files;
-  }, [files]);
+
+  // Wrap setFiles to also sync filesRef synchronously (no lag)
+  const setFilesAndRef = useCallback((updater: React.SetStateAction<ProjectFile[]>) => {
+    setFiles((prev) => {
+      const next = typeof updater === "function" ? updater(prev) : updater;
+      filesRef.current = next;
+      return next;
+    });
+  }, []);
 
   // Track current project ID and clear pending saves when switching projects
   useEffect(() => {
@@ -33,31 +39,31 @@ export function useFileSave(activeProjectId: string | null) {
       // Also clear the "saved" status timer on unmount
       if (savedTimerRef.current) clearTimeout(savedTimerRef.current);
     };
-  }, [activeProjectId]);
+  }, [activeProjectId, setFilesAndRef]);
 
   const handleAddFile = useCallback(async (path: string) => {
     if (!activeProjectId) return;
     try {
       const newFile = await api.upsertFile(activeProjectId, path, "");
-      setFiles((prev) => [...prev, newFile]);
+      setFilesAndRef((prev) => [...prev, newFile]);
       showToast("success", `Created ${path}`);
     } catch (err) {
       console.error("Failed to create file:", err);
       showToast("error", `Failed to create ${path}`);
     }
-  }, [activeProjectId, showToast]);
+  }, [activeProjectId, showToast, setFilesAndRef]);
 
   const handleDeleteFile = useCallback(async (path: string) => {
     if (!activeProjectId) return;
     try {
       await api.deleteFile(activeProjectId, path);
-      setFiles((prev) => prev.filter((f) => f.path !== path));
+      setFilesAndRef((prev) => prev.filter((f) => f.path !== path));
       showToast("success", `Deleted ${path}`);
     } catch (err) {
       console.error("Failed to delete file:", err);
       showToast("error", `Failed to delete ${path}`);
     }
-  }, [activeProjectId, showToast]);
+  }, [activeProjectId, showToast, setFilesAndRef]);
 
   const handleRenameFile = useCallback(async (oldPath: string, newPath: string) => {
     if (!activeProjectId) return;
@@ -67,7 +73,7 @@ export function useFileSave(activeProjectId: string | null) {
       if (!oldFile) return;
       await api.upsertFile(activeProjectId, newPath, oldFile.content);
       await api.deleteFile(activeProjectId, oldPath);
-      setFiles((prev) =>
+      setFilesAndRef((prev) =>
         prev.map((f) =>
           f.path === oldPath ? { ...f, path: newPath } : f,
         ),
@@ -77,11 +83,11 @@ export function useFileSave(activeProjectId: string | null) {
       console.error("Failed to rename file:", err);
       showToast("error", `Failed to rename file`);
     }
-  }, [activeProjectId, showToast]);
+  }, [activeProjectId, showToast, setFilesAndRef]);
 
   const handleFilesChange = useCallback((updatedFiles: ProjectFile[]) => {
     const pathsToMarkDirty: string[] = [];
-    setFiles((prev) => {
+    setFilesAndRef((prev) => {
       // Merge: update existing files by path, add new ones, keep unchanged ones
       const merged = new Map(prev.map((f) => [f.path, f]));
       for (const updated of updatedFiles) {
@@ -131,11 +137,11 @@ export function useFileSave(activeProjectId: string | null) {
 
       saveTimersRef.current.set(path, timer);
     }
-  }, [activeProjectId]);
+  }, [activeProjectId, setFilesAndRef]);
 
   return {
     files,
-    setFiles,
+    setFiles: setFilesAndRef,
     dirtyFiles,
     saveStatus,
     handleFilesChange,
