@@ -31,8 +31,9 @@ export default function FigmaImport({ onImportComplete, variant = "landing" }: F
   // Listen for OAuth callback from popup window
   useEffect(() => {
     const handleMessage = (event: MessageEvent) => {
-      // Security: only accept messages from our own origin
-      if (event.origin !== window.origin) return;
+      // Security: only accept messages from the backend (OAuth callback popup)
+      const backendOrigin = process.env.NEXT_PUBLIC_API_URL || "http://localhost:8000";
+      if (event.origin !== backendOrigin) return;
       if (event.data?.type !== "figma-oauth") return;
 
       if (event.data.status === "connected") {
