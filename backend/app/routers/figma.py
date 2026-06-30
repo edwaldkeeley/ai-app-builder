@@ -166,10 +166,9 @@ async def list_files():
         raise
     except Exception as e:
         logger.exception("Failed to fetch Figma files")
-        raise HTTPException(
-            status_code=502,
-            detail=f"Failed to fetch Figma files. Your Figma plan may not support file listing. You can still import by file key.",
-        )
+        # Return empty list with a flag instead of crashing — the frontend
+        # will show a manual file key input as fallback
+        return {"files": [], "error": str(e), "listing_unavailable": True}
 
 
 # ── Import endpoint ────────────────────────────────────────────
