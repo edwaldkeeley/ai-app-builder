@@ -77,10 +77,11 @@ export default function FigmaImport({ onImportComplete, variant = "landing" }: F
         `width=${width},height=${height},left=${left},top=${top},popup=1`,
       );
       // Connection result comes via postMessage
-    } catch {
+    } catch (err) {
+      const msg = err instanceof Error ? err.message : "Failed to start Figma authentication";
       setState("error");
-      setErrorMsg("Failed to start Figma authentication");
-      showToast("error", "Failed to connect to Figma");
+      setErrorMsg(msg);
+      showToast("error", msg);
     }
   };
 

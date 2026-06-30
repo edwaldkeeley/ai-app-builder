@@ -2,7 +2,8 @@
 
 from __future__ import annotations
 
-from fastapi import APIRouter, HTTPException, Query, Request, status
+from fastapi import APIRouter, HTTPException, Query, status
+from fastapi.responses import HTMLResponse
 
 from app.models.schemas import (
     FigmaAuthUrl,
@@ -45,6 +46,11 @@ async def get_auth_url():
     """
     if _figma is None:
         raise HTTPException(status_code=503, detail="Figma service not initialised")
+    if not settings.figma_client_id:
+        raise HTTPException(
+            status_code=501,
+            detail="Figma OAuth not configured. Set FIGMA_CLIENT_ID and FIGMA_CLIENT_SECRET in .env",
+        )
     if not _figma.is_connected():
         # Only load tokens on first access if not already connected
         await _figma.load_tokens()
@@ -78,16 +84,15 @@ async def callback(
         return _redirect_frontend(f"?figma=error&message={str(e)}")
 
 
-def _redirect_frontend(query: str) -> None:
+def _redirect_frontend(query: str) -> HTMLResponse:
     """Return an HTML redirect response to the frontend.
 
     FastAPI doesn't have a built-in 302 for external URLs in a way
     that works cleanly with OAuth popups, so we return a small HTML
     page that closes the popup and notifies the opener.
     """
-    from fastapi.responses import HTMLResponse
-
-    frontend_url = "http://localhost:3000"
+    # Use the first allowed CORS origin as the frontend URL
+    frontend_url = settings.cors_origins[0] if settings.cors_origins else "http://localhost:3000"
     html = f"""<!DOCTYPE html>
 <html>
 <body>
