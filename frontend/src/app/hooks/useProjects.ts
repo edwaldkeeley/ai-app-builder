@@ -3,6 +3,7 @@
 import { useState, useCallback, useEffect } from "react";
 import { api } from "../lib/api";
 import type { Project } from "../lib/types";
+import { useToast } from "../components/Toast";
 
 export function useProjects() {
   const [projects, setProjects] = useState<Project[]>([]);
@@ -11,6 +12,7 @@ export function useProjects() {
   const [error, setError] = useState<string | null>(null);
   const [creating, setCreating] = useState(false);
   const [deleting, setDeleting] = useState<string | null>(null);
+  const { showToast } = useToast();
 
   const fetchProjects = useCallback(async () => {
     try {
@@ -46,20 +48,24 @@ export function useProjects() {
       };
       setProjects((prev) => [projectSummary, ...prev]);
       setActiveProjectId(project.id);
+      showToast("success", `Created "${project.name}"`);
       return project;
     } catch (err) {
-      setError(err instanceof Error ? err.message : "Failed to create project");
+      const msg = err instanceof Error ? err.message : "Failed to create project";
+      setError(msg);
+      showToast("error", msg);
       return null;
     } finally {
       setCreating(false);
     }
-  }, [creating, projects.length]);
+  }, [creating, projects.length, showToast]);
 
   const handleDeleteProject = useCallback(async (id: string) => {
     if (deleting) return;
     setDeleting(id);
     try {
       await api.deleteProject(id);
+      const deletedName = projects.find((p) => p.id === id)?.name || "Project";
       setProjects((prev) => {
         const updated = prev.filter((p) => p.id !== id);
         setActiveProjectId((current) => {
@@ -70,12 +76,15 @@ export function useProjects() {
         });
         return updated;
       });
+      showToast("success", `Deleted "${deletedName}"`);
     } catch (err) {
-      setError(err instanceof Error ? err.message : "Failed to delete project");
+      const msg = err instanceof Error ? err.message : "Failed to delete project";
+      setError(msg);
+      showToast("error", msg);
     } finally {
       setDeleting(null);
     }
-  }, [deleting]);
+  }, [deleting, projects, showToast]);
 
   const handleSelectProject = useCallback((id: string) => {
     setActiveProjectId(id);

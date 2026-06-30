@@ -3,6 +3,7 @@
 import { useState, useMemo, useRef, useEffect, useCallback } from "react";
 import type { ProjectFile } from "../lib/types";
 import FileIcon from "../lib/fileIcons";
+import { SkeletonExplorer } from "./Skeleton";
 
 interface FileExplorerProps {
   files: ProjectFile[];
@@ -14,6 +15,8 @@ interface FileExplorerProps {
   collapsed?: boolean;
   onToggleCollapse?: () => void;
   dirtyFiles?: Set<string>;
+  loading?: boolean;
+  isMobile?: boolean;
 }
 
 interface TreeNode {
@@ -227,6 +230,9 @@ function FileRow({
     <>
       {/* Tree node row */}
       <div
+        role="treeitem"
+        aria-expanded={isDirectory ? expanded : undefined}
+        aria-selected={isActive}
         className={`group flex items-center gap-1 pr-2 py-0.5 text-xs cursor-pointer select-none ${
           isActive
             ? "bg-accent/10 text-accent"
@@ -427,6 +433,8 @@ export default function FileExplorer({
   collapsed,
   onToggleCollapse,
   dirtyFiles,
+  loading,
+  isMobile,
 }: FileExplorerProps) {
   const [showRootNewFile, setShowRootNewFile] = useState(false);
   const [rootNewFileName, setRootNewFileName] = useState("");
@@ -482,7 +490,7 @@ export default function FileExplorer({
     }
   };
 
-  return (
+  const explorerPanel = (
     <div
       className={`flex flex-col bg-sidebar border-r border-border ${
         collapsed ? "w-0 overflow-hidden border-r-0" : "w-56"
@@ -523,8 +531,10 @@ export default function FileExplorer({
       </div>
 
       {/* Tree */}
-      <div className="flex-1 overflow-y-auto py-1">
-        {tree.length === 0 ? (
+      <div className="flex-1 overflow-y-auto py-1" role="tree" aria-label="File explorer">
+        {loading && tree.length === 0 ? (
+          <SkeletonExplorer />
+        ) : tree.length === 0 ? (
           <div className="px-3 py-4 text-xs text-text-secondary text-center">
             <p>No files yet.</p>
             <button
@@ -579,4 +589,21 @@ export default function FileExplorer({
       </div>
     </div>
   );
+
+  // On mobile, render as overlay panel
+  if (isMobile) {
+    return (
+      <>
+        <div
+          className="fixed inset-0 bg-black/50 z-40"
+          onClick={() => onToggleCollapse?.()}
+        />
+        <div className="fixed inset-y-0 left-0 z-50 shadow-xl">
+          {explorerPanel}
+        </div>
+      </>
+    );
+  }
+
+  return explorerPanel;
 }

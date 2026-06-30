@@ -2,6 +2,7 @@
 
 import { useState, useCallback, useRef, useEffect } from "react";
 import type { Project, ProjectFile } from "../lib/types";
+import type { SaveStatus } from "../hooks/useFileSave";
 import EditorPane from "./EditorPane";
 import LiveCanvas from "./LiveCanvas";
 
@@ -21,6 +22,7 @@ interface MainContentProps {
   onActiveFileChange: (path: string | null) => void;
   showExplorer: boolean;
   onToggleExplorer: () => void;
+  saveStatus?: SaveStatus;
 }
 
 const VIEW_BUTTONS: { mode: ViewMode; label: string }[] = [
@@ -43,6 +45,7 @@ export default function MainContent({
   onActiveFileChange,
   showExplorer,
   onToggleExplorer,
+  saveStatus,
 }: MainContentProps) {
   const [promptValue, setPromptValue] = useState("");
   const [viewMode, setViewMode] = useState<ViewMode>("preview");
@@ -159,6 +162,30 @@ export default function MainContent({
             {files.length} file{files.length !== 1 ? "s" : ""}
           </span>
 
+          {/* Save status indicator */}
+          {saveStatus && saveStatus !== "idle" && (
+            <span className="flex items-center gap-1 text-xs">
+              {saveStatus === "saving" && (
+                <>
+                  <span className="w-3 h-3 border-2 border-accent border-t-transparent rounded-full animate-spin" />
+                  <span className="text-accent">Saving...</span>
+                </>
+              )}
+              {saveStatus === "saved" && (
+                <>
+                  <span className="text-green-500">✓</span>
+                  <span className="text-green-500">Saved</span>
+                </>
+              )}
+              {saveStatus === "error" && (
+                <>
+                  <span className="text-danger">✕</span>
+                  <span className="text-danger">Save failed</span>
+                </>
+              )}
+            </span>
+          )}
+
           {/* Spacer */}
           <div className="flex-1" />
 
@@ -220,8 +247,8 @@ export default function MainContent({
 
   // Centered chat landing page — no project selected
   return (
-    <div className="flex-1 flex items-center justify-center">
-      <div className="flex flex-col items-center gap-6 w-full max-w-xl px-6">
+    <div className="flex-1 flex items-center justify-center px-4">
+      <div className="flex flex-col items-center gap-6 w-full max-w-xl">
         {/* Logo / Brand */}
         <div className="w-12 h-12 rounded-xl bg-accent flex items-center justify-center">
           <svg className="w-7 h-7 text-white" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={1.5}>

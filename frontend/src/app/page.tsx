@@ -8,8 +8,12 @@ import { api } from "./lib/api";
 import { useProjects } from "./hooks/useProjects";
 import { useChat } from "./hooks/useChat";
 import { useFileSave } from "./hooks/useFileSave";
+import { useKeyboardShortcuts } from "./hooks/useKeyboardShortcuts";
+import { useToast } from "./components/Toast";
 
 export default function Home() {
+  const { showToast } = useToast();
+
   const {
     projects,
     activeProjectId,
@@ -41,6 +45,7 @@ export default function Home() {
     files,
     setFiles,
     dirtyFiles,
+    saveStatus,
     handleFilesChange,
     handleAddFile,
     handleDeleteFile,
@@ -49,6 +54,8 @@ export default function Home() {
 
   const [activeFilePath, setActiveFilePath] = useState<string | null>(null);
   const [showExplorer, setShowExplorer] = useState(true);
+  const [isMobile, setIsMobile] = useState(false);
+  const [showMobileSidebar, setShowMobileSidebar] = useState(false);
   const filesRef = useRef(files);
   useEffect(() => {
     filesRef.current = files;
@@ -67,6 +74,40 @@ export default function Home() {
     loadChatMessages(activeProjectId);
   }, [activeProjectId]); // eslint-disable-line react-hooks/exhaustive-deps
 
+  // Responsive: detect mobile width and auto-collapse panels
+  useEffect(() => {
+    const checkWidth = () => {
+      const mobile = window.innerWidth < 768;
+      setIsMobile(mobile);
+      if (mobile) {
+        setShowExplorer(false);
+      }
+    };
+    checkWidth();
+    window.addEventListener("resize", checkWidth);
+    return () => window.removeEventListener("resize", checkWidth);
+  }, []);
+
+  // Global keyboard shortcuts
+  useKeyboardShortcuts({
+    onEscape: () => {
+      setShowMobileSidebar(false);
+    },
+    onToggleSidebar: () => {
+      if (isMobile) {
+        setShowMobileSidebar((prev) => !prev);
+      }
+    },
+    onToggleExplorer: () => {
+      if (!isMobile) {
+        setShowExplorer((prev) => !prev);
+      }
+    },
+    onNewProject: () => {
+      handleCreateProject();
+    },
+  });
+
   // Fetch project files when active project changes
   useEffect(() => {
     if (!activeProjectId) {
@@ -77,6 +118,7 @@ export default function Home() {
       setFiles(detail.files);
     }).catch((err) => {
       console.error("Failed to fetch project files:", err);
+      showToast("error", "Failed to load project files");
       setError("Failed to load project files. Please try again.");
     });
   }, [activeProjectId]); // eslint-disable-line react-hooks/exhaustive-deps
@@ -136,6 +178,10 @@ export default function Home() {
         writingStatus={writingStatus}
         onSendPrompt={handlePrompt}
         onBackToProjects={handleBackToProjects}
+        loading={loading}
+        isMobile={isMobile}
+        showMobileSidebar={showMobileSidebar}
+        onCloseMobileSidebar={() => setShowMobileSidebar(false)}
       />
 
       {/* File Explorer (only when a project is active) */}
@@ -147,10 +193,25 @@ export default function Home() {
           onAddFile={handleAddFile}
           onDeleteFile={handleDeleteFile}
           onRenameFile={handleRenameFile}
-          collapsed={!showExplorer}
+          collapsed={isMobile ? false : !showExplorer}
           onToggleCollapse={() => setShowExplorer((prev) => !prev)}
           dirtyFiles={dirtyFiles}
+          loading={loading}
+          isMobile={isMobile}
         />
+      )}
+
+      {/* Mobile hamburger button */}
+      {isMobile && !showMobileSidebar && (
+        <button
+          onClick={() => setShowMobileSidebar(true)}
+          className="fixed top-3 left-3 z-30 p-2 rounded-lg bg-surface border border-border shadow-lg text-foreground hover:bg-sidebar transition-colors"
+          aria-label="Open sidebar"
+        >
+          <svg className="w-5 h-5" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2}>
+            <path strokeLinecap="round" strokeLinejoin="round" d="M4 6h16M4 12h16M4 18h16" />
+          </svg>
+        </button>
       )}
 
       <main className="flex-1 flex flex-col min-w-0">
@@ -168,6 +229,7 @@ export default function Home() {
           onActiveFileChange={setActiveFilePath}
           showExplorer={showExplorer}
           onToggleExplorer={() => setShowExplorer((prev) => !prev)}
+          saveStatus={saveStatus}
         />
       </main>
     </div>

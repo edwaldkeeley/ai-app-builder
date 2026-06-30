@@ -3,6 +3,7 @@
 import { useState, useCallback, useRef } from "react";
 import { api, generateStream } from "../lib/api";
 import type { ChatMessage, ProjectFile } from "../lib/types";
+import { useToast } from "../components/Toast";
 
 // Use a ref-based counter per hook instance instead of module-level
 // to avoid key collision across projects and page navigations
@@ -20,6 +21,7 @@ export function useChat() {
   const [writingStatus, setWritingStatus] = useState<WritingStatus | null>(null);
   const chatIdCounterRef = useRef(0);
   const loadRequestIdRef = useRef(0);
+  const { showToast } = useToast();
 
   const saveMessage = useCallback(
     async (projectId: string, role: string, content: string, files?: ProjectFile[]) => {
@@ -27,9 +29,10 @@ export function useChat() {
         await api.saveChatMessage(projectId, role, content, files);
       } catch (err) {
         console.error("Failed to save chat message:", err);
+        showToast("error", "Failed to save message");
       }
     },
-    [],
+    [showToast],
   );
 
   const loadChatMessages = useCallback(async (projectId: string) => {
@@ -182,6 +185,7 @@ export function useChat() {
 
       // Fall back to REST if WebSocket failed
       if (streamError) {
+        showToast("info", "WebSocket timed out, falling back to REST...");
         try {
           setWritingStatus({ type: "thinking", message: "Falling back to REST..." });
           const result = await api.generate(prompt, resolvedProjectId);
@@ -219,7 +223,7 @@ export function useChat() {
         setGenerating(false);
       }
     },
-    [generating, saveMessage],
+    [generating, saveMessage, showToast],
   );
 
   return {

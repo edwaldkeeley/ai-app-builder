@@ -17,7 +17,7 @@ interface ChatPanelProps {
 function WritingIndicator({ status }: { status: WritingStatus }) {
   return (
     <div className="flex items-center gap-2 text-xs text-text-secondary">
-      <div className="w-3 h-3 border-2 border-accent border-t-transparent rounded-full animate-spin" />
+      <div className="w-3 h-3 border-2 border-accent border-t-transparent rounded-full animate-spin" aria-label="Loading" />
       <div className="flex items-center gap-1.5">
         {status.type === "thinking" && <span>AI is thinking...</span>}
         {status.type === "writing" && (

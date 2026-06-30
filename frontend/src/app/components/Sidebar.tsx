@@ -4,6 +4,7 @@ import { useState } from "react";
 import type { ChatMessage, Project } from "../lib/types";
 import type { WritingStatus } from "../hooks/useChat";
 import ChatPanel from "./ChatPanel";
+import { SkeletonSidebar } from "./Skeleton";
 
 interface SidebarProps {
   projects: Project[];
@@ -19,6 +20,10 @@ interface SidebarProps {
   writingStatus?: WritingStatus | null;
   onSendPrompt: (prompt: string) => void;
   onBackToProjects: () => void;
+  loading?: boolean;
+  isMobile?: boolean;
+  showMobileSidebar?: boolean;
+  onCloseMobileSidebar?: () => void;
 }
 
 export default function Sidebar({
@@ -35,6 +40,9 @@ export default function Sidebar({
   writingStatus,
   onSendPrompt,
   onBackToProjects,
+  loading,
+  isMobile,
+  onCloseMobileSidebar,
 }: SidebarProps) {
   const [collapsed, setCollapsed] = useState(false);
   const [confirmDelete, setConfirmDelete] = useState<string | null>(null);
@@ -48,10 +56,28 @@ export default function Sidebar({
     }
   };
 
+  // On mobile, render as overlay panel
+  const sidebarPanel = (content: React.ReactNode) => {
+    if (!isMobile) return content;
+    return (
+      <>
+        {/* Backdrop */}
+        <div
+          className="fixed inset-0 bg-black/50 z-40"
+          onClick={onCloseMobileSidebar}
+        />
+        {/* Overlay panel */}
+        <div className="fixed inset-y-0 left-0 z-50 shadow-xl">
+          {content}
+        </div>
+      </>
+    );
+  };
+
   // Collapsed state — icon button
   if (collapsed) {
-    return (
-      <aside className="flex flex-col items-center py-3 px-1 bg-sidebar border-r border-border">
+    return sidebarPanel(
+      <aside id="sidebar-panel" className="flex flex-col items-center py-3 px-1 bg-sidebar border-r border-border">
         <button
           onClick={() => setCollapsed(false)}
           className="p-2 rounded-lg hover:bg-surface text-text-secondary hover:text-foreground transition-colors"
@@ -80,8 +106,8 @@ export default function Sidebar({
 
   // Chat mode — show chat panel in sidebar
   if (chatMode) {
-    return (
-      <aside className="flex flex-col w-80 bg-sidebar border-r border-border">
+    return sidebarPanel(
+      <aside id="sidebar-panel" className="flex flex-col w-80 bg-sidebar border-r border-border">
         {/* Header with back button */}
         <div className="flex items-center gap-2 px-3 py-3 border-b border-border">
           <button
@@ -100,6 +126,8 @@ export default function Sidebar({
             onClick={() => setCollapsed(true)}
             className="ml-auto p-1.5 rounded-md hover:bg-surface text-text-secondary hover:text-foreground transition-colors"
             title="Collapse sidebar"
+            aria-expanded={!collapsed}
+            aria-controls="sidebar-panel"
           >
             <svg className="w-4 h-4" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2}>
               <path strokeLinecap="round" strokeLinejoin="round" d="M11 19l-7-7 7-7m8 14l-7-7 7-7" />
@@ -121,8 +149,8 @@ export default function Sidebar({
   }
 
   // Project list mode
-  return (
-    <aside className="flex flex-col w-72 bg-sidebar border-r border-border">
+  return sidebarPanel(
+    <aside id="sidebar-panel" className="flex flex-col w-72 bg-sidebar border-r border-border">
       {/* Header */}
       <div className="flex items-center justify-between px-3 py-3 border-b border-border">
         <div className="flex items-center gap-2 min-w-0">
@@ -158,7 +186,9 @@ export default function Sidebar({
 
       {/* Project list */}
       <div className="flex-1 overflow-y-auto py-2 px-2 space-y-0.5">
-        {projects.length === 0 ? (
+        {loading && projects.length === 0 ? (
+          <SkeletonSidebar />
+        ) : projects.length === 0 ? (
           <div className="text-xs text-text-secondary text-center py-8 px-4">
             <p>No projects yet.</p>
             <p className="mt-1">Click + to create one.</p>

@@ -3,15 +3,21 @@
 import { useState, useCallback, useRef, useEffect } from "react";
 import { api } from "../lib/api";
 import type { ProjectFile } from "../lib/types";
+import { useToast } from "../components/Toast";
 
 const SAVE_DEBOUNCE_MS = 800;
+
+export type SaveStatus = "idle" | "saving" | "saved" | "error";
 
 export function useFileSave(activeProjectId: string | null) {
   const [files, setFiles] = useState<ProjectFile[]>([]);
   const [dirtyFiles, setDirtyFiles] = useState<Set<string>>(new Set());
+  const [saveStatus, setSaveStatus] = useState<SaveStatus>("idle");
   const saveTimersRef = useRef<Map<string, ReturnType<typeof setTimeout>>>(new Map());
   const projectIdRef = useRef<string | null>(null);
   const filesRef = useRef(files);
+  const savedTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
+  const { showToast } = useToast();
   useEffect(() => {
     filesRef.current = files;
   }, [files]);
@@ -30,20 +36,24 @@ export function useFileSave(activeProjectId: string | null) {
     try {
       const newFile = await api.upsertFile(activeProjectId, path, "");
       setFiles((prev) => [...prev, newFile]);
+      showToast("success", `Created ${path}`);
     } catch (err) {
       console.error("Failed to create file:", err);
+      showToast("error", `Failed to create ${path}`);
     }
-  }, [activeProjectId]);
+  }, [activeProjectId, showToast]);
 
   const handleDeleteFile = useCallback(async (path: string) => {
     if (!activeProjectId) return;
     try {
       await api.deleteFile(activeProjectId, path);
       setFiles((prev) => prev.filter((f) => f.path !== path));
+      showToast("success", `Deleted ${path}`);
     } catch (err) {
       console.error("Failed to delete file:", err);
+      showToast("error", `Failed to delete ${path}`);
     }
-  }, [activeProjectId]);
+  }, [activeProjectId, showToast]);
 
   const handleRenameFile = useCallback(async (oldPath: string, newPath: string) => {
     if (!activeProjectId) return;
@@ -57,10 +67,12 @@ export function useFileSave(activeProjectId: string | null) {
           f.path === oldPath ? { ...f, path: newPath } : f,
         ),
       );
+      showToast("success", `Renamed to ${newPath}`);
     } catch (err) {
       console.error("Failed to rename file:", err);
+      showToast("error", `Failed to rename file`);
     }
-  }, [activeProjectId, files]);
+  }, [activeProjectId, files, showToast]);
 
   const handleFilesChange = useCallback((updatedFiles: ProjectFile[]) => {
     const pathsToMarkDirty: string[] = [];
@@ -90,8 +102,17 @@ export function useFileSave(activeProjectId: string | null) {
         const currentFiles = filesRef.current; // We need the latest file content
         const file = currentFiles.find((f) => f.path === path);
         if (!file) return;
+        setSaveStatus("saving");
         try {
           await api.upsertFile(activeProjectId!, path, file.content);
+          setSaveStatus("saved");
+          // Clear "saved" status after 2 seconds
+          if (savedTimerRef.current) clearTimeout(savedTimerRef.current);
+          savedTimerRef.current = setTimeout(() => {
+            setSaveStatus((prev) => (prev === "saved" ? "idle" : prev));
+          }, 2000);
+        } catch {
+          setSaveStatus("error");
         } finally {
           setDirtyFiles((prev) => {
             const next = new Set(prev);
@@ -109,6 +130,7 @@ export function useFileSave(activeProjectId: string | null) {
     files,
     setFiles,
     dirtyFiles,
+    saveStatus,
     handleFilesChange,
     handleAddFile,
     handleDeleteFile,

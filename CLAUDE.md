@@ -75,7 +75,10 @@ API docs: `http://localhost:8000/docs`
 | `frontend/src/app/lib/fileIcons.tsx` | File type icon utility (SVG icons by extension) |
 | `frontend/src/app/hooks/useProjects.ts` | Custom hook: project CRUD state management |
 | `frontend/src/app/hooks/useChat.ts` | Custom hook: chat messages, AI generation, WebSocket streaming |
-| `frontend/src/app/hooks/useFileSave.ts` | Custom hook: file state, debounced auto-save, dirty tracking |
+| `frontend/src/app/hooks/useFileSave.ts` | Custom hook: file state, debounced auto-save, dirty tracking, save status |
+| `frontend/src/app/hooks/useKeyboardShortcuts.ts` | Custom hook: global keyboard shortcuts (Ctrl+S, Escape, etc.) |
+| `frontend/src/app/components/Toast.tsx` | Toast notification system (provider + hook + component) |
+| `frontend/src/app/components/Skeleton.tsx` | Reusable skeleton loading components |
 | `docker-compose.yml` | 3-service Compose definition (backend, frontend, db) |
 | `backend/Dockerfile` | Python 3.12-slim image for FastAPI |
 | `frontend/Dockerfile` | Node 22-alpine image for Next.js |
@@ -179,6 +182,23 @@ The `.env` file lives at the **project root** (`./.env`) — not in `backend/`. 
 13. **Custom hooks refactor** — Extracted `useProjects`, `useChat`, and `useFileSave` hooks from `page.tsx`, reducing it from 430+ lines of mixed state logic to ~100 lines of orchestration code.
 14. **File type icons** — New `fileIcons.tsx` utility with inline SVG icons for common file extensions, used consistently in the file explorer.
 15. **Unsaved changes tracking** — Files with pending debounced saves show a blue dot indicator in the file explorer. The `dirtyFiles` set is cleared when switching projects.
+
+## Polish & DX Improvements (June 2026)
+
+1. **Toast notification system** — New `Toast.tsx` component with context-based `ToastProvider` and `useToast()` hook. Three types (success/error/info), auto-dismiss, slide-in animation. Wired into all hooks and components replacing `console.error` with user-visible feedback.
+2. **Global keyboard shortcuts** — New `useKeyboardShortcuts.ts` hook. `Ctrl+S` (save), `Escape` (close overlays), `Ctrl+B` (toggle sidebar), `Ctrl+Shift+E` (toggle explorer), `Ctrl+Shift+N` (new project).
+3. **Auto-save indicator** — `useFileSave` now returns `saveStatus` ("idle"/"saving"/"saved"/"error"). Project name bar shows spinner + "Saving...", checkmark + "Saved", or error icon + "Save failed".
+4. **Skeleton loading states** — New `Skeleton.tsx` with `SkeletonSidebar`, `SkeletonExplorer`, `SkeletonEditor`. Shown while data loads or Monaco initializes.
+5. **Minimal responsive layout** — Auto-detects mobile width (<768px), collapses side panels. Floating hamburger button. Sidebar and FileExplorer render as overlay panels with backdrop on mobile.
+6. **Accessibility** — Tree ARIA roles on file explorer, `aria-expanded`/`aria-controls` on sidebar toggle, `prefers-reduced-motion` disables animations, visible focus rings via `:focus-visible`.
+
+## New Files
+
+| File | Purpose |
+|---|---|
+| `frontend/src/app/components/Toast.tsx` | Toast notification system (provider + hook + component) |
+| `frontend/src/app/hooks/useKeyboardShortcuts.ts` | Global keyboard shortcut handler |
+| `frontend/src/app/components/Skeleton.tsx` | Reusable skeleton loading components |
 
 ## Bugs Fixed (44 total)
 

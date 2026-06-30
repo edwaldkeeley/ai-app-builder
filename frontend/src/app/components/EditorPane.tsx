@@ -4,6 +4,8 @@ import { useRef, useCallback, useState, useEffect } from "react";
 import Editor, { type OnMount } from "@monaco-editor/react";
 import type { editor } from "monaco-editor";
 import type { ProjectFile } from "../lib/types";
+import { SkeletonEditor } from "./Skeleton";
+import { useToast } from "./Toast";
 
 interface EditorPaneProps {
   files: ProjectFile[];
@@ -37,8 +39,9 @@ export default function EditorPane({
   const activeFilePathRef = useRef(activeFilePath);
   const [showNewFileInput, setShowNewFileInput] = useState(false);
   const [newFileName, setNewFileName] = useState("");
-  const [duplicateError, setDuplicateError] = useState<string | null>(null);
+  const [editorReady, setEditorReady] = useState(false);
   const newFileInputRef = useRef<HTMLInputElement>(null);
+  const { showToast } = useToast();
 
   // Keep refs in sync with props
   useEffect(() => {
@@ -56,6 +59,7 @@ export default function EditorPane({
   const handleEditorDidMount: OnMount = useCallback((editorInstance, monaco) => {
     editorRef.current = editorInstance;
     monacoRef.current = monaco;
+    setEditorReady(true);
 
     // Use refs to access latest props (avoids stale closure from [] deps)
     const currentFiles = filesRef.current;
@@ -112,7 +116,6 @@ export default function EditorPane({
   const handleAddFileClick = () => {
     setNewFileName("");
     setShowNewFileInput(true);
-    setDuplicateError(null);
     setTimeout(() => newFileInputRef.current?.focus(), 50);
   };
 
@@ -132,15 +135,13 @@ export default function EditorPane({
 
     // Check for duplicate
     if (files.some((f) => f.path === finalPath)) {
-      setDuplicateError(`File "${finalPath}" already exists`);
-      setTimeout(() => setDuplicateError(null), 2500);
+      showToast("error", `File "${finalPath}" already exists`);
       return;
     }
 
     onAddFile(finalPath);
     setNewFileName("");
     setShowNewFileInput(false);
-    setDuplicateError(null);
   };
 
   const handleNewFileKeyDown = (e: React.KeyboardEvent) => {
@@ -225,33 +226,29 @@ export default function EditorPane({
         </div>
       )}
 
-      {/* Duplicate file error */}
-      {duplicateError && (
-        <div className="px-3 py-1.5 bg-danger/10 border-b border-danger/20" role="alert" aria-live="assertive">
-          <span className="text-xs text-danger">{duplicateError}</span>
+      {/* Monaco editor with skeleton while loading */}
+      <div className="flex-1 min-h-0 relative">
+        {!editorReady && <SkeletonEditor />}
+        <div className={editorReady ? "absolute inset-0" : "invisible h-0"}>
+          <Editor
+            defaultLanguage={language}
+            language={language}
+            value={activeFile?.content ?? ""}
+            onChange={handleChange}
+            onMount={handleEditorDidMount}
+            theme="vs-dark"
+            options={{
+              fontSize: 13,
+              fontFamily: "var(--font-geist-mono), monospace",
+              minimap: { enabled: false },
+              scrollBeyondLastLine: false,
+              lineNumbers: "on",
+              tabSize: 2,
+              automaticLayout: true,
+              padding: { top: 8 },
+            }}
+          />
         </div>
-      )}
-
-      {/* Monaco editor */}
-      <div className="flex-1 min-h-0">
-        <Editor
-          defaultLanguage={language}
-          language={language}
-          value={activeFile?.content ?? ""}
-          onChange={handleChange}
-          onMount={handleEditorDidMount}
-          theme="vs-dark"
-          options={{
-            fontSize: 13,
-            fontFamily: "var(--font-geist-mono), monospace",
-            minimap: { enabled: false },
-            scrollBeyondLastLine: false,
-            lineNumbers: "on",
-            tabSize: 2,
-            automaticLayout: true,
-            padding: { top: 8 },
-          }}
-        />
       </div>
     </div>
   );
