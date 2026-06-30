@@ -124,6 +124,7 @@ New projects get boilerplate: `index.html`, `style.css`, `script.js`.
 - **Backend**: FastAPI + Pydantic v2 (use `model_dump()`, `model_validate()`). Singleton service pattern injected into `app.state`. UUIDs as strings.
 - **Database**: Raw SQL via `asyncpg` (no ORM). Append-only migrations in `app/db/migrations/`. Separate `files` table (not JSONB) for atomic single-file operations. JSONB columns require `json.dumps()` for inserts.
 - **AI**: Abstract BaseAIProvider + HttpAIProvider. OpenAI-compatible chat format (messages array). JWT bearer auth. Returns `(message, list[ProjectFile])` tuple. Parses `{"message": "...", "files": [...]}` from `choices[0].message.content`. System prompt tells model to preserve indentation/line breaks and use standard filenames.
+- **Figma**: OAuth 2.0 with `file_content:read` scope. Token endpoint: `https://api.figma.com/v1/oauth/token`. File listing (`/v1/me/files`) is enterprise-only — non-enterprise users paste file keys manually.
 - **Frontend**: Next.js 16 App Router, React 19, Tailwind CSS v4 syntax (`@import "tailwindcss"`, `@theme inline`), TypeScript, Monaco Editor, react-markdown + remark-gfm for AI message rendering.
 - **File type inference**: From extension — `.html`, `.css`, `.js`, `.json`, `.py`, or `other`.
 - **No tests yet** — add them when implementing new features.
@@ -193,11 +194,11 @@ The `.env` file lives at the **project root** (`./.env`) — not in `backend/`. 
 
 ## Figma OAuth Integration (June 2026)
 
-1. **Figma OAuth 2.0 flow** — Backend `FigmaService` handles auth URL generation, code exchange, token storage (DB-persisted), and refresh. Frontend `FigmaImport` component opens a popup, listens for `postMessage` callback, and transitions through connect/connected/importing states.
-2. **Figma file picker** — After authentication, users see a dropdown of their Figma files. Selecting a file and clicking "Import" triggers the backend to fetch the full Figma document JSON.
+1. **Figma OAuth 2.0 flow** — Backend `FigmaService` handles auth URL generation, code exchange, token storage (DB-persisted), and refresh. Uses `file_content:read` scope. Token endpoint: `https://api.figma.com/v1/oauth/token`. Frontend `FigmaImport` component opens a popup, listens for `postMessage` callback (checking origin against backend URL), and transitions through connect/connected/importing states.
+2. **Figma file picker** — After authentication, enterprise users see a dropdown of their Figma files. Non-enterprise users see a manual file key/URL input field (since `/v1/me/files` is enterprise-only).
 3. **Design-to-prompt converter** — `build_design_prompt()` walks the Figma document tree, extracts page names, element structure, colors (from SOLID fills), and fonts (from TEXT nodes), and builds a structured prompt for the AI.
 4. **AI-powered code generation from designs** — The import endpoint (`POST /api/figma/import`) feeds the design prompt into the existing AI generation pipeline, creating a new project with generated HTML/CSS that matches the Figma design.
-5. **UI placement** — Figma import button appears in two places: the landing page (below the prompt input, full UI with file picker) and the project name bar (icon button, toolbar variant).
+5. **UI placement** — Figma import button appears in two places: the landing page (below the prompt input, full UI with file picker or manual input) and the project name bar (icon button, toolbar variant).
 
 ## Polish & DX Improvements (June 2026)
 
