@@ -4,6 +4,7 @@ import { useState, useCallback, useRef, useEffect, useMemo } from "react";
 import type { Project, ProjectFile } from "../lib/types";
 import type { SaveStatus } from "../hooks/useFileSave";
 import EditorPane from "./EditorPane";
+import FigmaImport from "./FigmaImport";
 import LiveCanvas from "./LiveCanvas";
 
 type ViewMode = "preview" | "code" | "split";
@@ -192,6 +193,9 @@ export default function MainContent({
           {/* Spacer */}
           <div className="flex-1" />
 
+          {/* Figma import (toolbar variant) */}
+          <FigmaImport variant="toolbar" />
+
           {/* View mode toggle */}
           <div className="flex items-center gap-0.5 bg-surface rounded-lg p-0.5">
             {VIEW_BUTTONS.map(({ mode, label }) => (
@@ -297,6 +301,11 @@ export default function MainContent({
         <p className="text-xs text-text-secondary text-center">
           AI-generated code may not always be perfect. Review and test before using.
         </p>
+
+        {/* Figma import */}
+        <div className="w-full max-w-sm">
+          <FigmaImport variant="landing" />
+        </div>
       </div>
     </div>
   );

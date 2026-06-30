@@ -129,6 +129,24 @@ class FigmaAuthUrl(BaseModel):
     url: str
 
 
+class FigmaFile(BaseModel):
+    """A Figma file as returned by the file listing endpoint."""
+
+    key: str
+    name: str
+    last_modified: str | None = None
+    thumbnail_url: str | None = None
+
+
+class FigmaImportResponse(BaseModel):
+    """Response after importing a Figma design."""
+
+    project_id: UUID
+    project_name: str
+    message: str = ""
+    files: list[ProjectFile] = []
+
+
 # ── Export ─────────────────────────────────────────────────
 
 

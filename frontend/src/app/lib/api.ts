@@ -1,4 +1,4 @@
-import type { ChatMessageSchema, GenerateResponse, Project, ProjectDetail, ProjectFile, SandboxState } from "./types";
+import type { ChatMessageSchema, FigmaFile, FigmaImportResponse, FigmaStatus, GenerateResponse, Project, ProjectDetail, ProjectFile, SandboxState } from "./types";
 
 const BASE = process.env.NEXT_PUBLIC_API_URL || "http://localhost:8000";
 const WS_BASE = process.env.NEXT_PUBLIC_WS_URL || "ws://localhost:8000";
@@ -186,6 +186,27 @@ export const api = {
     return request(`/api/projects/${projectId}/chat`, {
       method: "POST",
       body: JSON.stringify({ role, content, files: files || [] }),
+    });
+  },
+
+  // ── Figma ─────────────────────────────────────────────────
+
+  getFigmaAuthUrl(): Promise<{ url: string }> {
+    return request("/api/figma/auth-url");
+  },
+
+  getFigmaStatus(): Promise<FigmaStatus> {
+    return request("/api/figma/status");
+  },
+
+  listFigmaFiles(): Promise<{ files: FigmaFile[] }> {
+    return request("/api/figma/files");
+  },
+
+  importFigmaFile(fileKey: string): Promise<FigmaImportResponse> {
+    return request("/api/figma/import", {
+      method: "POST",
+      body: JSON.stringify({ figma_file_key: fileKey }),
     });
   },
 

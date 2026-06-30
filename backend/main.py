@@ -25,8 +25,9 @@ if str(_backend_dir) not in sys.path:
 
 from app.config import settings  # noqa: E402
 from app.db.database import close_pool, init_pool, run_migrations  # noqa: E402
-from app.routers import ai, chat, projects, sandbox  # noqa: E402
+from app.routers import ai, chat, figma, projects, sandbox  # noqa: E402
 from app.services.ai_service import create_provider  # noqa: E402
+from app.services.figma_service import FigmaService  # noqa: E402
 from app.services.project_service import ProjectService  # noqa: E402
 
 
@@ -46,6 +47,7 @@ async def lifespan(app: FastAPI):
     app.state.project_service = svc
 
     # Validate AI config (non-fatal — warns if not set)
+    provider = None
     try:
         settings.validate_ai_config()
         provider = create_provider()
@@ -55,6 +57,15 @@ async def lifespan(app: FastAPI):
     except ValueError as e:
         print(f"  [AI] {e}")
         print(f"  [AI] AI generation endpoint will return 503 until configured.")
+
+    # Initialise Figma service
+    figma_svc = FigmaService()
+    figma.set_dependencies(figma_svc, provider, svc)
+    app.state.figma_service = figma_svc
+    if settings.figma_client_id:
+        print(f"  [Figma] OAuth configured")
+    else:
+        print(f"  [Figma] FIGMA_CLIENT_ID not set — OAuth disabled")
 
     print(f"  [START] {settings.app_name} running at http://{settings.host}:{settings.port}")
     print(f"  [DB] Connected to PostgreSQL")
@@ -84,6 +95,7 @@ app.include_router(projects.router)
 app.include_router(sandbox.router)
 app.include_router(ai.router)
 app.include_router(chat.router)
+app.include_router(figma.router)
 
 
 @app.get("/api/health")

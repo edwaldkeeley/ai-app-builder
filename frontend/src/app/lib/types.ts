@@ -53,3 +53,23 @@ export interface ChatMessageSchema {
   files: ProjectFile[];
   created_at: string;
 }
+
+// ── Figma ──────────────────────────────────────────────────
+
+export interface FigmaFile {
+  key: string;
+  name: string;
+  last_modified?: string;
+  thumbnail_url?: string;
+}
+
+export interface FigmaStatus {
+  connected: boolean;
+}
+
+export interface FigmaImportResponse {
+  project_id: string;
+  project_name: string;
+  message: string;
+  files: ProjectFile[];
+}
