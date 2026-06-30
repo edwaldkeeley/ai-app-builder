@@ -273,7 +273,7 @@ export default function MainContent({
             onKeyDown={handleLandingKeyDown}
             placeholder="e.g. Build a landing page with a hero section..."
             disabled={generating}
-            className="flex-1 bg-transparent text-sm text-foreground placeholder-text-secondary resize-none outline-none max-h-[200px]"
+            className="flex-1 bg-transparent text-sm text-foreground placeholder-text-secondary resize-none outline-none focus-visible:outline-none max-h-[200px]"
           />
           <button
             onClick={handleLandingSend}

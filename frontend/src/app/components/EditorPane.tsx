@@ -106,11 +106,13 @@ export default function EditorPane({
 
   const handleChange = useCallback(
     (value: string | undefined) => {
-      if (activeFile && value !== undefined) {
-        onFileContentChange(activeFile.path, value);
-      }
+      if (value === undefined) return;
+      // Use ref to always read the latest active file path (avoids stale closure)
+      const path = activeFilePathRef.current;
+      if (!path) return;
+      onFileContentChange(path, value);
     },
-    [activeFile, onFileContentChange],
+    [onFileContentChange],
   );
 
   const handleAddFileClick = () => {

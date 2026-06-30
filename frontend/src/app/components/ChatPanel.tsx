@@ -164,7 +164,7 @@ export default function ChatPanel({
             placeholder="Describe what you want to build..."
             rows={1}
             disabled={disabled || generating}
-            className="flex-1 bg-transparent text-sm text-foreground placeholder-text-secondary resize-none outline-none max-h-[200px]"
+            className="flex-1 bg-transparent text-sm text-foreground placeholder-text-secondary resize-none outline-none focus-visible:outline-none max-h-[200px]"
           />
           <button
             onClick={handleSend}

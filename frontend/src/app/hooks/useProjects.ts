@@ -1,6 +1,6 @@
 "use client";
 
-import { useState, useCallback, useEffect } from "react";
+import { useState, useCallback, useEffect, useRef } from "react";
 import { api } from "../lib/api";
 import type { Project } from "../lib/types";
 import { useToast } from "../components/Toast";
@@ -13,12 +13,14 @@ export function useProjects() {
   const [creating, setCreating] = useState(false);
   const [deleting, setDeleting] = useState<string | null>(null);
   const { showToast } = useToast();
+  const projectCounterRef = useRef(0);
 
   const fetchProjects = useCallback(async () => {
     try {
       setError(null);
       const data = await api.listProjects();
       setProjects(data);
+      projectCounterRef.current = data.length;
     } catch (err) {
       const msg = err instanceof Error ? err.message : "Failed to connect to server";
       setError(msg);
@@ -36,7 +38,8 @@ export function useProjects() {
     if (creating) return;
     setCreating(true);
     try {
-      const project = await api.createProject(`Project ${projects.length + 1}`);
+      const count = ++projectCounterRef.current;
+      const project = await api.createProject(`Project ${count}`);
       const projectSummary: Project = {
         id: project.id,
         name: project.name,
@@ -58,24 +61,24 @@ export function useProjects() {
     } finally {
       setCreating(false);
     }
-  }, [creating, projects.length, showToast]);
+  }, [creating, showToast]);
 
   const handleDeleteProject = useCallback(async (id: string) => {
     if (deleting) return;
     setDeleting(id);
     try {
       await api.deleteProject(id);
-      const deletedName = projects.find((p) => p.id === id)?.name || "Project";
-      setProjects((prev) => {
-        const updated = prev.filter((p) => p.id !== id);
-        setActiveProjectId((current) => {
-          if (current === id) {
-            return updated[0]?.id ?? null;
-          }
-          return current;
-        });
-        return updated;
+      setProjects((prev) => prev.filter((p) => p.id !== id));
+      // Update active project if the deleted one was active
+      setActiveProjectId((current) => {
+        if (current === id) {
+          // Find the next project to select
+          const remaining = projects.filter((p) => p.id !== id);
+          return remaining[0]?.id ?? null;
+        }
+        return current;
       });
+      const deletedName = projects.find((p) => p.id === id)?.name || "Project";
       showToast("success", `Deleted "${deletedName}"`);
     } catch (err) {
       const msg = err instanceof Error ? err.message : "Failed to delete project";
