@@ -41,6 +41,8 @@ services:
       TARGET_URL: "${TARGET_URL}"
       JWT_TOKEN: "${JWT_TOKEN}"
       MODEL: "${MODEL}"
+      FIGMA_CLIENT_ID: "${FIGMA_CLIENT_ID}"
+      FIGMA_CLIENT_SECRET: "${FIGMA_CLIENT_SECRET}"
 
   frontend:
     build:

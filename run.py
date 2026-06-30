@@ -24,7 +24,7 @@ def start_backend():
             sys.executable,
             "-m",
             "uvicorn",
-            "backend.main:app",
+            "main:app",
             "--host",
             settings.host,
             "--port",
