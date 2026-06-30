@@ -31,18 +31,19 @@ export default function FigmaImport({ onImportComplete, variant = "landing" }: F
   // Listen for OAuth callback from popup window
   useEffect(() => {
     const handleMessage = (event: MessageEvent) => {
-      if (event.data?.type === "figma-oauth") {
-        const query = event.data.query || "";
-        if (query.includes("figma=connected")) {
-          setState("connected");
-          showToast("success", "Connected to Figma");
-          loadFigmaFiles();
-        } else if (query.includes("figma=error")) {
-          const msg = query.match(/message=([^&]*)/)?.[1] || "Authentication failed";
-          setState("error");
-          setErrorMsg(decodeURIComponent(msg));
-          showToast("error", "Figma connection failed");
-        }
+      // Security: only accept messages from our own origin
+      if (event.origin !== window.origin) return;
+      if (event.data?.type !== "figma-oauth") return;
+
+      if (event.data.status === "connected") {
+        setState("connected");
+        showToast("success", "Connected to Figma");
+        loadFigmaFiles();
+      } else if (event.data.status === "error") {
+        const msg = event.data.message || "Authentication failed";
+        setState("error");
+        setErrorMsg(msg);
+        showToast("error", "Figma connection failed");
       }
     };
     window.addEventListener("message", handleMessage);

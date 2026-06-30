@@ -67,9 +67,3 @@ export interface FigmaStatus {
   connected: boolean;
 }
 
-export interface FigmaImportResponse {
-  project_id: string;
-  project_name: string;
-  message: string;
-  files: ProjectFile[];
-}

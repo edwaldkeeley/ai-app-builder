@@ -1,4 +1,4 @@
-import type { ChatMessageSchema, FigmaFile, FigmaImportResponse, FigmaStatus, GenerateResponse, Project, ProjectDetail, ProjectFile, SandboxState } from "./types";
+import type { ChatMessageSchema, FigmaFile, FigmaStatus, GenerateResponse, Project, ProjectDetail, ProjectFile, SandboxState } from "./types";
 
 const BASE = process.env.NEXT_PUBLIC_API_URL || "http://localhost:8000";
 const WS_BASE = process.env.NEXT_PUBLIC_WS_URL || "ws://localhost:8000";
@@ -203,7 +203,7 @@ export const api = {
     return request("/api/figma/files");
   },
 
-  importFigmaFile(fileKey: string): Promise<FigmaImportResponse> {
+  importFigmaFile(fileKey: string): Promise<GenerateResponse> {
     return request("/api/figma/import", {
       method: "POST",
       body: JSON.stringify({ figma_file_key: fileKey }),

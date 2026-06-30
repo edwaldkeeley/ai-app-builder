@@ -138,13 +138,6 @@ class FigmaFile(BaseModel):
     thumbnail_url: str | None = None
 
 
-class FigmaImportResponse(BaseModel):
-    """Response after importing a Figma design."""
-
-    project_id: UUID
-    project_name: str
-    message: str = ""
-    files: list[ProjectFile] = []
 
 
 # ── Export ─────────────────────────────────────────────────

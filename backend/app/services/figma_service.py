@@ -7,19 +7,24 @@ the existing AI generation pipeline.
 
 from __future__ import annotations
 
-import json
+import logging
 import secrets
 from typing import Any
+from urllib.parse import urlencode
 
 import httpx
 
 from app.config import settings
 from app.db.database import acquire_with_retry, get_pool
 
+logger = logging.getLogger(__name__)
+
 FIGMA_OAUTH_URL = "https://www.figma.com/oauth"
 FIGMA_API_URL = "https://api.figma.com/v1"
 FIGMA_TOKEN_URL = "https://www.figma.com/api/oauth/token"
 FIGMA_SCOPE = "file_read"
+
+_MAX_WALK_DEPTH = 200
 
 
 class FigmaService:
@@ -33,6 +38,7 @@ class FigmaService:
     def __init__(self) -> None:
         self._access_token: str | None = None
         self._refresh_token: str | None = None
+        self._oauth_state: str | None = None
 
     # ── Token management ──────────────────────────────────────
 
@@ -59,7 +65,6 @@ class FigmaService:
         pool = get_pool()
         conn = await acquire_with_retry(pool)
         try:
-            # Upsert: clear existing rows, insert new one
             async with conn.transaction():
                 await conn.execute("DELETE FROM figma_tokens")
                 await conn.execute(
@@ -85,26 +90,56 @@ class FigmaService:
         """Check if we have a valid access token."""
         return self._access_token is not None
 
+    async def ensure_connected(self) -> bool:
+        """Ensure we have a valid token, attempting refresh if needed.
+
+        Returns True if connected, False if not (caller should tell user to re-auth).
+        """
+        if self._access_token:
+            return True
+        # Try loading from DB
+        await self.load_tokens()
+        if self._access_token:
+            return True
+        # Try refreshing if we have a refresh token
+        if self._refresh_token:
+            try:
+                await self.refresh_access_token()
+                return True
+            except Exception:
+                await self.clear_tokens()
+                return False
+        return False
+
     # ── OAuth flow ────────────────────────────────────────────
 
     def get_auth_url(self) -> str:
-        """Build the Figma OAuth authorization URL."""
-        state = secrets.token_urlsafe(32)
+        """Build the Figma OAuth authorization URL with CSRF state."""
+        self._oauth_state = secrets.token_urlsafe(32)
         params = {
             "client_id": settings.figma_client_id,
             "redirect_uri": settings.figma_redirect_uri,
             "scope": FIGMA_SCOPE,
-            "state": state,
+            "state": self._oauth_state,
             "response_type": "code",
         }
-        query = "&".join(f"{k}={v}" for k, v in params.items())
-        return f"{FIGMA_OAUTH_URL}?{query}"
+        return f"{FIGMA_OAUTH_URL}?{urlencode(params)}"
+
+    def validate_oauth_state(self, state: str | None) -> bool:
+        """Validate the OAuth state parameter to prevent CSRF attacks.
+
+        Returns True if the state matches the one we issued.
+        """
+        if not state or not self._oauth_state:
+            return False
+        return secrets.compare_digest(self._oauth_state, state)
 
     async def exchange_code(self, code: str) -> dict[str, Any]:
         """Exchange an authorization code for access and refresh tokens.
 
         Returns the parsed JSON response from Figma's token endpoint.
         Automatically persists the tokens on success.
+        Raises RuntimeError if the response does not contain an access token.
         """
         data = {
             "client_id": settings.figma_client_id,
@@ -119,9 +154,15 @@ class FigmaService:
             result = response.json()
 
         access_token = result.get("access_token")
+        if not access_token:
+            raise RuntimeError(
+                "Figma token exchange succeeded but no access_token in response"
+            )
+
         refresh_token = result.get("refresh_token")
-        if access_token:
-            await self._save_tokens(access_token, refresh_token)
+        await self._save_tokens(access_token, refresh_token)
+        # Clear the stored state after successful exchange
+        self._oauth_state = None
 
         return result
 
@@ -142,9 +183,11 @@ class FigmaService:
             result = response.json()
 
         access_token = result.get("access_token")
+        if not access_token:
+            raise RuntimeError("Token refresh succeeded but no access_token in response")
+
         refresh_token = result.get("refresh_token") or self._refresh_token
-        if access_token:
-            await self._save_tokens(access_token, refresh_token)
+        await self._save_tokens(access_token, refresh_token)
 
         return result
 
@@ -164,7 +207,11 @@ class FigmaService:
             return response.json()
 
     async def get_files(self) -> list[dict[str, Any]]:
-        """List the user's Figma files and projects."""
+        """List the user's Figma files and projects.
+
+        Note: This endpoint may require an enterprise Figma account.
+        Non-enterprise users will receive a 403/404.
+        """
         async with httpx.AsyncClient(timeout=30) as client:
             response = await client.get(
                 f"{FIGMA_API_URL}/me/files",
@@ -205,7 +252,15 @@ class FigmaService:
         The prompt is designed to be fed into the existing AI generation pipeline
         so the AI can produce HTML/CSS that matches the Figma design.
         """
-        document = file_data.get("document", {})
+        document = file_data.get("document")
+        if not document or not isinstance(document, dict):
+            return (
+                "Convert this Figma design to HTML/CSS code. "
+                "The design data could not be fully parsed, so create a "
+                "beautiful, responsive web page based on the design name: "
+                f"{file_data.get('name', 'Untitled Design')}."
+            )
+
         name = file_data.get("name", "Untitled Design")
         pages = []
         colors: set[str] = set()
@@ -213,6 +268,8 @@ class FigmaService:
         elements: list[str] = []
 
         def walk_nodes(node: dict[str, Any], depth: int = 0) -> None:
+            if depth > _MAX_WALK_DEPTH:
+                return
             node_type = node.get("type", "UNKNOWN")
             node_name = node.get("name", "")
             if depth <= 2 and node_type not in ("DOCUMENT", "CANVAS"):
@@ -250,8 +307,8 @@ class FigmaService:
 
         # Build the prompt
         prompt_parts = [
-            f"Convert this Figma design to HTML/CSS code.",
-            f"",
+            "Convert this Figma design to HTML/CSS code.",
+            "",
             f"Design name: {name}",
         ]
 
@@ -259,19 +316,19 @@ class FigmaService:
             prompt_parts.append(f"Pages: {', '.join(pages)}")
 
         if elements:
-            prompt_parts.append(f"")
+            prompt_parts.append("")
             prompt_parts.append("Design structure:")
-            prompt_parts.extend(elements[:50])  # Limit to 50 elements
+            prompt_parts.extend(elements[:50])
 
         if colors:
-            prompt_parts.append(f"")
+            prompt_parts.append("")
             prompt_parts.append(f"Color palette: {', '.join(sorted(colors)[:20])}")
 
         if fonts:
-            prompt_parts.append(f"")
+            prompt_parts.append("")
             prompt_parts.append(f"Typography: {', '.join(sorted(fonts)[:10])}")
 
-        prompt_parts.append(f"")
+        prompt_parts.append("")
         prompt_parts.append(
             "Create a complete, responsive web page that matches this design. "
             "Use semantic HTML5, modern CSS (flexbox/grid), and ensure the layout "
