@@ -116,13 +116,16 @@ class FigmaService:
     def get_auth_url(self) -> str:
         """Build the Figma OAuth authorization URL with CSRF state."""
         self._oauth_state = secrets.token_urlsafe(32)
+        # Normalize redirect URI: strip trailing slash to avoid mismatch
+        redirect_uri = settings.figma_redirect_uri.rstrip("/")
         params = {
             "client_id": settings.figma_client_id,
-            "redirect_uri": settings.figma_redirect_uri,
+            "redirect_uri": redirect_uri,
             "scope": FIGMA_SCOPE,
             "state": self._oauth_state,
             "response_type": "code",
         }
+        logger.info("Figma OAuth URL built with redirect_uri=%s", redirect_uri)
         return f"{FIGMA_OAUTH_URL}?{urlencode(params)}"
 
     def validate_oauth_state(self, state: str | None) -> bool:
@@ -141,10 +144,11 @@ class FigmaService:
         Automatically persists the tokens on success.
         Raises RuntimeError if the response does not contain an access token.
         """
+        redirect_uri = settings.figma_redirect_uri.rstrip("/")
         data = {
             "client_id": settings.figma_client_id,
             "client_secret": settings.figma_client_secret,
-            "redirect_uri": settings.figma_redirect_uri,
+            "redirect_uri": redirect_uri,
             "code": code,
             "grant_type": "authorization_code",
         }
