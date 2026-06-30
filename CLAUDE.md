@@ -8,7 +8,7 @@ AI-powered design-to-code platform. Users describe what they want in natural lan
 
 - **Phase 1 (Complete)**: Backend — FastAPI with project CRUD, sandbox file operations, PostgreSQL persistence via raw SQL, AI engine with OpenAI-compatible HTTP provider.
 - **Phase 2 (Complete)**: Frontend — ChatGPT-inspired layout with centered chat landing page, Monaco editor, live canvas iframe preview, sidebar toggles between project list and chat. All 44 bugs (18 critical + 26 medium/low) from frontend and backend audits fixed.
-- **Phase 3 (Not Started)**: Polish, testing, Figma integration, ZIP export, design upload.
+- **Phase 3 (In Progress)**: Figma OAuth integration (complete), ZIP export, design upload, testing.
 
 ## Architecture
 
@@ -59,8 +59,10 @@ API docs: `http://localhost:8000/docs`
 | `backend/app/routers/sandbox.py` | File ops: `/api/sandbox` |
 | `backend/app/routers/ai.py` | `POST /api/ai/generate` — AI code generation |
 | `backend/app/routers/chat.py` | `GET/POST /api/projects/{id}/chat` — Chat message persistence |
+| `backend/app/routers/figma.py` | Figma OAuth + file listing + design import endpoints |
 | `backend/app/services/project_service.py` | PostgreSQL-backed project + file + chat message management (asyncpg) |
 | `backend/app/services/ai_service.py` | Abstract BaseAIProvider + HttpAIProvider (OpenAI-compatible) |
+| `backend/app/services/figma_service.py` | Figma OAuth flow + REST API client + design prompt builder |
 | `backend/app/db/database.py` | asyncpg pool manager + migration runner |
 | `backend/app/db/migrations/` | Append-only SQL migration files |
 | `frontend/src/app/page.tsx` | Main page — orchestrates sidebar, main content, chat state, API calls |
@@ -70,6 +72,7 @@ API docs: `http://localhost:8000/docs`
 | `frontend/src/app/components/EditorPane.tsx` | Monaco editor with model-based tab switching (preserves undo history) |
 | `frontend/src/app/components/FileExplorer.tsx` | VS Code-style file tree with directory structure, icons, rename/delete/new file |
 | `frontend/src/app/components/LiveCanvas.tsx` | Sandboxed iframe preview with per-file CSS/JS inlining |
+| `frontend/src/app/components/FigmaImport.tsx` | Figma OAuth popup + file picker + import UI (landing/toolbar variants) |
 | `frontend/src/app/lib/api.ts` | Typed API client |
 | `frontend/src/app/lib/types.ts` | Shared TypeScript interfaces |
 | `frontend/src/app/lib/fileIcons.tsx` | File type icon utility (SVG icons by extension) |
@@ -100,6 +103,11 @@ API docs: `http://localhost:8000/docs`
 | POST | `/api/ai/generate` | Generate code from prompt (returns message + files) |
 | GET | `/api/projects/{id}/chat` | Get chat messages for a project |
 | POST | `/api/projects/{id}/chat` | Save a chat message |
+| GET | `/api/figma/auth-url` | Get Figma OAuth authorization URL |
+| GET | `/api/figma/callback` | OAuth callback handler (exchanges code, closes popup) |
+| GET | `/api/figma/status` | Check Figma connection status |
+| GET | `/api/figma/files` | List user's Figma files |
+| POST | `/api/figma/import` | Import Figma design → AI generates code |
 
 ## Data Model
 
@@ -183,6 +191,14 @@ The `.env` file lives at the **project root** (`./.env`) — not in `backend/`. 
 14. **File type icons** — New `fileIcons.tsx` utility with inline SVG icons for common file extensions, used consistently in the file explorer.
 15. **Unsaved changes tracking** — Files with pending debounced saves show a blue dot indicator in the file explorer. The `dirtyFiles` set is cleared when switching projects.
 
+## Figma OAuth Integration (June 2026)
+
+1. **Figma OAuth 2.0 flow** — Backend `FigmaService` handles auth URL generation, code exchange, token storage (DB-persisted), and refresh. Frontend `FigmaImport` component opens a popup, listens for `postMessage` callback, and transitions through connect/connected/importing states.
+2. **Figma file picker** — After authentication, users see a dropdown of their Figma files. Selecting a file and clicking "Import" triggers the backend to fetch the full Figma document JSON.
+3. **Design-to-prompt converter** — `build_design_prompt()` walks the Figma document tree, extracts page names, element structure, colors (from SOLID fills), and fonts (from TEXT nodes), and builds a structured prompt for the AI.
+4. **AI-powered code generation from designs** — The import endpoint (`POST /api/figma/import`) feeds the design prompt into the existing AI generation pipeline, creating a new project with generated HTML/CSS that matches the Figma design.
+5. **UI placement** — Figma import button appears in two places: the landing page (below the prompt input, full UI with file picker) and the project name bar (icon button, toolbar variant).
+
 ## Polish & DX Improvements (June 2026)
 
 1. **Toast notification system** — New `Toast.tsx` component with context-based `ToastProvider` and `useToast()` hook. Three types (success/error/info), auto-dismiss, slide-in animation. Wired into all hooks and components replacing `console.error` with user-visible feedback.
@@ -199,6 +215,10 @@ The `.env` file lives at the **project root** (`./.env`) — not in `backend/`. 
 | `frontend/src/app/components/Toast.tsx` | Toast notification system (provider + hook + component) |
 | `frontend/src/app/hooks/useKeyboardShortcuts.ts` | Global keyboard shortcut handler |
 | `frontend/src/app/components/Skeleton.tsx` | Reusable skeleton loading components |
+| `backend/app/services/figma_service.py` | Figma OAuth + API client + design prompt builder |
+| `backend/app/routers/figma.py` | Figma OAuth + import endpoints |
+| `backend/app/db/migrations/003_create_figma_tokens.sql` | Figma OAuth token storage |
+| `frontend/src/app/components/FigmaImport.tsx` | Figma import UI (OAuth popup + file picker) |
 
 ## Bugs Fixed (44 total)
 
@@ -286,12 +306,14 @@ After the 44-bug fix session, a full project audit was performed. **20 items** f
 **Root cause**: `pool.acquire()` had no timeout — blocks forever when all connections are busy or DB is unreachable.
 **Fix**: Added `timeout=10` to `create_pool()`, `pool.acquire()` in `acquire_with_retry()`, and `pool.acquire()` in `run_migrations()`. Server now fails fast (~15s) instead of hanging indefinitely.
 
-## Phase 3 (Not Started)
+## Phase 3 (In Progress)
 
-The following features are planned for Phase 3:
-- Figma OAuth integration
+### Completed
+- **Figma OAuth integration** — Full OAuth 2.0 flow with popup, file picker, and design-to-prompt import. See [[figma-oauth-integration-june-2026]] in memory for details.
+
+### Not Started
 - ZIP export endpoint
-- Design Upload, Figma Import, Download Button
+- Design Upload, Download Button
 
 ## Dependencies
 
