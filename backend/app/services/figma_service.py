@@ -21,7 +21,7 @@ logger = logging.getLogger(__name__)
 
 FIGMA_OAUTH_URL = "https://www.figma.com/oauth"
 FIGMA_API_URL = "https://api.figma.com/v1"
-FIGMA_TOKEN_URL = "https://www.figma.com/api/oauth/token"
+FIGMA_TOKEN_URL = "https://api.figma.com/v1/oauth/token"
 FIGMA_SCOPE = "file_content:read"
 
 _MAX_WALK_DEPTH = 200
