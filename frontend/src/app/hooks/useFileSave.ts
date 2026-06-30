@@ -58,7 +58,8 @@ export function useFileSave(activeProjectId: string | null) {
   const handleRenameFile = useCallback(async (oldPath: string, newPath: string) => {
     if (!activeProjectId) return;
     try {
-      const oldFile = files.find((f) => f.path === oldPath);
+      const currentFiles = filesRef.current;
+      const oldFile = currentFiles.find((f) => f.path === oldPath);
       if (!oldFile) return;
       await api.upsertFile(activeProjectId, newPath, oldFile.content);
       await api.deleteFile(activeProjectId, oldPath);
@@ -72,7 +73,7 @@ export function useFileSave(activeProjectId: string | null) {
       console.error("Failed to rename file:", err);
       showToast("error", `Failed to rename file`);
     }
-  }, [activeProjectId, files, showToast]);
+  }, [activeProjectId, showToast]);
 
   const handleFilesChange = useCallback((updatedFiles: ProjectFile[]) => {
     const pathsToMarkDirty: string[] = [];

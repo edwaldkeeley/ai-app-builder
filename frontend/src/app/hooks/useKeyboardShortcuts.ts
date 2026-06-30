@@ -1,8 +1,8 @@
 "use client";
 
-import { useEffect } from "react";
+import { useEffect, useRef } from "react";
 
-interface ShortcutHandlers {
+export interface ShortcutHandlers {
   onSave?: () => void;
   onEscape?: () => void;
   onToggleSidebar?: () => void;
@@ -15,63 +15,73 @@ interface ShortcutHandlers {
 /**
  * Global keyboard shortcuts hook.
  * Registers keydown listeners on the document and calls the provided handlers.
+ * Uses a ref to avoid re-registering the listener on every render.
  * All handlers are optional — only register the ones you need.
  */
 export function useKeyboardShortcuts(handlers: ShortcutHandlers) {
+  const handlersRef = useRef(handlers);
+
+  // Sync ref with latest handlers (in effect, not during render)
+  useEffect(() => {
+    handlersRef.current = handlers;
+  });
+
   useEffect(() => {
     const handleKeyDown = (e: KeyboardEvent) => {
+      const h = handlersRef.current;
       const isMod = e.ctrlKey || e.metaKey;
+      const key = e.key.toLowerCase();
 
       // Ctrl+S / Cmd+S — Save
-      if (isMod && e.key === "s") {
+      if (isMod && key === "s") {
         e.preventDefault();
-        handlers.onSave?.();
+        h.onSave?.();
         return;
       }
 
       // Escape — Close panels / cancel
       if (e.key === "Escape") {
-        handlers.onEscape?.();
+        h.onEscape?.();
         return;
       }
 
       // Ctrl+B / Cmd+B — Toggle sidebar
-      if (isMod && e.key === "b") {
+      if (isMod && key === "b") {
         e.preventDefault();
-        handlers.onToggleSidebar?.();
+        h.onToggleSidebar?.();
         return;
       }
 
       // Ctrl+Shift+E — Toggle file explorer
-      if (isMod && e.shiftKey && e.key === "E") {
+      if (isMod && e.shiftKey && key === "e") {
         e.preventDefault();
-        handlers.onToggleExplorer?.();
+        h.onToggleExplorer?.();
         return;
       }
 
       // Ctrl+Shift+P — Cycle view mode (Preview → Code → Split)
-      if (isMod && e.shiftKey && e.key === "P") {
+      if (isMod && e.shiftKey && key === "p") {
         e.preventDefault();
-        handlers.onToggleViewMode?.();
+        h.onToggleViewMode?.();
         return;
       }
 
       // Ctrl+Shift+N — New project
-      if (isMod && e.shiftKey && e.key === "N") {
+      if (isMod && e.shiftKey && key === "n") {
         e.preventDefault();
-        handlers.onNewProject?.();
+        h.onNewProject?.();
         return;
       }
 
       // Ctrl+Shift+F — Focus prompt input
-      if (isMod && e.shiftKey && e.key === "F") {
+      if (isMod && e.shiftKey && key === "f") {
         e.preventDefault();
-        handlers.onFocusPrompt?.();
+        h.onFocusPrompt?.();
         return;
       }
     };
 
     document.addEventListener("keydown", handleKeyDown);
     return () => document.removeEventListener("keydown", handleKeyDown);
-  }, [handlers]);
+  }, []); // Empty deps — handlers read from ref, so no re-registration needed
 }
