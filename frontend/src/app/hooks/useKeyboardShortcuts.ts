@@ -32,10 +32,10 @@ export function useKeyboardShortcuts(handlers: ShortcutHandlers) {
       const isMod = e.ctrlKey || e.metaKey;
       const key = e.key.toLowerCase();
 
-      // Ctrl+S / Cmd+S — Save
-      if (isMod && key === "s") {
+      // Ctrl+S / Cmd+S — Save (only suppress if handler is registered)
+      if (isMod && key === "s" && h.onSave) {
         e.preventDefault();
-        h.onSave?.();
+        h.onSave();
         return;
       }
 

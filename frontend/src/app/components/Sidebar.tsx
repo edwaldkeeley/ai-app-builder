@@ -1,6 +1,6 @@
 "use client";
 
-import { useState } from "react";
+import { useState, useEffect, useRef } from "react";
 import type { ChatMessage, Project } from "../lib/types";
 import type { WritingStatus } from "../hooks/useChat";
 import ChatPanel from "./ChatPanel";
@@ -42,10 +42,42 @@ export default function Sidebar({
   onBackToProjects,
   loading,
   isMobile,
+  showMobileSidebar,
   onCloseMobileSidebar,
 }: SidebarProps) {
   const [collapsed, setCollapsed] = useState(false);
   const [confirmDelete, setConfirmDelete] = useState<string | null>(null);
+  const sidebarRef = useRef<HTMLDivElement>(null);
+
+  // Trap focus inside mobile sidebar overlay
+  useEffect(() => {
+    if (!isMobile || !showMobileSidebar) return;
+    const el = sidebarRef.current;
+    if (!el) return;
+    const focusable = el.querySelectorAll<HTMLElement>(
+      'button, [href], input, select, textarea, [tabindex]:not([tabindex="-1"])',
+    );
+    const first = focusable[0];
+    const last = focusable[focusable.length - 1];
+    const handleTab = (e: KeyboardEvent) => {
+      if (e.key !== "Tab") return;
+      if (e.shiftKey) {
+        if (document.activeElement === first) {
+          e.preventDefault();
+          last?.focus();
+        }
+      } else {
+        if (document.activeElement === last) {
+          e.preventDefault();
+          first?.focus();
+        }
+      }
+    };
+    document.addEventListener("keydown", handleTab);
+    // Focus the first focusable element
+    first?.focus();
+    return () => document.removeEventListener("keydown", handleTab);
+  }, [isMobile, showMobileSidebar]);
 
   const handleDelete = (id: string) => {
     if (confirmDelete === id) {
@@ -68,7 +100,7 @@ export default function Sidebar({
           aria-hidden="true"
         />
         {/* Overlay panel */}
-        <div className="fixed inset-y-0 left-0 z-50 shadow-xl">
+        <div ref={sidebarRef} className="fixed inset-y-0 left-0 z-50 shadow-xl">
           {content}
         </div>
       </>

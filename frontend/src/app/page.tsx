@@ -57,9 +57,13 @@ export default function Home() {
   const [isMobile, setIsMobile] = useState(false);
   const [showMobileSidebar, setShowMobileSidebar] = useState(false);
   const filesRef = useRef(files);
+  const activeProjectIdRef = useRef(activeProjectId);
   useEffect(() => {
     filesRef.current = files;
   }, [files]);
+  useEffect(() => {
+    activeProjectIdRef.current = activeProjectId;
+  }, [activeProjectId]);
 
   // Load chat messages when a project is selected
   // NOTE: generating is intentionally excluded from deps — including it would
@@ -142,19 +146,19 @@ export default function Home() {
   const handlePrompt = useCallback(async (prompt: string) => {
     if (generating) return;
 
-    let projectId = activeProjectId;
+    // Use ref to avoid stale closure on activeProjectId
+    let projectId = activeProjectIdRef.current;
     if (!projectId) {
       const project = await handleNewProject();
       if (!project) return;
       projectId = project.id;
-      setFiles(project.files);
       setChatMode(true);
     }
 
     if (!projectId) return;
     // Use ref to avoid stale closure on files (which changes on every keystroke)
     generate(prompt, projectId, filesRef.current, setFiles, fetchProjects, setError);
-  }, [generating, activeProjectId, handleNewProject, setFiles, setChatMode, fetchProjects, setError, generate]);
+  }, [generating, handleNewProject, setChatMode, setFiles, fetchProjects, setError, generate]);
 
   // Back to projects
   const handleBackToProjects = useCallback(() => {

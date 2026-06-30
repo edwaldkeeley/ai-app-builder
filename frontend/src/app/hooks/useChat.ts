@@ -112,12 +112,8 @@ export function useChat() {
               }
               return updated;
             });
-            // Detect if the message mentions fixing bugs
-            if (streamedContent.toLowerCase().includes("bug") ||
-                streamedContent.toLowerCase().includes("fix") ||
-                streamedContent.toLowerCase().includes("issue")) {
-              setWritingStatus({ type: "fixing", message: "Identifying the issue..." });
-            }
+            // Note: "fixing" status is set by the backend when it detects
+            // and auto-fixes issues in the generated code
           },
           onFileStart: (path, _fileType) => {
             streamedFiles.set(path, "");

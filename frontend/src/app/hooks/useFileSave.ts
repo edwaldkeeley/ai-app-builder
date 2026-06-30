@@ -28,7 +28,11 @@ export function useFileSave(activeProjectId: string | null) {
     saveTimersRef.current.forEach((timer) => clearTimeout(timer));
     saveTimersRef.current.clear();
     const timer = setTimeout(() => setDirtyFiles(new Set()), 0);
-    return () => clearTimeout(timer);
+    return () => {
+      clearTimeout(timer);
+      // Also clear the "saved" status timer on unmount
+      if (savedTimerRef.current) clearTimeout(savedTimerRef.current);
+    };
   }, [activeProjectId]);
 
   const handleAddFile = useCallback(async (path: string) => {
@@ -97,9 +101,11 @@ export function useFileSave(activeProjectId: string | null) {
 
       setDirtyFiles((prev) => new Set(prev).add(path));
 
+      const capturedProjectId = projectIdRef.current;
       const timer = setTimeout(async () => {
         saveTimersRef.current.delete(path);
-        if (projectIdRef.current !== activeProjectId) return;
+        // Guard: skip if project changed since this timer was created
+        if (projectIdRef.current !== capturedProjectId) return;
         const currentFiles = filesRef.current; // We need the latest file content
         const file = currentFiles.find((f) => f.path === path);
         if (!file) return;
