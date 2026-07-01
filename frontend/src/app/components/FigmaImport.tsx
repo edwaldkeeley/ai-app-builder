@@ -19,6 +19,9 @@ export default function FigmaImport({ onImportComplete, variant = "landing" }: F
   const [manualFileKey, setManualFileKey] = useState<string>("");
   const [fileListFailed, setFileListFailed] = useState(false);
   const [errorMsg, setErrorMsg] = useState<string | null>(null);
+  const [figmaUrl, setFigmaUrl] = useState("");
+  const [personalAccessToken, setPersonalAccessToken] = useState("");
+  const [urlImporting, setUrlImporting] = useState(false);
   const { showToast } = useToast();
 
   const loadFigmaFiles = useCallback(async () => {
@@ -32,7 +35,7 @@ export default function FigmaImport({ onImportComplete, variant = "landing" }: F
       // File listing may fail for non-enterprise accounts — show manual input
       setFileListFailed(true);
     }
-  }, [showToast]);
+  }, []);  
 
   // Listen for OAuth callback from popup window
   useEffect(() => {
@@ -115,11 +118,32 @@ export default function FigmaImport({ onImportComplete, variant = "landing" }: F
     loadFigmaFiles();
   };
 
+  // ── URL import handler ─────────────────────────────────────
+
+  const handleUrlImport = async () => {
+    const url = figmaUrl.trim();
+    if (!url) return;
+    setUrlImporting(true);
+    setErrorMsg(null);
+    try {
+      const result = await api.importFigmaUrl(url, personalAccessToken.trim() || undefined);
+      showToast("success", `Imported "${result.project_name}"`);
+      onImportComplete?.(result.project_id);
+    } catch (err) {
+      const msg = err instanceof Error ? err.message : "Import failed";
+      setErrorMsg(msg);
+      showToast("error", "Failed to import Figma design");
+    } finally {
+      setUrlImporting(false);
+    }
+  };
+
   // ── Landing page variant ──────────────────────────────────
 
   if (variant === "landing") {
     return (
-      <div className="w-full">
+      <div className="w-full space-y-3">
+        {/* OAuth-based import */}
         {state === "idle" && (
           <button
             onClick={handleConnect}
@@ -213,6 +237,55 @@ export default function FigmaImport({ onImportComplete, variant = "landing" }: F
             </button>
           </div>
         )}
+
+        {/* Divider */}
+        <div className="flex items-center gap-2">
+          <div className="flex-1 h-px bg-border" />
+          <span className="text-xs text-text-secondary">or import by URL</span>
+          <div className="flex-1 h-px bg-border" />
+        </div>
+
+        {/* URL import section */}
+        <div className="space-y-2">
+          <input
+            type="text"
+            value={figmaUrl}
+            onChange={(e) => setFigmaUrl(e.target.value)}
+            placeholder="https://www.figma.com/file/ABC123/My-Design"
+            className="w-full bg-input border border-border rounded-lg px-3 py-2 text-sm text-foreground placeholder-text-secondary outline-none focus:border-accent/50"
+          />
+          <div className="relative">
+            <input
+              type="password"
+              value={personalAccessToken}
+              onChange={(e) => setPersonalAccessToken(e.target.value)}
+              placeholder="Figma personal access token (optional for private files)"
+              className="w-full bg-input border border-border rounded-lg px-3 py-2 text-sm text-foreground placeholder-text-secondary outline-none focus:border-accent/50 pr-20"
+            />
+            <a
+              href="https://www.figma.com/settings"
+              target="_blank"
+              rel="noopener noreferrer"
+              className="absolute right-2 top-1/2 -translate-y-1/2 text-xs text-accent hover:text-accent-hover underline"
+            >
+              Get token
+            </a>
+          </div>
+          <button
+            onClick={handleUrlImport}
+            disabled={!figmaUrl.trim() || urlImporting}
+            className="w-full px-3 py-2 text-sm font-medium rounded-lg bg-accent text-white hover:bg-accent-hover disabled:opacity-40 disabled:cursor-not-allowed transition-colors"
+          >
+            {urlImporting ? (
+              <span className="flex items-center justify-center gap-2">
+                <div className="w-4 h-4 border-2 border-white border-t-transparent rounded-full animate-spin" />
+                Importing design...
+              </span>
+            ) : (
+              "Import from URL"
+            )}
+          </button>
+        </div>
       </div>
     );
   }

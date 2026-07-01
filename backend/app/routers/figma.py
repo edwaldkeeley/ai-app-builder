@@ -5,6 +5,7 @@ from __future__ import annotations
 import logging
 from urllib.parse import urlencode
 
+import httpx
 from fastapi import APIRouter, HTTPException, Query, status
 from fastapi.responses import HTMLResponse
 
@@ -12,10 +13,11 @@ from app.config import settings
 from app.models.schemas import (
     FigmaAuthUrl,
     FigmaImportRequest,
+    FigmaUrlImportRequest,
     GenerateResponse,
     ProjectCreate,
 )
-from app.services.ai_service import BaseAIProvider
+from app.services.ai_service import BaseAIProvider, _FIGMA_SYSTEM_PROMPT
 from app.services.figma_service import FigmaService
 from app.services.project_service import ProjectService
 
@@ -171,7 +173,7 @@ async def list_files():
         return {"files": [], "error": str(e), "listing_unavailable": True}
 
 
-# ── Import endpoint ────────────────────────────────────────────
+# ── OAuth import endpoint ─────────────────────────────────────
 
 
 @router.post("/import", response_model=GenerateResponse, status_code=status.HTTP_201_CREATED)
@@ -180,7 +182,7 @@ async def import_figma(body: FigmaImportRequest):
 
     Fetches the Figma file data, builds a structured design prompt,
     and feeds it into the AI generation pipeline. Creates a new project
-    with the generated files.
+    with the generated files. Requires an active OAuth session.
     """
     if _figma is None or _provider is None or _service is None:
         raise HTTPException(
@@ -216,7 +218,10 @@ async def import_figma(body: FigmaImportRequest):
 
     # Generate code from the design prompt
     try:
-        message, files = await _provider.generate(design_prompt)
+        message, files = await _provider.generate(
+            design_prompt,
+            system_prompt_override=_FIGMA_SYSTEM_PROMPT,
+        )
     except RuntimeError as e:
         raise HTTPException(status_code=502, detail=str(e))
 
@@ -231,3 +236,106 @@ async def import_figma(body: FigmaImportRequest):
         message=message,
         files=files,
     )
+
+
+# ── URL import endpoint (no OAuth required) ───────────────────
+
+
+@router.post("/import-url", response_model=GenerateResponse, status_code=status.HTTP_201_CREATED)
+async def import_figma_url(body: FigmaUrlImportRequest):
+    """Import a Figma design by URL and generate code from it.
+
+    Accepts a Figma file URL (or bare file key) and an optional personal
+    access token. If a token is provided, it is used to fetch the file
+    directly from the Figma REST API. If no token is provided, the
+    existing OAuth session is used (if available).
+
+    This endpoint works for public Figma files without any authentication,
+    and for private files when a personal access token is provided.
+    """
+    if _figma is None or _provider is None or _service is None:
+        raise HTTPException(
+            status_code=503,
+            detail="Required services not initialized",
+        )
+
+    # Extract the file key from the URL
+    try:
+        file_key = FigmaService.extract_file_key(body.figma_url)
+    except ValueError as e:
+        raise HTTPException(status_code=400, detail=str(e))
+
+    # Fetch the Figma file data
+    if body.access_token:
+        # Use the provided personal access token directly
+        try:
+            async with httpx.AsyncClient(timeout=60) as client:
+                response = await client.get(
+                    f"https://api.figma.com/v1/files/{file_key}",
+                    headers={"Authorization": f"Bearer {body.access_token}"},
+                )
+                response.raise_for_status()
+                file_data = response.json()
+        except httpx.HTTPStatusError as e:
+            logger.exception("Figma API request failed")
+            raise HTTPException(
+                status_code=502,
+                detail=f"Figma API returned {e.response.status_code}: {e.response.text}",
+            )
+        except httpx.RequestError as e:
+            logger.exception("Figma API request failed")
+            raise HTTPException(
+                status_code=502,
+                detail=f"Failed to reach Figma API: {e}",
+            )
+    else:
+        # Fall back to existing OAuth session
+        if not await _figma.ensure_connected():
+            raise HTTPException(
+                status_code=401,
+                detail="Not connected to Figma. Provide an access_token or connect via OAuth.",
+            )
+        try:
+            file_data = await _figma.get_file(file_key)
+        except Exception as e:
+            logger.exception("Failed to fetch Figma file")
+            raise HTTPException(
+                status_code=502,
+                detail=f"Failed to fetch Figma file: {str(e)}",
+            )
+
+    # Build a structured design prompt from the Figma data
+    design_prompt = _figma.build_design_prompt(file_data)
+    design_name = file_data.get("name", "Figma Import")
+
+    # Create a new project
+    project = await _service.create(
+        ProjectCreate(
+            name=design_name,
+            description=f"Imported from Figma URL: {body.figma_url}",
+        )
+    )
+    project_id = project.id
+
+    # Generate code from the design prompt
+    try:
+        message, files = await _provider.generate(
+            design_prompt,
+            system_prompt_override=_FIGMA_SYSTEM_PROMPT,
+        )
+    except RuntimeError as e:
+        raise HTTPException(status_code=502, detail=str(e))
+
+    # Persist files and chat messages
+    await _service.upsert_files_transactional(project_id, files)
+    await _service.save_chat_message(project_id, "user", design_prompt)
+    await _service.save_chat_message(project_id, "assistant", message, files)
+
+    return GenerateResponse(
+        project_id=project_id,
+        project_name=design_name,
+        message=message,
+        files=files,
+    )
+
+

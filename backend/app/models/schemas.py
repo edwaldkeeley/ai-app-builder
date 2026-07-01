@@ -125,6 +125,21 @@ class FigmaImportRequest(BaseModel):
     page_name: str | None = None
 
 
+class FigmaUrlImportRequest(BaseModel):
+    """Request to import a Figma file by URL or file key."""
+
+    figma_url: str = Field(
+        ...,
+        min_length=1,
+        max_length=512,
+        description="Figma file URL (e.g. https://www.figma.com/file/KEY/name) or bare file key",
+    )
+    access_token: str | None = Field(
+        None,
+        description="Figma personal access token (optional if OAuth-connected)",
+    )
+
+
 class FigmaAuthUrl(BaseModel):
     url: str
 

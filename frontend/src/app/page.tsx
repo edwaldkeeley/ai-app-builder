@@ -166,6 +166,15 @@ export default function Home() {
     setChatMode(false);
   }, [setActiveProjectId, setChatMode]);
 
+  // Handle Figma import complete — navigate to the new project
+  const handleFigmaImportComplete = useCallback((projectId: string) => {
+    // Refresh the project list so the new project appears
+    fetchProjects();
+    // Navigate to the new project
+    selectProject(projectId);
+    setChatMode(true);
+  }, [fetchProjects, selectProject, setChatMode]);
+
   return (
     <div className="h-dvh flex">
       <Sidebar
@@ -235,6 +244,7 @@ export default function Home() {
           showExplorer={showExplorer}
           onToggleExplorer={() => setShowExplorer((prev) => !prev)}
           saveStatus={saveStatus}
+          onFigmaImportComplete={handleFigmaImportComplete}
         />
       </main>
     </div>

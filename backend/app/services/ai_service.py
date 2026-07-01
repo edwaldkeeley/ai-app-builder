@@ -31,6 +31,7 @@ class BaseAIProvider(ABC):
         prompt: str,
         existing_files: list[ProjectFile] | None = None,
         chat_history: list[dict[str, str]] | None = None,
+        system_prompt_override: str | None = None,
     ) -> tuple[str, list[ProjectFile]]:
         """Send a prompt and return (message, list of project files).
 
@@ -38,6 +39,8 @@ class BaseAIProvider(ABC):
             prompt: The latest user prompt.
             existing_files: Current files in the project (for context).
             chat_history: Previous conversation messages.
+            system_prompt_override: Optional system prompt to use instead of the default.
+                Used for Figma imports where layout fidelity is critical.
         """
         ...
 
@@ -47,6 +50,7 @@ class BaseAIProvider(ABC):
         prompt: str,
         existing_files: list[ProjectFile] | None = None,
         chat_history: list[dict[str, str]] | None = None,
+        system_prompt_override: str | None = None,
     ) -> AsyncIterator[dict[str, Any]]:
         """Stream generation events.
 
@@ -54,6 +58,7 @@ class BaseAIProvider(ABC):
             prompt: The latest user prompt.
             existing_files: Current files in the project (for context).
             chat_history: Previous conversation messages.
+            system_prompt_override: Optional system prompt to use instead of the default.
 
         Yields dicts with a ``type`` key:
         - ``{"type": "message_chunk", "delta": "..."}`` — partial message text
@@ -102,11 +107,40 @@ _SYSTEM_PROMPT = (
     "14. After fixing, explain in the 'message' field what the bug was and how you fixed it."
 )
 
+_FIGMA_SYSTEM_PROMPT = (
+    "You are a pixel-perfect frontend developer. Your ONLY job is to convert the provided "
+    "Figma design specification into exact HTML/CSS code. Layout fidelity is your top priority.\n\n"
+    "CRITICAL RULES:\n"
+    "1. EXACT POSITIONS: Every element must be placed at its specified position and size. "
+    "Use the exact pixel dimensions from the layout specification.\n"
+    "2. EXACT COLORS: Use the exact colors from the color palette. No substitutions.\n"
+    "3. EXACT TYPOGRAPHY: Use the exact font families, sizes, weights, line heights, and "
+    "text alignments specified.\n"
+    "4. EXACT SPACING: Match padding, gaps, margins, and border radii exactly.\n"
+    "5. EXACT BORDERS: Match border widths, colors, and styles exactly.\n"
+    "6. EXACT SHADOWS: Match drop shadows and inner shadows exactly.\n"
+    "7. HIERARCHY: Preserve the parent-child nesting. Use CSS flexbox to replicate Figma "
+    "auto-layout (HORIZONTAL → flex-direction: row, VERTICAL → flex-direction: column).\n"
+    "8. IMAGES: Use the provided images from the images/ folder with <img> tags. "
+    "Do NOT use placeholder images or external URLs.\n"
+    "9. SINGLE FILE: Create one self-contained index.html with embedded CSS in a <style> tag. "
+    "Use semantic HTML5 and modern CSS.\n"
+    "10. NO CREATIVE FREEDOM: Do NOT add, remove, or rearrange elements. Do NOT change "
+    "colors, fonts, or spacing. Reproduce the design exactly as specified.\n\n"
+    "OUTPUT FORMAT:\n"
+    "Return ONLY valid JSON. Do NOT wrap the JSON in markdown code blocks.\n"
+    'The JSON must have a "message" field (string, briefly describe what was built) '
+    'and a "files" array where each file has: '
+    '"path" (string), "content" (string), "file_type" (one of: html, css, javascript, json, python, other).\n'
+    "Only include the index.html file (and optionally style.css, script.js if needed)."
+)
+
 
 def _build_payload(
     prompt: str,
     existing_files: list[ProjectFile] | None = None,
     chat_history: list[dict[str, str]] | None = None,
+    system_prompt_override: str | None = None,
 ) -> dict[str, Any]:
     """Build the OpenAI-compatible messages payload.
 
@@ -114,9 +148,11 @@ def _build_payload(
         prompt: The latest user prompt.
         existing_files: Current files in the project (sent as context).
         chat_history: Previous messages in the conversation.
+        system_prompt_override: Optional system prompt to use instead of the default.
     """
+    system_prompt = system_prompt_override if system_prompt_override else _SYSTEM_PROMPT
     messages: list[dict[str, str]] = [
-        {"role": "system", "content": _SYSTEM_PROMPT},
+        {"role": "system", "content": system_prompt},
     ]
 
     # Include existing file list with full content as context
@@ -239,28 +275,53 @@ class HttpAIProvider(BaseAIProvider):
         prompt: str,
         existing_files: list[ProjectFile] | None = None,
         chat_history: list[dict[str, str]] | None = None,
+        system_prompt_override: str | None = None,
     ) -> tuple[str, list[ProjectFile]]:
         headers = {
             "Authorization": f"Bearer {self._jwt_token}",
             "Content-Type": "application/json",
         }
 
-        payload = _build_payload(prompt, existing_files, chat_history)
+        payload = _build_payload(prompt, existing_files, chat_history, system_prompt_override)
         payload["model"] = self._model
 
-        async with httpx.AsyncClient(timeout=httpx.Timeout(self._timeout, connect=self._connect_timeout)) as client:
-            response = await client.post(self._target_url, json=payload, headers=headers)
+        max_retries = 3
+        for attempt in range(max_retries + 1):
+            async with httpx.AsyncClient(timeout=httpx.Timeout(self._timeout, connect=self._connect_timeout)) as client:
+                response = await client.post(self._target_url, json=payload, headers=headers)
 
-        if response.status_code == 401:
-            raise RuntimeError("AI provider authentication failed (401). Check your JWT_TOKEN.")
-        if response.status_code == 404:
-            raise RuntimeError(f"AI provider endpoint not found (404). Check your TARGET_URL.")
-        if response.status_code == 429:
-            raise RuntimeError("AI provider rate limited (429). Try again later.")
-        if not response.is_success:
-            raise RuntimeError(
-                f"AI provider returned {response.status_code}: {response.text[:500]}"
-            )
+            if response.status_code == 401:
+                raise RuntimeError("AI provider authentication failed (401). Check your JWT_TOKEN.")
+            if response.status_code == 404:
+                raise RuntimeError(f"AI provider endpoint not found (404). Check your TARGET_URL.")
+            if response.status_code == 429:
+                if attempt >= max_retries:
+                    raise RuntimeError("AI provider rate limited (429). Max retries exceeded.")
+                # Try to read Retry-After header or body field
+                retry_after = response.headers.get("Retry-After")
+                if retry_after:
+                    try:
+                        wait = int(retry_after)
+                    except ValueError:
+                        wait = 10
+                else:
+                    # Try to parse from response body
+                    try:
+                        body = response.json()
+                        wait = int(body.get("retry_after", body.get("Retry-After", 10)))
+                    except Exception:
+                        wait = 10
+                logger.warning("AI provider rate limited (429). Retrying in %ds (attempt %d/%d)", wait, attempt + 1, max_retries)
+                import asyncio
+                await asyncio.sleep(wait)
+                continue
+            if not response.is_success:
+                raise RuntimeError(
+                    f"AI provider returned {response.status_code}: {response.text[:500]}"
+                )
+
+            # Success — break out of retry loop
+            break
 
         data: dict[str, Any] = response.json()
 
@@ -279,9 +340,10 @@ class HttpAIProvider(BaseAIProvider):
         prompt: str,
         existing_files: list[ProjectFile] | None = None,
         chat_history: list[dict[str, str]] | None = None,
+        system_prompt_override: str | None = None,
     ) -> AsyncIterator[dict[str, Any]]:
         """Non-streaming fallback — yields the complete result as a single event."""
-        message, files = await self.generate(prompt, existing_files, chat_history)
+        message, files = await self.generate(prompt, existing_files, chat_history, system_prompt_override)
         for f in files:
             yield {"type": "file_start", "path": f.path, "file_type": f.file_type.value}
             yield {"type": "file_chunk", "path": f.path, "delta": f.content}
@@ -315,25 +377,27 @@ class StreamingHttpAIProvider(BaseAIProvider):
         prompt: str,
         existing_files: list[ProjectFile] | None = None,
         chat_history: list[dict[str, str]] | None = None,
+        system_prompt_override: str | None = None,
     ) -> tuple[str, list[ProjectFile]]:
         """Non-streaming fallback — delegates to HttpAIProvider logic."""
         provider = HttpAIProvider(
             self._target_url, self._jwt_token, self._model, self._timeout
         )
-        return await provider.generate(prompt, existing_files, chat_history)
+        return await provider.generate(prompt, existing_files, chat_history, system_prompt_override)
 
     async def generate_stream(
         self,
         prompt: str,
         existing_files: list[ProjectFile] | None = None,
         chat_history: list[dict[str, str]] | None = None,
+        system_prompt_override: str | None = None,
     ) -> AsyncIterator[dict[str, Any]]:
         headers = {
             "Authorization": f"Bearer {self._jwt_token}",
             "Content-Type": "application/json",
         }
 
-        payload = _build_payload(prompt, existing_files, chat_history)
+        payload = _build_payload(prompt, existing_files, chat_history, system_prompt_override)
         payload["model"] = self._model
         payload["stream"] = True
 
@@ -353,108 +417,118 @@ class StreamingHttpAIProvider(BaseAIProvider):
         # "message" keys inside file content strings.
         message_re = re.compile(r'"message"\s*:\s*"((?:[^"\\]|\\.)*)"\s*,\s*"files"')
 
-        async with httpx.AsyncClient(timeout=httpx.Timeout(self._timeout, connect=self._connect_timeout)) as client:
-            async with client.stream(
-                "POST", self._target_url, json=payload, headers=headers
-            ) as response:
-                if response.status_code == 401:
-                    raise RuntimeError("AI provider authentication failed (401). Check your JWT_TOKEN.")
-                if response.status_code == 404:
-                    raise RuntimeError(f"AI provider endpoint not found (404). Check your TARGET_URL.")
-                if response.status_code == 429:
-                    raise RuntimeError("AI provider rate limited (429). Try again later.")
-                if not response.is_success:
-                    raise RuntimeError(
-                        f"AI provider returned {response.status_code}"
-                    )
-
-                # Read SSE stream
-                async for line in response.aiter_lines():
-                    if not line.startswith("data: "):
-                        continue
-
-                    data_str = line[6:].strip()
-
-                    # Skip [DONE] sentinel
-                    if data_str == "[DONE]":
+        max_retries = 3
+        for attempt in range(max_retries + 1):
+            client = httpx.AsyncClient(timeout=httpx.Timeout(self._timeout, connect=self._connect_timeout))
+            try:
+                async with client.stream(
+                    "POST", self._target_url, json=payload, headers=headers
+                ) as response:
+                    if response.status_code == 401:
+                        raise RuntimeError("AI provider authentication failed (401). Check your JWT_TOKEN.")
+                    if response.status_code == 404:
+                        raise RuntimeError(f"AI provider endpoint not found (404). Check your TARGET_URL.")
+                    if response.status_code == 429:
+                        if attempt >= max_retries:
+                            raise RuntimeError("AI provider rate limited (429). Max retries exceeded.")
+                        retry_after = response.headers.get("Retry-After")
+                        wait = int(retry_after) if retry_after and retry_after.isdigit() else 10
+                        logger.warning("AI provider rate limited (429). Retrying in %ds (attempt %d/%d)", wait, attempt + 1, max_retries)
+                        import asyncio
+                        await asyncio.sleep(wait)
+                        # Exit stream context to retry outer loop
                         break
+                    if not response.is_success:
+                        raise RuntimeError(
+                            f"AI provider returned {response.status_code}"
+                        )
 
-                    try:
-                        chunk = json.loads(data_str)
-                    except json.JSONDecodeError:
-                        continue
+                    # Read SSE stream
+                    async for line in response.aiter_lines():
+                        if not line.startswith("data: "):
+                            continue
 
-                    # Extract delta content from OpenAI streaming format
-                    try:
-                        delta = chunk["choices"][0]["delta"]
-                    except (KeyError, IndexError, TypeError):
-                        continue
+                        data_str = line[6:].strip()
 
-                    content_delta = delta.get("content", "")
-                    if not content_delta:
-                        continue
+                        # Skip [DONE] sentinel
+                        if data_str == "[DONE]":
+                            break
 
-                    accumulated_content += content_delta
+                        try:
+                            chunk = json.loads(data_str)
+                        except json.JSONDecodeError:
+                            continue
 
-                    # --- Extract message text via regex ---
-                    msg_match = message_re.search(accumulated_content)
-                    if msg_match:
-                        current_message = msg_match.group(1)
-                        new_part = current_message[len(prev_message):]
-                        if new_part:
-                            prev_message = current_message
-                            yield {"type": "message_chunk", "delta": new_part}
+                        # Extract delta content from OpenAI streaming format
+                        try:
+                            delta = chunk["choices"][0]["delta"]
+                        except (KeyError, IndexError, TypeError):
+                            continue
 
-                    # --- Try to parse partial JSON for file content ---
-                    # Strip markdown fences and extract JSON from accumulated content
-                    partial = re.sub(r"^```(?:json)?\s*", "", accumulated_content.strip())
-                    partial = re.sub(r"\s*```$", "", partial)
-                    first_brace = partial.find("{")
-                    last_brace = partial.rfind("}")
-                    if first_brace != -1 and last_brace != -1 and last_brace > first_brace:
-                        partial = partial[first_brace : last_brace + 1]
+                        content_delta = delta.get("content", "")
+                        if not content_delta:
+                            continue
 
-                    try:
-                        parsed = json.loads(partial)
-                        raw_files = parsed.get("files", [])
-                        for f in raw_files:
-                            fpath = f.get("path", "")
-                            fcontent = f.get("content", "")
-                            ftype = f.get("file_type", "other")
-                            if not fpath:
-                                continue
+                        accumulated_content += content_delta
 
-                            # Announce new files
-                            if fpath not in announced_files:
-                                announced_files.add(fpath)
-                                yield {
-                                    "type": "file_start",
-                                    "path": fpath,
-                                    "file_type": ftype,
-                                }
+                        # --- Extract message text via regex ---
+                        msg_match = message_re.search(accumulated_content)
+                        if msg_match:
+                            current_message = msg_match.group(1)
+                            new_part = current_message[len(prev_message):]
+                            if new_part:
+                                prev_message = current_message
+                                yield {"type": "message_chunk", "delta": new_part}
 
-                            # Stream new content — only if the new content extends the previous
-                            prev_content = streamed_file_content.get(fpath, "")
-                            if fcontent.startswith(prev_content) and len(fcontent) > len(prev_content):
-                                new_content = fcontent[len(prev_content):]
-                                streamed_file_content[fpath] = fcontent
-                                yield {
-                                    "type": "file_chunk",
-                                    "path": fpath,
-                                    "delta": new_content,
-                                }
-                            elif not fcontent.startswith(prev_content) and len(fcontent) > len(prev_content):
-                                # Content changed unexpectedly (partial JSON parse shifted).
-                                # Send the full corrected content as a delta.
-                                streamed_file_content[fpath] = fcontent
-                                yield {
-                                    "type": "file_chunk",
-                                    "path": fpath,
-                                    "delta": fcontent,
-                                }
-                    except (json.JSONDecodeError, RuntimeError):
-                        # Partial JSON not yet parseable — expected during streaming
-                        pass
+                        # --- Try to parse partial JSON for file content ---
+                        partial = re.sub(r"^```(?:json)?\s*", "", accumulated_content.strip())
+                        partial = re.sub(r"\s*```$", "", partial)
+                        first_brace = partial.find("{")
+                        last_brace = partial.rfind("}")
+                        if first_brace != -1 and last_brace != -1 and last_brace > first_brace:
+                            partial = partial[first_brace : last_brace + 1]
+
+                        try:
+                            parsed = json.loads(partial)
+                            raw_files = parsed.get("files", [])
+                            for f in raw_files:
+                                fpath = f.get("path", "")
+                                fcontent = f.get("content", "")
+                                ftype = f.get("file_type", "other")
+                                if not fpath:
+                                    continue
+
+                                # Announce new files
+                                if fpath not in announced_files:
+                                    announced_files.add(fpath)
+                                    yield {
+                                        "type": "file_start",
+                                        "path": fpath,
+                                        "file_type": ftype,
+                                    }
+
+                                # Stream new content
+                                prev_content = streamed_file_content.get(fpath, "")
+                                if fcontent.startswith(prev_content) and len(fcontent) > len(prev_content):
+                                    new_content = fcontent[len(prev_content):]
+                                    streamed_file_content[fpath] = fcontent
+                                    yield {
+                                        "type": "file_chunk",
+                                        "path": fpath,
+                                        "delta": new_content,
+                                    }
+                                elif not fcontent.startswith(prev_content) and len(fcontent) > len(prev_content):
+                                    streamed_file_content[fpath] = fcontent
+                                    yield {
+                                        "type": "file_chunk",
+                                        "path": fpath,
+                                        "delta": fcontent,
+                                    }
+                        except (json.JSONDecodeError, RuntimeError):
+                            pass
+
+            except Exception:
+                raise
 
         # After the stream ends, parse the full accumulated content
         try:

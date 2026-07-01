@@ -24,6 +24,7 @@ interface MainContentProps {
   showExplorer: boolean;
   onToggleExplorer: () => void;
   saveStatus?: SaveStatus;
+  onFigmaImportComplete?: (projectId: string) => void;
 }
 
 const VIEW_BUTTONS: { mode: ViewMode; label: string }[] = [
@@ -47,6 +48,7 @@ export default function MainContent({
   showExplorer,
   onToggleExplorer,
   saveStatus,
+  onFigmaImportComplete,
 }: MainContentProps) {
   const [promptValue, setPromptValue] = useState("");
   const [viewMode, setViewMode] = useState<ViewMode>("preview");
@@ -194,7 +196,7 @@ export default function MainContent({
           <div className="flex-1" />
 
           {/* Figma import (toolbar variant) */}
-          <FigmaImport variant="toolbar" />
+          <FigmaImport variant="toolbar" onImportComplete={onFigmaImportComplete} />
 
           {/* View mode toggle */}
           <div className="flex items-center gap-0.5 bg-surface rounded-lg p-0.5">
@@ -304,7 +306,7 @@ export default function MainContent({
 
         {/* Figma import */}
         <div className="w-full max-w-sm">
-          <FigmaImport variant="landing" />
+          <FigmaImport variant="landing" onImportComplete={onFigmaImportComplete} />
         </div>
       </div>
     </div>

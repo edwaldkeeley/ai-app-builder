@@ -15,9 +15,10 @@ export default function LiveCanvas({ files }: LiveCanvasProps) {
     const htmlFile = files.find((f) => f.path === "index.html" || f.path.endsWith(".html"));
     if (!htmlFile) return null;
 
-    // Build maps of filename → content for CSS and JS files
+    // Build maps of filename → content for CSS, JS, and image files
     const cssMap = new Map<string, string>();
     const jsMap = new Map<string, string>();
+    const imageMap = new Map<string, string>();
     for (const f of files) {
       if (f.path.endsWith(".css")) {
         const name = f.path.split("/").pop() || f.path;
@@ -25,6 +26,9 @@ export default function LiveCanvas({ files }: LiveCanvasProps) {
       } else if (f.path.endsWith(".js")) {
         const name = f.path.split("/").pop() || f.path;
         jsMap.set(name, f.content);
+      } else if (f.path.match(/\.(png|jpg|jpeg|gif|webp|svg|ico)$/i)) {
+        // Store image files by their full path (e.g., "images/hero.png")
+        imageMap.set(f.path, f.content);
       }
     }
 
@@ -59,6 +63,34 @@ export default function LiveCanvas({ files }: LiveCanvasProps) {
           }
           // If no matching project JS file found, preserve the original script tag
           // (it may be a CDN or external script)
+          return _match;
+        },
+      );
+    }
+
+    // Inline images: convert <img src="images/..."> to base64 data URIs
+    if (imageMap.size > 0) {
+      html = html.replace(
+        /<img[^>]*src=["']([^"']+)["'][^>]*\/?>/gi,
+        (_match, src: string) => {
+          // Only inline images that match our project files
+          const b64Content = imageMap.get(src);
+          if (b64Content) {
+            // Determine MIME type from extension
+            const ext = src.split(".").pop()?.toLowerCase() || "png";
+            const mimeMap: Record<string, string> = {
+              png: "image/png",
+              jpg: "image/jpeg",
+              jpeg: "image/jpeg",
+              gif: "image/gif",
+              webp: "image/webp",
+              svg: "image/svg+xml",
+              ico: "image/x-icon",
+            };
+            const mime = mimeMap[ext] || "image/png";
+            return _match.replace(`src="${src}"`, `src="data:${mime};base64,${b64Content}"`);
+          }
+          // Not a project image — leave the src as-is
           return _match;
         },
       );

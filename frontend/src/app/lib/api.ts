@@ -102,21 +102,45 @@ class ApiError extends Error {
   }
 }
 
-async function request<T>(path: string, options?: RequestInit): Promise<T> {
-  const res = await fetch(`${BASE}${path}`, {
-    headers: { "Content-Type": "application/json" },
-    ...options,
-  });
+async function request<T>(path: string, options?: RequestInit, timeoutMs = 120000): Promise<T> {
+  const controller = new AbortController();
+  const timeoutId = setTimeout(() => controller.abort(), timeoutMs);
 
-  if (!res.ok) {
-    const text = await res.text().catch(() => "");
-    throw new ApiError(text || `Request failed: ${res.status}`, res.status);
+  try {
+    const res = await fetch(`${BASE}${path}`, {
+      headers: { "Content-Type": "application/json" },
+      signal: controller.signal,
+      ...options,
+    });
+
+    if (!res.ok) {
+      let detail = `Request failed: ${res.status}`;
+      try {
+        const body = await res.json();
+        if (body?.detail) detail = body.detail;
+      } catch {
+        const text = await res.text().catch(() => "");
+        if (text) detail = text;
+      }
+      throw new ApiError(detail, res.status);
+    }
+
+    // 204 No Content
+    if (res.status === 204) return undefined as T;
+
+    return res.json();
+  } catch (err) {
+    if (err instanceof ApiError) throw err;
+    if (err instanceof DOMException && err.name === "AbortError") {
+      throw new ApiError("Request timed out. The server took too long to respond.", 408);
+    }
+    throw new ApiError(
+      err instanceof Error ? err.message : "Network request failed",
+      0,
+    );
+  } finally {
+    clearTimeout(timeoutId);
   }
-
-  // 204 No Content
-  if (res.status === 204) return undefined as T;
-
-  return res.json();
 }
 
 export const api = {
@@ -207,7 +231,16 @@ export const api = {
     return request("/api/figma/import", {
       method: "POST",
       body: JSON.stringify({ figma_file_key: fileKey }),
-    });
+    }, 300000); // 5 min timeout — Figma fetch + AI generation
+  },
+
+  // ── Figma URL import ────────────────────────────────────────
+
+  importFigmaUrl(figmaUrl: string, accessToken?: string): Promise<GenerateResponse> {
+    return request("/api/figma/import-url", {
+      method: "POST",
+      body: JSON.stringify({ figma_url: figmaUrl, access_token: accessToken }),
+    }, 300000); // 5 min timeout — Figma fetch + AI generation
   },
 
   // ── Health ────────────────────────────────────────────────

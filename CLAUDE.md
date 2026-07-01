@@ -8,7 +8,7 @@ AI-powered design-to-code platform. Users describe what they want in natural lan
 
 - **Phase 1 (Complete)**: Backend — FastAPI with project CRUD, sandbox file operations, PostgreSQL persistence via raw SQL, AI engine with OpenAI-compatible HTTP provider.
 - **Phase 2 (Complete)**: Frontend — ChatGPT-inspired layout with centered chat landing page, Monaco editor, live canvas iframe preview, sidebar toggles between project list and chat. All 44 bugs (18 critical + 26 medium/low) from frontend and backend audits fixed.
-- **Phase 3 (In Progress)**: Figma OAuth integration (complete), ZIP export, design upload, testing.
+- **Phase 3 (In Progress)**: Figma OAuth integration (complete), .fig file import (complete), ZIP export, design upload, testing.
 
 ## Architecture
 
@@ -107,7 +107,8 @@ API docs: `http://localhost:8000/docs`
 | GET | `/api/figma/callback` | OAuth callback handler (exchanges code, closes popup) |
 | GET | `/api/figma/status` | Check Figma connection status |
 | GET | `/api/figma/files` | List user's Figma files |
-| POST | `/api/figma/import` | Import Figma design → AI generates code |
+| POST | `/api/figma/import` | Import Figma design (OAuth) → AI generates code |
+| POST | `/api/figma/import-url` | Import Figma design by URL (no OAuth needed) → AI generates code |
 
 ## Data Model
 
@@ -199,6 +200,7 @@ The `.env` file lives at the **project root** (`./.env`) — not in `backend/`. 
 3. **Design-to-prompt converter** — `build_design_prompt()` walks the Figma document tree, extracts page names, element structure, colors (from SOLID fills), and fonts (from TEXT nodes), and builds a structured prompt for the AI.
 4. **AI-powered code generation from designs** — The import endpoint (`POST /api/figma/import`) feeds the design prompt into the existing AI generation pipeline, creating a new project with generated HTML/CSS that matches the Figma design.
 5. **UI placement** — Figma import button appears in two places: the landing page (below the prompt input, full UI with file picker or manual input) and the project name bar (icon button, toolbar variant).
+6. **Figma URL import (July 2026)** — Users can import Figma designs by URL without OAuth. The landing page shows a URL input field with an optional personal access token field. Backend extracts the file key from the URL, fetches the document via the Figma REST API, and feeds it through `build_design_prompt()` → AI generation pipeline. Works for public files without any auth, and for private files with a personal access token. See [[figma-url-import-july-2026]] in memory for details.
 
 ## Polish & DX Improvements (June 2026)
 
