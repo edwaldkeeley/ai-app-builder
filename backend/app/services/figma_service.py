@@ -1,238 +1,126 @@
-"""Figma OAuth and API integration service.
+"""Figma API integration service.
 
-Provides OAuth 2.0 authentication flow, Figma REST API access for
-fetching file data, and a design-to-prompt converter that feeds into
+Provides Figma REST API access for fetching file data via personal access
+token or direct API calls, and a design-to-prompt converter that feeds into
 the existing AI generation pipeline.
 """
 
 from __future__ import annotations
 
+import asyncio
 import json
 import logging
 import re
-import secrets
+from datetime import datetime, timezone
 from typing import Any
-from urllib.parse import urlencode
 
 import httpx
 
-from app.config import settings
-from app.db.database import acquire_with_retry, get_pool
-
 logger = logging.getLogger(__name__)
 
-FIGMA_OAUTH_URL = "https://www.figma.com/oauth"
 FIGMA_API_URL = "https://api.figma.com/v1"
-FIGMA_TOKEN_URL = "https://api.figma.com/v1/oauth/token"
-FIGMA_SCOPE = "file_content:read"
 
-class FigmaService:
-    """Handles Figma OAuth flow and API interactions.
+# Max retries for Figma API 429 responses
+_FIGMA_MAX_RETRIES = 3
 
-    Tokens are persisted in the database and cached in-memory for the
-    lifetime of the service. Follows the singleton pattern injected into
-    ``app.state``.
+
+def _parse_retry_after(response: httpx.Response, default: int = 10) -> int:
+    """Parse the Retry-After header from a 429 response.
+
+    Handles both integer seconds and HTTP-date formats per RFC 7231.
+    Falls back to the response body, then to ``default``.
+    """
+    header = response.headers.get("Retry-After")
+    if header:
+        try:
+            return int(header)
+        except ValueError:
+            pass
+        try:
+            parsed = datetime.strptime(header, "%a, %d %b %Y %H:%M:%S %Z")
+            now = datetime.now(timezone.utc)
+            wait = (parsed.replace(tzinfo=timezone.utc) - now).total_seconds()
+            if wait > 0:
+                return int(wait)
+        except ValueError:
+            pass
+    try:
+        body = response.json()
+        val = body.get("retry_after", body.get("Retry-After", default))
+        return int(val)
+    except Exception:
+        return default
+
+
+class FigmaApiError(RuntimeError):
+    """Raised when a Figma API call fails with a non-429 error."""
+
+    def __init__(self, status: int, detail: str) -> None:
+        self.status = status
+        super().__init__(detail)
+
+
+class FigmaRateLimitError(RuntimeError):
+    """Raised when Figma API returns 429 and retries are exhausted.
+
+    Attributes:
+        retry_after: Seconds the caller should wait before retrying.
     """
 
-    def __init__(self) -> None:
-        self._access_token: str | None = None
-        self._refresh_token: str | None = None
-        self._oauth_state: str | None = None
+    def __init__(self, retry_after: int, message: str | None = None) -> None:
+        self.retry_after = retry_after
+        if message is None:
+            message = f"Figma API rate limited. Retry after {retry_after}s."
+        super().__init__(message)
 
-    # ── Token management ──────────────────────────────────────
 
-    async def load_tokens(self) -> None:
-        """Load tokens from the database into memory."""
-        pool = get_pool()
-        conn = await acquire_with_retry(pool)
-        try:
-            row = await conn.fetchrow(
-                "SELECT access_token, refresh_token FROM figma_tokens ORDER BY id DESC LIMIT 1"
-            )
-            if row:
-                self._access_token = row["access_token"]
-                self._refresh_token = row.get("refresh_token")
-        finally:
-            await pool.release(conn)
+class FigmaService:
+    """Handles Figma API interactions for design import.
 
-    async def _save_tokens(self, access_token: str, refresh_token: str | None = None) -> None:
-        """Persist tokens to the database."""
-        self._access_token = access_token
-        if refresh_token:
-            self._refresh_token = refresh_token
-
-        pool = get_pool()
-        conn = await acquire_with_retry(pool)
-        try:
-            async with conn.transaction():
-                await conn.execute("DELETE FROM figma_tokens")
-                await conn.execute(
-                    "INSERT INTO figma_tokens (access_token, refresh_token) VALUES ($1, $2)",
-                    access_token,
-                    refresh_token,
-                )
-        finally:
-            await pool.release(conn)
-
-    async def clear_tokens(self) -> None:
-        """Remove all stored tokens."""
-        self._access_token = None
-        self._refresh_token = None
-        pool = get_pool()
-        conn = await acquire_with_retry(pool)
-        try:
-            await conn.execute("DELETE FROM figma_tokens")
-        finally:
-            await pool.release(conn)
-
-    def is_connected(self) -> bool:
-        """Check if we have a valid access token."""
-        return self._access_token is not None
-
-    async def ensure_connected(self) -> bool:
-        """Ensure we have a valid token, attempting refresh if needed.
-
-        Returns True if connected, False if not (caller should tell user to re-auth).
-        """
-        if self._access_token:
-            return True
-        # Try loading from DB
-        await self.load_tokens()
-        if self._access_token:
-            return True
-        # Try refreshing if we have a refresh token
-        if self._refresh_token:
-            try:
-                await self.refresh_access_token()
-                return True
-            except Exception:
-                await self.clear_tokens()
-                return False
-        return False
-
-    # ── OAuth flow ────────────────────────────────────────────
-
-    def get_auth_url(self) -> str:
-        """Build the Figma OAuth authorization URL with CSRF state."""
-        self._oauth_state = secrets.token_urlsafe(32)
-        # Normalize redirect URI: strip trailing slash to avoid mismatch
-        redirect_uri = settings.figma_redirect_uri.rstrip("/")
-        params = {
-            "client_id": settings.figma_client_id,
-            "redirect_uri": redirect_uri,
-            "scope": FIGMA_SCOPE,
-            "state": self._oauth_state,
-            "response_type": "code",
-        }
-        logger.info("Figma OAuth URL built with redirect_uri=%s", redirect_uri)
-        return f"{FIGMA_OAUTH_URL}?{urlencode(params)}"
-
-    def validate_oauth_state(self, state: str | None) -> bool:
-        """Validate the OAuth state parameter to prevent CSRF attacks.
-
-        Returns True if the state matches the one we issued.
-        """
-        if not state or not self._oauth_state:
-            return False
-        return secrets.compare_digest(self._oauth_state, state)
-
-    async def exchange_code(self, code: str) -> dict[str, Any]:
-        """Exchange an authorization code for access and refresh tokens.
-
-        Returns the parsed JSON response from Figma's token endpoint.
-        Automatically persists the tokens on success.
-        Raises RuntimeError if the response does not contain an access token.
-        """
-        redirect_uri = settings.figma_redirect_uri.rstrip("/")
-        data = {
-            "client_id": settings.figma_client_id,
-            "client_secret": settings.figma_client_secret,
-            "redirect_uri": redirect_uri,
-            "code": code,
-            "grant_type": "authorization_code",
-        }
-        async with httpx.AsyncClient(timeout=30) as client:
-            response = await client.post(FIGMA_TOKEN_URL, data=data)
-            response.raise_for_status()
-            result = response.json()
-
-        access_token = result.get("access_token")
-        if not access_token:
-            raise RuntimeError(
-                "Figma token exchange succeeded but no access_token in response"
-            )
-
-        refresh_token = result.get("refresh_token")
-        await self._save_tokens(access_token, refresh_token)
-        # Clear the stored state after successful exchange
-        self._oauth_state = None
-
-        return result
-
-    async def refresh_access_token(self) -> dict[str, Any]:
-        """Refresh the access token using the stored refresh token."""
-        if not self._refresh_token:
-            raise RuntimeError("No refresh token available")
-
-        data = {
-            "client_id": settings.figma_client_id,
-            "client_secret": settings.figma_client_secret,
-            "refresh_token": self._refresh_token,
-            "grant_type": "refresh_token",
-        }
-        async with httpx.AsyncClient(timeout=30) as client:
-            response = await client.post(FIGMA_TOKEN_URL, data=data)
-            response.raise_for_status()
-            result = response.json()
-
-        access_token = result.get("access_token")
-        if not access_token:
-            raise RuntimeError("Token refresh succeeded but no access_token in response")
-
-        refresh_token = result.get("refresh_token") or self._refresh_token
-        await self._save_tokens(access_token, refresh_token)
-
-        return result
+    This is a stateless service — no OAuth tokens are stored. Authentication
+    is done via personal access tokens passed directly to each API call.
+    """
 
     # ── Figma API calls ───────────────────────────────────────
 
-    def _headers(self) -> dict[str, str]:
-        """Build auth headers for Figma API requests."""
-        if not self._access_token:
-            raise RuntimeError("Not authenticated with Figma")
-        return {"Authorization": f"Bearer {self._access_token}"}
+    async def request_with_retry(
+        self,
+        method: str,
+        url: str,
+        headers: dict[str, str] | None = None,
+        timeout: float = 30.0,
+    ) -> httpx.Response:
+        """Make a Figma API request with 429 retry logic.
 
-    async def get_me(self) -> dict[str, Any]:
-        """Get the authenticated user's info."""
-        async with httpx.AsyncClient(timeout=30) as client:
-            response = await client.get(f"{FIGMA_API_URL}/me", headers=self._headers())
-            response.raise_for_status()
-            return response.json()
-
-    async def get_files(self) -> list[dict[str, Any]]:
-        """List the user's Figma files and projects.
-
-        Note: This endpoint may require an enterprise Figma account.
-        Non-enterprise users will receive a 403/404.
+        Retries up to ``_FIGMA_MAX_RETRIES`` times on 429, respecting
+        the ``Retry-After`` header. Raises ``FigmaRateLimitError`` if
+        retries are exhausted, or ``FigmaApiError`` for other HTTP errors.
         """
-        async with httpx.AsyncClient(timeout=30) as client:
-            response = await client.get(
-                f"{FIGMA_API_URL}/me/files",
-                headers=self._headers(),
-            )
-            response.raise_for_status()
-            data = response.json()
-            return data.get("files", [])
+        for attempt in range(_FIGMA_MAX_RETRIES + 1):
+            async with httpx.AsyncClient(timeout=timeout) as client:
+                response = await client.request(method, url, headers=headers)
 
-    async def get_file(self, file_key: str) -> dict[str, Any]:
-        """Fetch the full document JSON for a Figma file."""
-        async with httpx.AsyncClient(timeout=60) as client:
-            response = await client.get(
-                f"{FIGMA_API_URL}/files/{file_key}",
-                headers=self._headers(),
-            )
-            response.raise_for_status()
-            return response.json()
+            if response.status_code == 429:
+                wait = _parse_retry_after(response)
+                if attempt >= _FIGMA_MAX_RETRIES:
+                    raise FigmaRateLimitError(
+                        retry_after=wait,
+                        message=f"Figma API rate limited (429). Retry after {wait}s. Max retries ({_FIGMA_MAX_RETRIES}) exceeded.",
+                    )
+                logger.warning("Figma API rate limited (429). Retrying in %ds (attempt %d/%d)", wait, attempt + 1, _FIGMA_MAX_RETRIES)
+                await asyncio.sleep(wait)
+                continue
+
+            if not response.is_success:
+                raise FigmaApiError(
+                    status=response.status_code,
+                    detail=f"Figma API returned {response.status_code}: {response.text[:500]}",
+                )
+
+            return response
+
+        # Should not be reached
+        raise FigmaRateLimitError(retry_after=60)
 
     # ── URL parsing ──────────────────────────────────────────
 
@@ -275,8 +163,8 @@ class FigmaService:
     ) -> str:
         """Extract key design information from Figma JSON and build a structured prompt.
 
-        The prompt is designed to be fed into the existing AI generation pipeline
-        so the AI can produce HTML/CSS that matches the Figma design.
+        Produces a concise structured spec: page info, color palette, font palette,
+        and a flat section list with key CSS properties. No nested trees.
         """
         document = file_data.get("document")
         if not document or not isinstance(document, dict):
@@ -289,7 +177,7 @@ class FigmaService:
 
         name = file_data.get("name", "Untitled Design")
 
-        # ── Build a compact JSON tree from the Figma document ──
+        # ── Helpers ────────────────────────────────────────────
 
         def _fmt_color(color: dict[str, float] | None, opacity: float | None = None) -> str:
             if not color:
@@ -318,177 +206,251 @@ class FigmaService:
                     if isinstance(s, dict) and s.get("type") == "SOLID":
                         c = _fmt_color(s.get("color"))
                         if c:
-                            return f"{weight}px {c}"
+                            return f"{weight}px solid {c}"
             return ""
 
-        def _get_shadows(node: dict[str, Any]) -> list[str]:
-            result = []
-            for e in (node.get("effects") or []):
-                if isinstance(e, dict) and e.get("type") in ("DROP_SHADOW", "INNER_SHADOW"):
-                    ox = e.get("offset", {}).get("x", 0)
-                    oy = e.get("offset", {}).get("y", 0)
-                    r = e.get("radius", 0)
-                    c = _fmt_color(e.get("color"))
-                    result.append(f"{e['type'].lower()} {ox}px {oy}px {r}px {c}")
-            return result
-
-        def _get_text(node: dict[str, Any]) -> dict[str, Any] | None:
+        def _get_text_style(node: dict[str, Any]) -> dict | None:
             if node.get("type") != "TEXT":
                 return None
             style = node.get("style", {}) or {}
             chars = node.get("characters", "")
-            if len(chars) > 100:
-                chars = chars[:100] + "..."
-            t: dict[str, Any] = {"c": chars}
+            if len(chars) > 120:
+                chars = chars[:120] + "..."
+            result = {"text": chars}
             if style.get("fontFamily"):
-                t["ff"] = style["fontFamily"]
+                result["font-family"] = style["fontFamily"]
             if style.get("fontSize"):
-                t["fs"] = style["fontSize"]
+                result["font-size"] = f"{style['fontSize']}px"
             if style.get("fontWeight"):
-                t["fw"] = style["fontWeight"]
+                result["font-weight"] = str(style["fontWeight"])
             if style.get("lineHeightPx"):
-                t["lh"] = round(style["lineHeightPx"], 1)
+                result["line-height"] = f"{round(style['lineHeightPx'], 1)}px"
             if style.get("textAlignHorizontal") and style["textAlignHorizontal"] != "LEFT":
-                t["ta"] = style["textAlignHorizontal"].lower()
+                result["text-align"] = style["textAlignHorizontal"].lower()
             fill = _get_fill(node)
             if fill:
-                t["co"] = fill
-            return t
+                result["color"] = fill
+            return result
 
-        def _compact(node: dict[str, Any], depth: int = 0) -> dict[str, Any] | None:
-            """Convert a Figma node to a compact dict."""
-            if depth > 100:
-                return None
+        # ── Collect sections (top-level FRAMEs from the first canvas) ──
+
+        def _collect_sections(node: dict, depth: int = 0) -> list[dict]:
+            """Walk the tree and collect meaningful sections (FRAMEs, GROUPs, TEXTs)."""
+            if depth > 30:
+                return []
             nt = node.get("type", "")
             if nt == "DOCUMENT":
+                results = []
                 for c in (node.get("children") or []):
-                    r = _compact(c, depth)
-                    if r:
-                        return r
-                return None
+                    results.extend(_collect_sections(c, depth))
+                return results
+            if nt == "CANVAS":
+                results = []
+                for c in (node.get("children") or []):
+                    results.extend(_collect_sections(c, depth))
+                return results
 
             bbox = node.get("absoluteBoundingBox") or {}
-            n: dict[str, Any] = {"t": nt, "n": node.get("name", "")}
-
             x, y, w, h = bbox.get("x"), bbox.get("y"), bbox.get("width"), bbox.get("height")
-            if x is not None:
-                n["x"] = round(x, 1)
-            if y is not None:
-                n["y"] = round(y, 1)
-            if w is not None:
-                n["w"] = round(w, 1)
-            if h is not None:
-                n["h"] = round(h, 1)
+            node_name = node.get("name", "")
 
-            # Auto-layout
+            entry = {
+                "type": nt,
+                "name": node_name,
+                "x": round(x, 1) if x is not None else None,
+                "y": round(y, 1) if y is not None else None,
+                "w": round(w, 1) if w is not None else None,
+                "h": round(h, 1) if h is not None else None,
+            }
+
+            bg = _get_fill(node)
+            if bg:
+                entry["bg"] = bg
+
+            cr = node.get("cornerRadius")
+            if cr and cr > 0:
+                entry["border-radius"] = f"{round(cr,1)}px"
+
+            border = _get_stroke(node)
+            if border:
+                entry["border"] = border
+
             lm = node.get("layoutMode")
             if lm:
-                n["l"] = "row" if lm == "HORIZONTAL" else "col"
+                entry["layout"] = "row" if lm == "HORIZONTAL" else "column"
                 pa = node.get("primaryAxisAlignItems")
                 ca = node.get("counterAxisAlignItems")
                 if pa:
-                    n["jc"] = pa.lower()
+                    entry["justify-content"] = pa.lower()
                 if ca:
-                    n["ai"] = ca.lower()
+                    entry["align-items"] = ca.lower()
                 gap = node.get("itemSpacing")
                 if gap:
-                    n["gap"] = round(gap, 1)
+                    entry["gap"] = f"{round(gap,1)}px"
                 pads = {}
-                for k in ("paddingLeft", "paddingRight", "paddingTop", "paddingBottom"):
+                for k, css_k in [("paddingLeft", "left"), ("paddingRight", "right"),
+                                 ("paddingTop", "top"), ("paddingBottom", "bottom")]:
                     v = node.get(k, 0)
                     if v:
-                        pads[k.replace("padding", "").lower()] = round(v, 1)
+                        pads[css_k] = f"{round(v,1)}px"
                 if pads:
-                    n["pd"] = pads
+                    entry["padding"] = pads
 
-            # Corner radius
-            cr = node.get("cornerRadius")
-            if cr and cr > 0:
-                n["br"] = round(cr, 1)
-
-            # Background
-            bg = _get_fill(node)
-            if bg:
-                n["bg"] = bg
-
-            # Border
-            border = _get_stroke(node)
-            if border:
-                n["bd"] = border
-
-            # Opacity
-            op = node.get("opacity")
-            if op is not None and op < 1.0:
-                n["op"] = round(op, 2)
-
-            # Shadows
-            shadows = _get_shadows(node)
-            if shadows:
-                n["sh"] = shadows
-
-            # Overflow
-            if node.get("clipsContent"):
-                n["ov"] = "hidden"
-
-            # Text
-            text = _get_text(node)
+            text = _get_text_style(node)
             if text:
-                n["tx"] = text
+                entry["text"] = text
 
-            # Children
             children = node.get("children")
             if children:
-                cc = []
-                for child in children:
-                    cr = _compact(child, depth + 1)
-                    if cr:
-                        cc.append(cr)
-                if cc:
-                    n["ch"] = cc
+                child_sections = []
+                for c in children:
+                    child_sections.extend(_collect_sections(c, depth + 1))
+                if child_sections:
+                    entry["children"] = child_sections
 
-            return n
+            return [entry]
 
-        # Build compact tree from the first canvas
-        tree = None
-        for child in (document.get("children") or []):
-            if child.get("type") == "CANVAS":
-                tree = _compact(child)
-                break
+        sections = _collect_sections(document)
 
-        tree_json = json.dumps(tree, indent=2, ensure_ascii=False) if tree else "{}"
+        # ── Extract unique colors and fonts ────────────────────
+
+        def _walk_colors(items: list, seen: set) -> list[str]:
+            colors = []
+            for item in items:
+                if not isinstance(item, dict):
+                    continue
+                if "bg" in item and item["bg"] not in seen:
+                    seen.add(item["bg"])
+                    colors.append(item["bg"])
+                if "text" in item and isinstance(item["text"], dict) and "color" in item["text"]:
+                    c = item["text"]["color"]
+                    if c not in seen:
+                        seen.add(c)
+                        colors.append(c)
+                if "border" in item:
+                    # Extract color from "Npx solid COLOR"
+                    parts = item["border"].split()
+                    if len(parts) >= 3:
+                        c = parts[-1]
+                        if c not in seen:
+                            seen.add(c)
+                            colors.append(c)
+                for c in (item.get("children") or []):
+                    colors.extend(_walk_colors([c], seen))
+            return colors
+
+        def _walk_fonts(items: list, seen: set) -> list[dict]:
+            fonts = []
+            for item in items:
+                if not isinstance(item, dict):
+                    continue
+                if "text" in item and isinstance(item["text"], dict):
+                    ff = item["text"].get("font-family")
+                    fs = item["text"].get("font-size")
+                    fw = item["text"].get("font-weight")
+                    if ff and ff not in seen:
+                        seen.add(ff)
+                        entry = {"font-family": ff}
+                        if fs:
+                            entry["font-size"] = fs
+                        if fw:
+                            entry["font-weight"] = fw
+                        fonts.append(entry)
+                for c in (item.get("children") or []):
+                    fonts.extend(_walk_fonts([c], seen))
+            return fonts
+
+        all_colors = _walk_colors(sections, set())
+        all_fonts = _walk_fonts(sections, set())
+
+        # ── Build a compact YAML-like spec ─────────────────────
+
+        def _format_spec(items: list, indent: int = 0) -> str:
+            pad = "  " * indent
+            lines = []
+            for item in items:
+                if not isinstance(item, dict):
+                    continue
+                name = item.get("name", item.get("type", "?"))
+                tag = item["type"].lower().replace("_", "-")
+                dims = ""
+                if item.get("w") and item.get("h"):
+                    dims = f" [{item['w']}x{item['h']}px]"
+                lines.append(f"{pad}- {tag} \"{name}\"{dims}")
+                if item.get("bg"):
+                    lines.append(f"{pad}  bg: {item['bg']}")
+                if item.get("border-radius"):
+                    lines.append(f"{pad}  radius: {item['border-radius']}")
+                if item.get("border"):
+                    lines.append(f"{pad}  border: {item['border']}")
+                if item.get("layout"):
+                    lines.append(f"{pad}  flex: {item['layout']}")
+                    if item.get("justify-content"):
+                        lines.append(f"{pad}  justify: {item['justify-content']}")
+                    if item.get("align-items"):
+                        lines.append(f"{pad}  align: {item['align-items']}")
+                    if item.get("gap"):
+                        lines.append(f"{pad}  gap: {item['gap']}")
+                    if item.get("padding"):
+                        p = item["padding"]
+                        parts = []
+                        for k in ("top", "right", "bottom", "left"):
+                            if k in p:
+                                parts.append(p[k])
+                            else:
+                                parts.append("0")
+                        if any(v != "0" for v in parts):
+                            lines.append(f"{pad}  padding: {' '.join(parts)}")
+                if item.get("text"):
+                    t = item["text"]
+                    lines.append(f"{pad}  text: \"{t.get('text', '')}\"")
+                    if t.get("font-family"):
+                        lines.append(f"{pad}  font: {t['font-family']} {t.get('font-size', '')} {t.get('font-weight', '')}")
+                    if t.get("color"):
+                        lines.append(f"{pad}  color: {t['color']}")
+                    if t.get("text-align"):
+                        lines.append(f"{pad}  align: {t['text-align']}")
+                if item.get("children"):
+                    child_text = _format_spec(item["children"], indent + 1)
+                    if child_text:
+                        lines.append(child_text)
+            return "\n".join(lines)
+
+        spec = _format_spec(sections)
 
         # ── Build prompt ────────────────────────────────────────
         parts = [
-            f"Design name: {name}",
+            f"Design: {name}",
             "",
-            "Below is the Figma design as a compact JSON tree.",
-            "Field guide: t=type, n=name, x/y=position, w/h=size, l=layout(row|col),",
-            "jc=justify-content, ai=align-items, gap=gap, pd=padding, br=border-radius,",
-            "bg=background, bd=border, op=opacity, sh=shadows, ov=overflow,",
-            "tx=text{c=content, ff=font-family, fs=font-size, fw=font-weight,",
-            "lh=line-height, ta=text-align, co=color}, ch=children.",
+            "Convert this Figma design to HTML + CSS + JS.",
             "",
-            "You MUST reproduce this design EXACTLY in HTML/CSS.",
-            "Use the x,y coordinates for positioning (canvas origin 0,0 is top-left).",
-            "Use w,h for element sizes. Set explicit width/height in CSS.",
-            "",
-            "FIGMA TREE:",
-            "```json",
-            tree_json,
-            "```",
-            "",
-            "STRICT RULES:",
-            "- Use x,y,w,h from the JSON for positioning and sizing.",
-            "- Use bg for background colors, bd for borders, br for border-radius.",
-            "- Use tx.ff/fs/fw/lh/ta/co for text styling.",
-            "- For l='row' use display:flex + flex-direction:row.",
-            "- For l='col' use display:flex + flex-direction:column.",
-            "- Match jc/ai/gap/pd values to CSS justify-content/align-items/gap/padding.",
-            "- Match sh values to CSS box-shadow.",
-            "- Create ONE self-contained index.html with embedded CSS in <style>.",
-            "- DO NOT add, remove, or rearrange anything.",
-            "- DO NOT change colors, fonts, or spacing.",
-            "- The page must look IDENTICAL to the Figma design.",
         ]
+
+        if all_colors:
+            parts.append("Colors:")
+            for c in all_colors[:15]:
+                parts.append(f"  - {c}")
+            parts.append("")
+
+        if all_fonts:
+            parts.append("Fonts:")
+            for f in all_fonts[:10]:
+                parts.append(f"  - {f['font-family']} {f.get('font-size', '')} {f.get('font-weight', '')}")
+            parts.append("")
+
+        parts.append("Sections:")
+        parts.append(spec)
+        parts.append("")
+        parts.append(
+            "Rules:\n"
+            "- Create index.html, style.css, script.js\n"
+            "- index.html links style.css and script.js\n"
+            "- Use exact colors, fonts, sizes from the spec\n"
+            "- Use flexbox with exact direction, justify, align, gap, padding\n"
+            "- Match border-radius, border exactly\n"
+            "- Do NOT add/remove/rearrange elements\n"
+            "- Use colored divs or SVG for images (no external URLs)\n"
+            "- Page must look IDENTICAL to the Figma design"
+        )
 
         return "\n".join(parts)

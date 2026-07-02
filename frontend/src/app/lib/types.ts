@@ -54,16 +54,4 @@ export interface ChatMessageSchema {
   created_at: string;
 }
 
-// ── Figma ──────────────────────────────────────────────────
-
-export interface FigmaFile {
-  key: string;
-  name: string;
-  last_modified?: string;
-  thumbnail_url?: string;
-}
-
-export interface FigmaStatus {
-  connected: boolean;
-}
 

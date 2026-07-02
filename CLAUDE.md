@@ -8,7 +8,7 @@ AI-powered design-to-code platform. Users describe what they want in natural lan
 
 - **Phase 1 (Complete)**: Backend — FastAPI with project CRUD, sandbox file operations, PostgreSQL persistence via raw SQL, AI engine with OpenAI-compatible HTTP provider.
 - **Phase 2 (Complete)**: Frontend — ChatGPT-inspired layout with centered chat landing page, Monaco editor, live canvas iframe preview, sidebar toggles between project list and chat. All 44 bugs (18 critical + 26 medium/low) from frontend and backend audits fixed.
-- **Phase 3 (In Progress)**: Figma OAuth integration (complete), .fig file import (complete), ZIP export, design upload, testing.
+- **Phase 3 (In Progress)**: Figma URL import (complete, OAuth removed), ZIP export, design upload, testing.
 
 ## Architecture
 
@@ -59,10 +59,10 @@ API docs: `http://localhost:8000/docs`
 | `backend/app/routers/sandbox.py` | File ops: `/api/sandbox` |
 | `backend/app/routers/ai.py` | `POST /api/ai/generate` — AI code generation |
 | `backend/app/routers/chat.py` | `GET/POST /api/projects/{id}/chat` — Chat message persistence |
-| `backend/app/routers/figma.py` | Figma OAuth + file listing + design import endpoints |
+| `backend/app/routers/figma.py` | Figma URL import endpoint (`POST /api/figma/import-url`) |
 | `backend/app/services/project_service.py` | PostgreSQL-backed project + file + chat message management (asyncpg) |
 | `backend/app/services/ai_service.py` | Abstract BaseAIProvider + HttpAIProvider (OpenAI-compatible) |
-| `backend/app/services/figma_service.py` | Figma OAuth flow + REST API client + design prompt builder |
+| `backend/app/services/figma_service.py` | Figma REST API client + design prompt builder (stateless, no OAuth) |
 | `backend/app/db/database.py` | asyncpg pool manager + migration runner |
 | `backend/app/db/migrations/` | Append-only SQL migration files |
 | `frontend/src/app/page.tsx` | Main page — orchestrates sidebar, main content, chat state, API calls |
@@ -72,7 +72,7 @@ API docs: `http://localhost:8000/docs`
 | `frontend/src/app/components/EditorPane.tsx` | Monaco editor with model-based tab switching (preserves undo history) |
 | `frontend/src/app/components/FileExplorer.tsx` | VS Code-style file tree with directory structure, icons, rename/delete/new file |
 | `frontend/src/app/components/LiveCanvas.tsx` | Sandboxed iframe preview with per-file CSS/JS inlining |
-| `frontend/src/app/components/FigmaImport.tsx` | Figma OAuth popup + file picker + import UI (landing/toolbar variants) |
+| `frontend/src/app/components/FigmaImport.tsx` | Figma URL import UI (landing page form + toolbar modal) |
 | `frontend/src/app/lib/api.ts` | Typed API client |
 | `frontend/src/app/lib/types.ts` | Shared TypeScript interfaces |
 | `frontend/src/app/lib/fileIcons.tsx` | File type icon utility (SVG icons by extension) |
@@ -103,12 +103,7 @@ API docs: `http://localhost:8000/docs`
 | POST | `/api/ai/generate` | Generate code from prompt (returns message + files) |
 | GET | `/api/projects/{id}/chat` | Get chat messages for a project |
 | POST | `/api/projects/{id}/chat` | Save a chat message |
-| GET | `/api/figma/auth-url` | Get Figma OAuth authorization URL |
-| GET | `/api/figma/callback` | OAuth callback handler (exchanges code, closes popup) |
-| GET | `/api/figma/status` | Check Figma connection status |
-| GET | `/api/figma/files` | List user's Figma files |
-| POST | `/api/figma/import` | Import Figma design (OAuth) → AI generates code |
-| POST | `/api/figma/import-url` | Import Figma design by URL (no OAuth needed) → AI generates code |
+| POST | `/api/figma/import-url` | Import Figma design by URL + personal access token → AI generates code |
 
 ## Data Model
 
@@ -149,9 +144,9 @@ The `.env` file lives at the **project root** (`./.env`) — not in `backend/`. 
 | `TARGET_URL` | (required for AI) | AI provider API endpoint (OpenAI-compatible) |
 | `JWT_TOKEN` | (required for AI) | AI provider JWT bearer token |
 | `MODEL` | (required for AI) | AI model identifier |
-| `FIGMA_CLIENT_ID` | (empty) | Figma OAuth |
-| `FIGMA_CLIENT_SECRET` | (empty) | Figma OAuth |
-| `FIGMA_REDIRECT_URI` | `http://localhost:8000/api/figma/callback` | Figma OAuth |
+| `FIGMA_CLIENT_ID` | (empty) | Figma OAuth (no longer used — kept for reference) |
+| `FIGMA_CLIENT_SECRET` | (empty) | Figma OAuth (no longer used — kept for reference) |
+| `FIGMA_REDIRECT_URI` | `http://localhost:8000/api/figma/callback` | Figma OAuth (no longer used — kept for reference) |
 
 ## Bugs Fixed
 
@@ -193,14 +188,15 @@ The `.env` file lives at the **project root** (`./.env`) — not in `backend/`. 
 14. **File type icons** — New `fileIcons.tsx` utility with inline SVG icons for common file extensions, used consistently in the file explorer.
 15. **Unsaved changes tracking** — Files with pending debounced saves show a blue dot indicator in the file explorer. The `dirtyFiles` set is cleared when switching projects.
 
-## Figma OAuth Integration (June 2026)
+## Figma URL Import (July 2026)
 
-1. **Figma OAuth 2.0 flow** — Backend `FigmaService` handles auth URL generation, code exchange, token storage (DB-persisted), and refresh. Uses `file_content:read` scope. Token endpoint: `https://api.figma.com/v1/oauth/token`. Frontend `FigmaImport` component opens a popup, listens for `postMessage` callback (checking origin against backend URL), and transitions through connect/connected/importing states.
-2. **Figma file picker** — After authentication, enterprise users see a dropdown of their Figma files. Non-enterprise users see a manual file key/URL input field (since `/v1/me/files` is enterprise-only).
-3. **Design-to-prompt converter** — `build_design_prompt()` walks the Figma document tree, extracts page names, element structure, colors (from SOLID fills), and fonts (from TEXT nodes), and builds a structured prompt for the AI.
-4. **AI-powered code generation from designs** — The import endpoint (`POST /api/figma/import`) feeds the design prompt into the existing AI generation pipeline, creating a new project with generated HTML/CSS that matches the Figma design.
-5. **UI placement** — Figma import button appears in two places: the landing page (below the prompt input, full UI with file picker or manual input) and the project name bar (icon button, toolbar variant).
-6. **Figma URL import (July 2026)** — Users can import Figma designs by URL without OAuth. The landing page shows a URL input field with an optional personal access token field. Backend extracts the file key from the URL, fetches the document via the Figma REST API, and feeds it through `build_design_prompt()` → AI generation pipeline. Works for public files without any auth, and for private files with a personal access token. See [[figma-url-import-july-2026]] in memory for details.
+Figma OAuth has been removed. The only way to import Figma designs is via URL import with a personal access token.
+
+1. **URL import** — Users paste a Figma URL + personal access token. Backend extracts the file key, fetches the document via the Figma REST API (`X-Figma-Token` header), and feeds it through `build_design_prompt()` → AI generation pipeline.
+2. **Design-to-prompt converter** — `build_design_prompt()` walks the Figma document tree, extracts colors, fonts, and section structure, and builds a concise YAML-like spec for the AI. The spec includes exact colors, font families/sizes/weights, flexbox layout properties, border-radius, and border styles.
+3. **AI-powered code generation** — The import endpoint (`POST /api/figma/import-url`) feeds the design prompt into the AI generation pipeline with a pixel-perfect system prompt, creating a new project with `index.html`, `style.css`, and `script.js`.
+4. **UI placement** — Figma import appears in two places: the landing page (URL input + token field below the prompt input) and the project name bar (icon button that opens a modal).
+5. **429 retry** — Both AI provider and Figma API calls have retry logic with `Retry-After` header support. `RateLimitError` surfaces `retry_after` seconds to the frontend.
 
 ## Polish & DX Improvements (June 2026)
 
@@ -312,11 +308,13 @@ After the 44-bug fix session, a full project audit was performed. **20 items** f
 ## Phase 3 (In Progress)
 
 ### Completed
-- **Figma OAuth integration** — Full OAuth 2.0 flow with popup, file picker, and design-to-prompt import. See [[figma-oauth-integration-june-2026]] in memory for details.
+- **Figma URL import** — Users paste a Figma URL + personal access token. Backend fetches the Figma file via REST API (`X-Figma-Token` header), builds a structured design prompt, and feeds it into the AI generation pipeline. OAuth flow removed (July 2026). See [[figma-url-import-july-2026]] in memory for details.
+- **429 retry logic** — All AI provider and Figma API calls have retry logic with `Retry-After` header support. `RateLimitError` exception surfaces `retry_after` seconds to the frontend.
 
 ### Not Started
 - ZIP export endpoint
 - Design Upload, Download Button
+- Tests
 
 ## Dependencies
 

@@ -58,14 +58,11 @@ async def lifespan(app: FastAPI):
         print(f"  [AI] {e}")
         print(f"  [AI] AI generation endpoint will return 503 until configured.")
 
-    # Initialise Figma service
+    # Initialise Figma service (stateless — no OAuth tokens)
     figma_svc = FigmaService()
     figma.set_dependencies(figma_svc, provider, svc)
     app.state.figma_service = figma_svc
-    if settings.figma_client_id:
-        print(f"  [Figma] OAuth configured")
-    else:
-        print(f"  [Figma] FIGMA_CLIENT_ID not set — OAuth disabled")
+    print(f"  [Figma] URL import available (requires personal access token)")
 
     print(f"  [START] {settings.app_name} running at http://{settings.host}:{settings.port}")
     print(f"  [DB] Connected to PostgreSQL")

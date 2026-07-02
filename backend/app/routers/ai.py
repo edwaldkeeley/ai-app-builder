@@ -7,7 +7,7 @@ import json
 from fastapi import APIRouter, HTTPException, WebSocket, WebSocketDisconnect, status
 
 from app.models.schemas import GenerateResponse, ProjectCreate, ProjectFile, PromptRequest
-from app.services.ai_service import BaseAIProvider
+from app.services.ai_service import BaseAIProvider, RateLimitError
 from app.services.project_service import ProjectService
 
 router = APIRouter(prefix="/api/ai", tags=["ai"])
@@ -55,6 +55,11 @@ async def generate(body: PromptRequest):
 
     try:
         message, files = await _provider.generate(body.prompt, existing_files, chat_history)
+    except RateLimitError as e:
+        raise HTTPException(
+            status_code=429,
+            detail={"message": str(e), "retry_after": e.retry_after},
+        )
     except RuntimeError as e:
         raise HTTPException(status_code=502, detail=str(e))
 
@@ -203,6 +208,15 @@ async def ws_generate(websocket: WebSocket):
     except json.JSONDecodeError:
         try:
             await websocket.send_json({"type": "error", "detail": "Invalid JSON received."})
+        except WebSocketDisconnect:
+            pass
+    except RateLimitError as e:
+        try:
+            await websocket.send_json({
+                "type": "error",
+                "detail": str(e),
+                "retry_after": e.retry_after,
+            })
         except WebSocketDisconnect:
             pass
     except RuntimeError as e:

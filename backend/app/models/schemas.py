@@ -118,13 +118,6 @@ class DesignUploadResponse(BaseModel):
 # ── Figma ──────────────────────────────────────────────────
 
 
-class FigmaImportRequest(BaseModel):
-    """Request to import a Figma file."""
-
-    figma_file_key: str = Field(..., min_length=1, description="Figma file key from the URL")
-    page_name: str | None = None
-
-
 class FigmaUrlImportRequest(BaseModel):
     """Request to import a Figma file by URL or file key."""
 
@@ -134,23 +127,11 @@ class FigmaUrlImportRequest(BaseModel):
         max_length=512,
         description="Figma file URL (e.g. https://www.figma.com/file/KEY/name) or bare file key",
     )
-    access_token: str | None = Field(
-        None,
-        description="Figma personal access token (optional if OAuth-connected)",
+    access_token: str = Field(
+        ...,
+        min_length=1,
+        description="Figma personal access token. Generate one at https://www.figma.com/settings",
     )
-
-
-class FigmaAuthUrl(BaseModel):
-    url: str
-
-
-class FigmaFile(BaseModel):
-    """A Figma file as returned by the file listing endpoint."""
-
-    key: str
-    name: str
-    last_modified: str | None = None
-    thumbnail_url: str | None = None
 
 
 

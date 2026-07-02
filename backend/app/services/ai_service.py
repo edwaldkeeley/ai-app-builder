@@ -11,15 +11,39 @@ events as the response is received, enabling real-time UI updates.
 
 from __future__ import annotations
 
+import asyncio
 import json
+import logging
 import re
 from abc import ABC, abstractmethod
+from datetime import datetime, timezone
 from typing import Any, AsyncIterator
 
 import httpx
 
 from app.config import settings
 from app.models.schemas import FileType, ProjectFile
+
+logger = logging.getLogger(__name__)
+# Ensure logger output is visible — uvicorn's log config may not capture app.* loggers
+if not logger.handlers:
+    logger.addHandler(logging.StreamHandler())
+    logger.setLevel(logging.INFO)
+
+
+class RateLimitError(RuntimeError):
+    """Raised when the AI provider returns a 429 rate-limit response.
+
+    Attributes:
+        retry_after: Number of seconds the caller should wait before retrying.
+        message: Human-readable description.
+    """
+
+    def __init__(self, retry_after: int, message: str | None = None) -> None:
+        self.retry_after = retry_after
+        if message is None:
+            message = f"AI provider rate limited. Retry after {retry_after}s."
+        super().__init__(message)
 
 
 class BaseAIProvider(ABC):
@@ -109,7 +133,7 @@ _SYSTEM_PROMPT = (
 
 _FIGMA_SYSTEM_PROMPT = (
     "You are a pixel-perfect frontend developer. Your ONLY job is to convert the provided "
-    "Figma design specification into exact HTML/CSS code. Layout fidelity is your top priority.\n\n"
+    "Figma design specification into exact HTML/CSS/JS code. Layout fidelity is your top priority.\n\n"
     "CRITICAL RULES:\n"
     "1. EXACT POSITIONS: Every element must be placed at its specified position and size. "
     "Use the exact pixel dimensions from the layout specification.\n"
@@ -121,9 +145,9 @@ _FIGMA_SYSTEM_PROMPT = (
     "6. EXACT SHADOWS: Match drop shadows and inner shadows exactly.\n"
     "7. HIERARCHY: Preserve the parent-child nesting. Use CSS flexbox to replicate Figma "
     "auto-layout (HORIZONTAL → flex-direction: row, VERTICAL → flex-direction: column).\n"
-    "8. IMAGES: Use the provided images from the images/ folder with <img> tags. "
-    "Do NOT use placeholder images or external URLs.\n"
-    "9. SINGLE FILE: Create one self-contained index.html with embedded CSS in a <style> tag. "
+    "8. IMAGES: Use colored divs or inline SVG as placeholders. Do NOT use external image URLs.\n"
+    "9. THREE FILES: Create index.html, style.css, and script.js. "
+    "index.html links to style.css (<link>) and script.js (<script src>). "
     "Use semantic HTML5 and modern CSS.\n"
     "10. NO CREATIVE FREEDOM: Do NOT add, remove, or rearrange elements. Do NOT change "
     "colors, fonts, or spacing. Reproduce the design exactly as specified.\n\n"
@@ -132,8 +156,43 @@ _FIGMA_SYSTEM_PROMPT = (
     'The JSON must have a "message" field (string, briefly describe what was built) '
     'and a "files" array where each file has: '
     '"path" (string), "content" (string), "file_type" (one of: html, css, javascript, json, python, other).\n'
-    "Only include the index.html file (and optionally style.css, script.js if needed)."
+    "Always include all three files: index.html (file_type: html), style.css (file_type: css), "
+    "and script.js (file_type: javascript)."
 )
+
+
+def _parse_retry_after(response: httpx.Response, default: int = 10) -> int:
+    """Parse the Retry-After header from a 429 response.
+
+    Handles both integer seconds (``Retry-After: 120``) and HTTP-date
+    (``Retry-After: Fri, 31 Dec 2021 23:59:59 GMT``) formats per RFC 7231.
+
+    Falls back to the response body's ``retry_after`` / ``Retry-After`` fields,
+    then to the provided ``default``.
+    """
+    header = response.headers.get("Retry-After")
+    if header:
+        # Try integer seconds first
+        try:
+            return int(header)
+        except ValueError:
+            pass
+        # Try HTTP-date format
+        try:
+            parsed = datetime.strptime(header, "%a, %d %b %Y %H:%M:%S %Z")
+            now = datetime.now(timezone.utc)
+            wait = (parsed.replace(tzinfo=timezone.utc) - now).total_seconds()
+            if wait > 0:
+                return int(wait)
+        except ValueError:
+            pass
+    # Try to parse from response body
+    try:
+        body = response.json()
+        val = body.get("retry_after", body.get("Retry-After", default))
+        return int(val)
+    except Exception:
+        return default
 
 
 def _build_payload(
@@ -285,7 +344,26 @@ class HttpAIProvider(BaseAIProvider):
         payload = _build_payload(prompt, existing_files, chat_history, system_prompt_override)
         payload["model"] = self._model
 
+        # Log prompt size for debugging
+        total_chars = sum(len(m.get("content", "")) for m in payload.get("messages", []))
+        total_messages = len(payload.get("messages", []))
+        # Rough token estimate: ~4 chars per token for English text + JSON
+        estimated_tokens = total_chars // 3
+        logger.info(
+            "AI generate prompt: %d messages, %d chars, ~%d estimated tokens",
+            total_messages, total_chars, estimated_tokens,
+        )
+        # Log the last (user) message size specifically
+        if payload["messages"]:
+            last_msg = payload["messages"][-1]
+            logger.info(
+                "Last message (user prompt): %d chars, starts with: %s",
+                len(last_msg.get("content", "")),
+                last_msg.get("content", "")[:200],
+            )
+
         max_retries = 3
+        response: httpx.Response | None = None
         for attempt in range(max_retries + 1):
             async with httpx.AsyncClient(timeout=httpx.Timeout(self._timeout, connect=self._connect_timeout)) as client:
                 response = await client.post(self._target_url, json=payload, headers=headers)
@@ -295,24 +373,13 @@ class HttpAIProvider(BaseAIProvider):
             if response.status_code == 404:
                 raise RuntimeError(f"AI provider endpoint not found (404). Check your TARGET_URL.")
             if response.status_code == 429:
+                wait = _parse_retry_after(response)
                 if attempt >= max_retries:
-                    raise RuntimeError("AI provider rate limited (429). Max retries exceeded.")
-                # Try to read Retry-After header or body field
-                retry_after = response.headers.get("Retry-After")
-                if retry_after:
-                    try:
-                        wait = int(retry_after)
-                    except ValueError:
-                        wait = 10
-                else:
-                    # Try to parse from response body
-                    try:
-                        body = response.json()
-                        wait = int(body.get("retry_after", body.get("Retry-After", 10)))
-                    except Exception:
-                        wait = 10
+                    raise RateLimitError(
+                        retry_after=wait,
+                        message=f"AI provider rate limited (429). Retry after {wait}s. Max retries ({max_retries}) exceeded.",
+                    )
                 logger.warning("AI provider rate limited (429). Retrying in %ds (attempt %d/%d)", wait, attempt + 1, max_retries)
-                import asyncio
                 await asyncio.sleep(wait)
                 continue
             if not response.is_success:
@@ -323,6 +390,7 @@ class HttpAIProvider(BaseAIProvider):
             # Success — break out of retry loop
             break
 
+        assert response is not None  # guaranteed by the loop above
         data: dict[str, Any] = response.json()
 
         # Extract content from OpenAI-compatible response
@@ -401,6 +469,15 @@ class StreamingHttpAIProvider(BaseAIProvider):
         payload["model"] = self._model
         payload["stream"] = True
 
+        # Log prompt size for debugging
+        total_chars = sum(len(m.get("content", "")) for m in payload.get("messages", []))
+        total_messages = len(payload.get("messages", []))
+        estimated_tokens = total_chars // 3
+        logger.info(
+            "AI generate_stream prompt: %d messages, %d chars, ~%d estimated tokens",
+            total_messages, total_chars, estimated_tokens,
+        )
+
         accumulated_content = ""
         prev_message = ""
         # Track files we've already announced so we don't repeat
@@ -429,12 +506,13 @@ class StreamingHttpAIProvider(BaseAIProvider):
                     if response.status_code == 404:
                         raise RuntimeError(f"AI provider endpoint not found (404). Check your TARGET_URL.")
                     if response.status_code == 429:
+                        wait = _parse_retry_after(response)
                         if attempt >= max_retries:
-                            raise RuntimeError("AI provider rate limited (429). Max retries exceeded.")
-                        retry_after = response.headers.get("Retry-After")
-                        wait = int(retry_after) if retry_after and retry_after.isdigit() else 10
+                            raise RateLimitError(
+                                retry_after=wait,
+                                message=f"AI provider rate limited (429). Retry after {wait}s. Max retries ({max_retries}) exceeded.",
+                            )
                         logger.warning("AI provider rate limited (429). Retrying in %ds (attempt %d/%d)", wait, attempt + 1, max_retries)
-                        import asyncio
                         await asyncio.sleep(wait)
                         # Exit stream context to retry outer loop
                         break
@@ -529,6 +607,8 @@ class StreamingHttpAIProvider(BaseAIProvider):
 
             except Exception:
                 raise
+            finally:
+                await client.aclose()
 
         # After the stream ends, parse the full accumulated content
         try:

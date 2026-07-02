@@ -1,4 +1,4 @@
-import type { ChatMessageSchema, FigmaFile, FigmaStatus, GenerateResponse, Project, ProjectDetail, ProjectFile, SandboxState } from "./types";
+import type { ChatMessageSchema, GenerateResponse, Project, ProjectDetail, ProjectFile, SandboxState } from "./types";
 
 const BASE = process.env.NEXT_PUBLIC_API_URL || "http://localhost:8000";
 const WS_BASE = process.env.NEXT_PUBLIC_WS_URL || "ws://localhost:8000";
@@ -12,7 +12,7 @@ export interface StreamCallbacks {
   onFileDone?: (path: string) => void;
   onProject?: (projectId: string, projectName: string) => void;
   onDone?: (message: string, files: ProjectFile[]) => void;
-  onError?: (detail: string) => void;
+  onError?: (detail: string, retryAfter?: number) => void;
 }
 
 export interface StreamSession {
@@ -61,7 +61,7 @@ export function generateStream(callbacks: StreamCallbacks): StreamSession {
             callbacks.onDone?.(msg.message, msg.files);
             break;
           case "error":
-            callbacks.onError?.(msg.detail);
+            callbacks.onError?.(msg.detail, msg.retry_after);
             break;
         }
       } catch {
@@ -96,6 +96,7 @@ class ApiError extends Error {
   constructor(
     message: string,
     public status: number,
+    public retryAfter?: number,
   ) {
     super(message);
     this.name = "ApiError";
@@ -115,14 +116,25 @@ async function request<T>(path: string, options?: RequestInit, timeoutMs = 12000
 
     if (!res.ok) {
       let detail = `Request failed: ${res.status}`;
+      let retryAfter: number | undefined;
       try {
         const body = await res.json();
-        if (body?.detail) detail = body.detail;
+        if (body?.detail) {
+          if (typeof body.detail === "object" && body.detail !== null) {
+            detail = body.detail.message ?? String(body.detail);
+            retryAfter = body.detail.retry_after;
+          } else {
+            detail = body.detail;
+          }
+        }
+        if (body?.retry_after != null) retryAfter = body.retry_after;
       } catch {
         const text = await res.text().catch(() => "");
         if (text) detail = text;
       }
-      throw new ApiError(detail, res.status);
+      const err = new ApiError(detail, res.status);
+      if (retryAfter != null) err.retryAfter = retryAfter;
+      throw err;
     }
 
     // 204 No Content
@@ -213,30 +225,9 @@ export const api = {
     });
   },
 
-  // ── Figma ─────────────────────────────────────────────────
-
-  getFigmaAuthUrl(): Promise<{ url: string }> {
-    return request("/api/figma/auth-url");
-  },
-
-  getFigmaStatus(): Promise<FigmaStatus> {
-    return request("/api/figma/status");
-  },
-
-  listFigmaFiles(): Promise<{ files: FigmaFile[] }> {
-    return request("/api/figma/files");
-  },
-
-  importFigmaFile(fileKey: string): Promise<GenerateResponse> {
-    return request("/api/figma/import", {
-      method: "POST",
-      body: JSON.stringify({ figma_file_key: fileKey }),
-    }, 300000); // 5 min timeout — Figma fetch + AI generation
-  },
-
   // ── Figma URL import ────────────────────────────────────────
 
-  importFigmaUrl(figmaUrl: string, accessToken?: string): Promise<GenerateResponse> {
+  importFigmaUrl(figmaUrl: string, accessToken: string): Promise<GenerateResponse> {
     return request("/api/figma/import-url", {
       method: "POST",
       body: JSON.stringify({ figma_url: figmaUrl, access_token: accessToken }),
