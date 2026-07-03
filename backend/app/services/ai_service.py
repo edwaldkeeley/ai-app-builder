@@ -133,24 +133,33 @@ _SYSTEM_PROMPT = (
 
 _FIGMA_SYSTEM_PROMPT = (
     "You are a pixel-perfect frontend developer. Your ONLY job is to convert the provided "
-    "Figma design specification into exact HTML/CSS/JS code. Layout fidelity is your top priority.\n\n"
+    "Figma design JSON into exact HTML/CSS/JS code. Layout fidelity is your top priority.\n\n"
     "CRITICAL RULES:\n"
     "1. EXACT POSITIONS: Every element must be placed at its specified position and size. "
-    "Use the exact pixel dimensions from the layout specification.\n"
-    "2. EXACT COLORS: Use the exact colors from the color palette. No substitutions.\n"
+    "Use the exact pixel dimensions from the JSON.\n"
+    "2. EXACT COLORS: Use the exact colors from the JSON. No substitutions.\n"
     "3. EXACT TYPOGRAPHY: Use the exact font families, sizes, weights, line heights, and "
-    "text alignments specified.\n"
+    "text alignments from the JSON.\n"
     "4. EXACT SPACING: Match padding, gaps, margins, and border radii exactly.\n"
     "5. EXACT BORDERS: Match border widths, colors, and styles exactly.\n"
-    "6. EXACT SHADOWS: Match drop shadows and inner shadows exactly.\n"
-    "7. HIERARCHY: Preserve the parent-child nesting. Use CSS flexbox to replicate Figma "
-    "auto-layout (HORIZONTAL → flex-direction: row, VERTICAL → flex-direction: column).\n"
-    "8. IMAGES: Use colored divs or inline SVG as placeholders. Do NOT use external image URLs.\n"
-    "9. THREE FILES: Create index.html, style.css, and script.js. "
+    "6. HIERARCHY: Preserve the parent-child nesting from the JSON tree. "
+    "FRAME nodes with layoutMode become flexbox containers.\n"
+    "7. IMAGES: Use colored divs or inline SVG as placeholders. Do NOT use external image URLs.\n"
+    "8. THREE FILES: Create index.html, style.css, and script.js. "
     "index.html links to style.css (<link>) and script.js (<script src>). "
     "Use semantic HTML5 and modern CSS.\n"
-    "10. NO CREATIVE FREEDOM: Do NOT add, remove, or rearrange elements. Do NOT change "
+    "9. NO CREATIVE FREEDOM: Do NOT add, remove, or rearrange elements. Do NOT change "
     "colors, fonts, or spacing. Reproduce the design exactly as specified.\n\n"
+    "HOW TO READ THE FIGMA JSON:\n"
+    "- The JSON is a filtered Figma document tree — only meaningful nodes are included\n"
+    "- Each node has: type, name, width, height, x, y\n"
+    "- FRAME nodes may have: fill, borderRadius, border, layoutMode, justifyContent,\n"
+    "  alignItems, gap, padding, children\n"
+    "- TEXT nodes have: text (content), textStyle (fontFamily, fontSize, fontWeight,\n"
+    "  lineHeight, textAlign, color)\n"
+    "- layoutMode 'row' = flex-direction: row, 'column' = flex-direction: column\n"
+    "- Children are nested inside their parent node\n"
+    "- Translate EVERY node into an HTML element with matching CSS\n\n"
     "OUTPUT FORMAT:\n"
     "Return ONLY valid JSON. Do NOT wrap the JSON in markdown code blocks.\n"
     'The JSON must have a "message" field (string, briefly describe what was built) '
@@ -169,12 +178,13 @@ def _parse_retry_after(response: httpx.Response, default: int = 10) -> int:
 
     Falls back to the response body's ``retry_after`` / ``Retry-After`` fields,
     then to the provided ``default``.
+    Capped at 120 seconds to avoid bogus values.
     """
     header = response.headers.get("Retry-After")
     if header:
         # Try integer seconds first
         try:
-            return int(header)
+            return min(int(header), 120)
         except ValueError:
             pass
         # Try HTTP-date format
@@ -183,14 +193,14 @@ def _parse_retry_after(response: httpx.Response, default: int = 10) -> int:
             now = datetime.now(timezone.utc)
             wait = (parsed.replace(tzinfo=timezone.utc) - now).total_seconds()
             if wait > 0:
-                return int(wait)
+                return min(int(wait), 120)
         except ValueError:
             pass
     # Try to parse from response body
     try:
         body = response.json()
         val = body.get("retry_after", body.get("Retry-After", default))
-        return int(val)
+        return min(int(val), 120)
     except Exception:
         return default
 
@@ -200,6 +210,7 @@ def _build_payload(
     existing_files: list[ProjectFile] | None = None,
     chat_history: list[dict[str, str]] | None = None,
     system_prompt_override: str | None = None,
+    max_tokens: int | None = None,
 ) -> dict[str, Any]:
     """Build the OpenAI-compatible messages payload.
 
@@ -208,6 +219,7 @@ def _build_payload(
         existing_files: Current files in the project (sent as context).
         chat_history: Previous messages in the conversation.
         system_prompt_override: Optional system prompt to use instead of the default.
+        max_tokens: Maximum output tokens for the AI response.
     """
     system_prompt = system_prompt_override if system_prompt_override else _SYSTEM_PROMPT
     messages: list[dict[str, str]] = [
@@ -242,10 +254,33 @@ def _build_payload(
     # Add the latest user prompt
     messages.append({"role": "user", "content": prompt})
 
-    return {
+    payload: dict[str, Any] = {
         "messages": messages,
         "model": None,  # set by the provider
     }
+    if max_tokens is not None and max_tokens > 0:
+        payload["max_tokens"] = max_tokens
+    else:
+        # Default to a high value if not configured — some providers default to very low values
+        payload["max_tokens"] = 32000
+
+    # Warn if prompt is approaching common context window limits
+    total_chars = sum(len(m.get("content", "")) for m in messages)
+    estimated_input_tokens = total_chars // 3
+    if estimated_input_tokens > 100_000:
+        logger.warning(
+            "Prompt is very large: ~%d estimated input tokens (%.1f MB). "
+            "This may exceed the model's context window.",
+            estimated_input_tokens, total_chars / 1024 / 1024,
+        )
+    elif estimated_input_tokens > 50_000:
+        logger.info(
+            "Prompt is large: ~%d estimated input tokens. "
+            "Consider reducing prompt size if quality degrades.",
+            estimated_input_tokens,
+        )
+
+    return payload
 
 
 def _parse_final_json(
@@ -341,7 +376,7 @@ class HttpAIProvider(BaseAIProvider):
             "Content-Type": "application/json",
         }
 
-        payload = _build_payload(prompt, existing_files, chat_history, system_prompt_override)
+        payload = _build_payload(prompt, existing_files, chat_history, system_prompt_override, max_tokens=settings.max_tokens)
         payload["model"] = self._model
 
         # Log prompt size for debugging
@@ -349,18 +384,16 @@ class HttpAIProvider(BaseAIProvider):
         total_messages = len(payload.get("messages", []))
         # Rough token estimate: ~4 chars per token for English text + JSON
         estimated_tokens = total_chars // 3
+        max_tokens_val = payload.get("max_tokens", "default")
         logger.info(
-            "AI generate prompt: %d messages, %d chars, ~%d estimated tokens",
-            total_messages, total_chars, estimated_tokens,
+            "AI generate prompt: %d messages, %d chars, ~%d estimated tokens, max_tokens=%s",
+            total_messages, total_chars, estimated_tokens, max_tokens_val,
         )
-        # Log the last (user) message size specifically
-        if payload["messages"]:
-            last_msg = payload["messages"][-1]
-            logger.info(
-                "Last message (user prompt): %d chars, starts with: %s",
-                len(last_msg.get("content", "")),
-                last_msg.get("content", "")[:200],
-            )
+        # Log the system prompt and user prompt
+        for i, msg in enumerate(payload.get("messages", [])):
+            role = msg.get("role", "?")
+            content_preview = msg.get("content", "")[:300]
+            logger.info("  Message[%d] role=%s: %s...", i, role, content_preview)
 
         max_retries = 3
         response: httpx.Response | None = None
@@ -393,6 +426,10 @@ class HttpAIProvider(BaseAIProvider):
         assert response is not None  # guaranteed by the loop above
         data: dict[str, Any] = response.json()
 
+        # Log the raw response for debugging
+        logger.info("AI response status: %d", response.status_code)
+        logger.info("AI response data (first 500 chars): %s", str(data)[:500])
+
         # Extract content from OpenAI-compatible response
         try:
             content = data["choices"][0]["message"]["content"]
@@ -400,6 +437,17 @@ class HttpAIProvider(BaseAIProvider):
             raise RuntimeError(
                 f"Unexpected AI response format. Expected 'choices[0].message.content'. Got: {str(data)[:300]}"
             ) from e
+
+        if not content or not content.strip():
+            logger.error("AI provider returned empty content. Full response: %s", str(data)[:500])
+            raise RuntimeError(
+                "AI provider returned an empty response. "
+                "The prompt may be too large for the model's context window, "
+                "or the model failed to generate a response."
+            )
+
+        logger.info("AI response content (first 500 chars): %s", content[:500])
+        logger.info("AI response content length: %d chars", len(content))
 
         return _parse_final_json(content, existing_files)
 
@@ -465,7 +513,7 @@ class StreamingHttpAIProvider(BaseAIProvider):
             "Content-Type": "application/json",
         }
 
-        payload = _build_payload(prompt, existing_files, chat_history, system_prompt_override)
+        payload = _build_payload(prompt, existing_files, chat_history, system_prompt_override, max_tokens=settings.max_tokens)
         payload["model"] = self._model
         payload["stream"] = True
 
@@ -473,9 +521,10 @@ class StreamingHttpAIProvider(BaseAIProvider):
         total_chars = sum(len(m.get("content", "")) for m in payload.get("messages", []))
         total_messages = len(payload.get("messages", []))
         estimated_tokens = total_chars // 3
+        max_tokens_val = payload.get("max_tokens", "default")
         logger.info(
-            "AI generate_stream prompt: %d messages, %d chars, ~%d estimated tokens",
-            total_messages, total_chars, estimated_tokens,
+            "AI generate_stream prompt: %d messages, %d chars, ~%d estimated tokens, max_tokens=%s",
+            total_messages, total_chars, estimated_tokens, max_tokens_val,
         )
 
         accumulated_content = ""
