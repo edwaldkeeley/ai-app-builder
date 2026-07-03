@@ -167,6 +167,13 @@ class FigmaService:
         Produces a compact structured spec: design name, color palette, font palette,
         and a flat list of visual sections with their CSS properties. Keeps it under
         30k chars to reliably fit within AI context windows.
+
+        Key improvements over the previous version:
+        - Includes x/y position data for every element
+        - Filters to only the largest/primary frames (desktop-first)
+        - Detects image fills and marks them as placeholders
+        - Captures auto-layout properties more reliably
+        - Provides explicit positioning instructions
         """
         document = file_data.get("document")
         if not document or not isinstance(document, dict):
@@ -191,6 +198,7 @@ class FigmaService:
             return f"rgba({r},{g},{b},{a})" if a < 1.0 else f"rgb({r},{g},{b})"
 
         def _get_fill(node: dict[str, Any]) -> str:
+            """Get the SOLID fill color of a node, or empty string if none."""
             fills = node.get("fills", [])
             if isinstance(fills, list):
                 for fill in fills:
@@ -199,6 +207,15 @@ class FigmaService:
                         if c:
                             return c
             return ""
+
+        def _has_image_fill(node: dict[str, Any]) -> bool:
+            """Check if a node has an image fill (not a solid color)."""
+            fills = node.get("fills", [])
+            if isinstance(fills, list):
+                for fill in fills:
+                    if isinstance(fill, dict) and fill.get("type") in ("IMAGE", "EMOJI_TILED"):
+                        return True
+            return False
 
         def _get_text_info(node: dict[str, Any]) -> dict | None:
             if node.get("type") != "TEXT":
@@ -216,12 +233,65 @@ class FigmaService:
                 info["weight"] = style["fontWeight"]
             if style.get("textAlignHorizontal") and style["textAlignHorizontal"] != "LEFT":
                 info["align"] = style["textAlignHorizontal"].lower()
+            if style.get("lineHeightPx"):
+                info["lineHeight"] = style["lineHeightPx"]
+            if style.get("letterSpacing"):
+                info["letterSpacing"] = style["letterSpacing"]
             fill = _get_fill(node)
             if fill:
                 info["color"] = fill
             return info
 
-        # ── Collect top-level frames ──────────────────────────
+        def _get_layout_str(node: dict) -> str:
+            """Build a layout description string from a node's auto-layout properties."""
+            lm = node.get("layoutMode")
+            if not lm:
+                return ""
+            direction = "row" if lm == "HORIZONTAL" else "column"
+            parts = [f"flex:{direction}"]
+            pa = node.get("primaryAxisAlignItems")
+            ca = node.get("counterAxisAlignItems")
+            if pa:
+                parts.append(f"justify:{pa.lower()}")
+            if ca:
+                parts.append(f"align:{ca.lower()}")
+            gap = node.get("itemSpacing")
+            if gap:
+                parts.append(f"gap:{round(gap,1)}px")
+            pt = node.get("paddingTop")
+            pb = node.get("paddingBottom")
+            pl = node.get("paddingLeft")
+            pr = node.get("paddingRight")
+            if pt is not None and pt == pb and pl is not None and pl == pr and pt == pl and pt > 0:
+                parts.append(f"pad:{round(pt,1)}px")
+            elif pt is not None or pb is not None or pl is not None or pr is not None:
+                p = f"{round(pt or 0,1)}px {round(pr or 0,1)}px {round(pb or 0,1)}px {round(pl or 0,1)}px"
+                if p != "0px 0px 0px 0px":
+                    parts.append(f"pad:{p}")
+            return " ".join(parts)
+
+        def _get_border_str(node: dict) -> str:
+            """Build a border description string."""
+            strokes = node.get("strokes", [])
+            if not strokes or not isinstance(strokes, list):
+                return ""
+            weight = node.get("strokeWeight")
+            if not weight:
+                return ""
+            for stroke in strokes:
+                if isinstance(stroke, dict) and stroke.get("type") == "SOLID":
+                    c = _fmt_color(stroke.get("color"), stroke.get("opacity"))
+                    if c:
+                        return f"border:{round(weight,1)}px solid {c}"
+            return ""
+
+        # ── Collect frames from canvases ──────────────────────
+
+        def _get_canvases(node: dict) -> list[dict]:
+            """Get all CANVAS nodes from the document."""
+            if node.get("type") == "DOCUMENT":
+                return node.get("children") or []
+            return []
 
         def _get_top_frames(node: dict) -> list[dict]:
             if node.get("type") == "DOCUMENT":
@@ -234,7 +304,47 @@ class FigmaService:
                 return node.get("children") or []
             return []
 
+        canvases = _get_canvases(document)
         top_frames = _get_top_frames(document)
+
+        # ── Select the best canvas to use ─────────────────────
+        # Prefer the first canvas that has desktop-sized frames (>= 1024px wide)
+        # or the canvas with the most frames
+
+        def _frame_width(f: dict) -> float:
+            bb = f.get("absoluteBoundingBox") or {}
+            return float(bb.get("width", 0))
+
+        def _is_desktop_frame(f: dict) -> bool:
+            return _frame_width(f) >= 1024
+
+        def _is_mobile_frame(f: dict) -> bool:
+            w = _frame_width(f)
+            return 0 < w < 600
+
+        # Find the best canvas: prefer one with desktop frames
+        selected_canvas_frames = top_frames
+        for canvas in canvases:
+            cframes = canvas.get("children") or []
+            desktop_frames = [f for f in cframes if _is_desktop_frame(f)]
+            if desktop_frames:
+                selected_canvas_frames = cframes
+                break
+
+        # Filter: prefer desktop frames, fall back to largest frames
+        desktop_frames = [f for f in selected_canvas_frames if _is_desktop_frame(f)]
+        if desktop_frames:
+            # Sort by area (largest first) and take top 8
+            desktop_frames.sort(key=lambda f: _frame_width(f) * (f.get("absoluteBoundingBox") or {}).get("height", 0), reverse=True)
+            working_frames = desktop_frames[:8]
+        else:
+            # No desktop frames — take the largest frames by area
+            sorted_frames = sorted(
+                selected_canvas_frames,
+                key=lambda f: _frame_width(f) * (f.get("absoluteBoundingBox") or {}).get("height", 0),
+                reverse=True,
+            )
+            working_frames = sorted_frames[:8]
 
         # ── Extract colors and fonts ──────────────────────────
 
@@ -265,7 +375,7 @@ class FigmaService:
                 for c in (item.get("children") or []):
                     _scan([c])
 
-        _scan(top_frames)
+        _scan(working_frames)
 
         # ── Build compact section descriptions ────────────────
 
@@ -297,39 +407,38 @@ class FigmaService:
         MAX_OUTPUT_CHARS = 25000
         estimated = len("\n".join(lines))
 
-        for fi, frame in enumerate(top_frames):
+        for fi, frame in enumerate(working_frames):
             if estimated > MAX_OUTPUT_CHARS:
-                lines.append(f"  ... ({len(top_frames) - fi} more sections omitted)")
+                lines.append(f"  ... ({len(working_frames) - fi} more sections omitted)")
                 break
 
             fname = frame.get("name", f"section-{fi}")
             bbox = frame.get("absoluteBoundingBox") or {}
             fw = bbox.get("width")
             fh = bbox.get("height")
+            fx = bbox.get("x", 0)
+            fy = bbox.get("y", 0)
             dims = f" [{round(fw,1)}x{round(fh,1)}px]" if fw and fh else ""
+            pos = f" @({round(fx,1)},{round(fy,1)})" if fx is not None and fy is not None else ""
 
             bg = _get_fill(frame)
             bg_str = f" bg:{bg}" if bg else ""
 
-            lm = frame.get("layoutMode")
-            layout_str = ""
-            if lm:
-                direction = "row" if lm == "HORIZONTAL" else "column"
-                layout_str = f" flex:{direction}"
-                pa = frame.get("primaryAxisAlignItems")
-                ca = frame.get("counterAxisAlignItems")
-                if pa:
-                    layout_str += f" justify:{pa.lower()}"
-                if ca:
-                    layout_str += f" align:{ca.lower()}"
-                gap = frame.get("itemSpacing")
-                if gap:
-                    layout_str += f" gap:{round(gap,1)}px"
+            is_img = _has_image_fill(frame)
+            img_str = " [IMAGE]" if is_img else ""
+
+            layout_str = _get_layout_str(frame)
+            if layout_str:
+                layout_str = f" {layout_str}"
 
             cr = frame.get("cornerRadius")
             radius_str = f" radius:{round(cr,1)}px" if cr and cr > 0 else ""
 
-            lines.append(f"  [{fi}] {fname}{dims}{bg_str}{layout_str}{radius_str}")
+            border_str = _get_border_str(frame)
+            if border_str:
+                border_str = f" {border_str}"
+
+            lines.append(f"  [{fi}] {fname}{dims}{pos}{bg_str}{img_str}{layout_str}{radius_str}{border_str}")
             estimated += len(lines[-1])
 
             # Direct children (one level deep, no recursion)
@@ -344,10 +453,16 @@ class FigmaService:
                 cbbox = child.get("absoluteBoundingBox") or {}
                 cw = cbbox.get("width")
                 ch = cbbox.get("height")
+                cx = cbbox.get("x", 0)
+                cy = cbbox.get("y", 0)
                 cdims = f" [{round(cw,1)}x{round(ch,1)}px]" if cw and ch else ""
+                cpos = f" @({round(cx,1)},{round(cy,1)})" if cx is not None and cy is not None else ""
 
                 cbg = _get_fill(child)
                 cbg_str = f" bg:{cbg}" if cbg else ""
+
+                c_is_img = _has_image_fill(child)
+                c_img_str = " [IMAGE]" if c_is_img else ""
 
                 text = _get_text_info(child)
                 text_str = ""
@@ -358,35 +473,48 @@ class FigmaService:
                         text_str += f" font:{text['font']}"
                     if text.get("size"):
                         text_str += f" {text['size']}px"
+                    if text.get("weight"):
+                        text_str += f" weight:{text['weight']}"
                     if text.get("color"):
                         text_str += f" color:{text['color']}"
+                    if text.get("align"):
+                        text_str += f" align:{text['align']}"
+                    if text.get("lineHeight"):
+                        text_str += f" lh:{text['lineHeight']}px"
+                    if text.get("letterSpacing"):
+                        text_str += f" ls:{text['letterSpacing']}px"
 
-                clm = child.get("layoutMode")
-                clayout_str = ""
-                if clm:
-                    cdir = "row" if clm == "HORIZONTAL" else "column"
-                    clayout_str = f" flex:{cdir}"
+                clayout_str = _get_layout_str(child)
+                if clayout_str:
+                    clayout_str = f" {clayout_str}"
 
                 ccr = child.get("cornerRadius")
                 cradius_str = f" radius:{round(ccr,1)}px" if ccr and ccr > 0 else ""
 
-                line = f"    - {cname}{cdims}{cbg_str}{text_str}{clayout_str}{cradius_str}"
+                cborder_str = _get_border_str(child)
+                if cborder_str:
+                    cborder_str = f" {cborder_str}"
+
+                line = f"    - {cname}{cdims}{cpos}{cbg_str}{c_img_str}{text_str}{clayout_str}{cradius_str}{cborder_str}"
                 lines.append(line)
                 estimated += len(line)
 
         lines.append("")
         lines.append(
-            "Rules:\n"
+            "RULES:\n"
             "- Create index.html, style.css, script.js\n"
             "- index.html links style.css and script.js\n"
             "- Use the EXACT colors from the Colors list above\n"
             "- Use the EXACT fonts from the Fonts list above\n"
             "- Each [N] section is a top-level HTML section element\n"
             "- Indented children with '-' are nested inside their parent\n"
-            "- Use flexbox with exact direction, justify, align, gap\n"
-            "- Match border-radius and dimensions exactly\n"
+            "- Use the @(x,y) position data to place elements with CSS position:absolute\n"
+            "  relative to their parent section. The parent section is positioned at (0,0).\n"
+            "- For elements with flex:row or flex:column, use CSS flexbox instead of absolute\n"
+            "- Match border-radius, border, and dimensions exactly\n"
+            "- [IMAGE] markers mean the node has an image fill — use a colored div or inline SVG\n"
+            "  as a placeholder. Do NOT use external image URLs.\n"
             "- Do NOT add, remove, or rearrange elements\n"
-            "- Use colored divs or inline SVG for images (no external URLs)\n"
             "- Page must look IDENTICAL to the Figma design"
         )
 
