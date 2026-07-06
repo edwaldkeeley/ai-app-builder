@@ -717,4 +717,5 @@ def create_provider() -> BaseAIProvider:
         target_url=settings.target_url,
         jwt_token=settings.jwt_token,
         model=settings.model,
+        timeout=float(settings.timeout_seconds),
     )

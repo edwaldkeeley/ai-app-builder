@@ -145,6 +145,7 @@ The `.env` file lives at the **project root** (`./.env`) — not in `backend/`. 
 | `JWT_TOKEN` | (required for AI) | AI provider JWT bearer token |
 | `MODEL` | (required for AI) | AI model identifier |
 | `MAX_TOKENS` | `16384` | Maximum output tokens for AI generation |
+| `TIMEOUT_SECONDS` | `600` | AI provider request timeout (default 10 min) |
 | `FIGMA_CLIENT_ID` | (empty) | Figma OAuth (no longer used — kept for reference) |
 | `FIGMA_CLIENT_SECRET` | (empty) | Figma OAuth (no longer used — kept for reference) |
 | `FIGMA_REDIRECT_URI` | `http://localhost:8000/api/figma/callback` | Figma OAuth (no longer used — kept for reference) |

@@ -26,6 +26,7 @@ class Settings(BaseSettings):
     jwt_token: str = ""
     model: str = ""
     max_tokens: int = 0  # 0 = use provider default (provider says no token limits)
+    timeout_seconds: int = 600  # AI provider request timeout (default 10 min)
 
     # ── Database ────────────────────────────────────────────
     database_url: str = "postgresql://postgres:postgres@localhost:5432/ai_design_sandbox"
