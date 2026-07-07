@@ -132,58 +132,47 @@ _SYSTEM_PROMPT = (
 )
 
 _FIGMA_SYSTEM_PROMPT = (
-    "You are a pixel-perfect frontend developer. Your ONLY job is to convert the provided "
-    "Figma JSON document tree into exact HTML/CSS/JS code. Layout fidelity is your top priority.\n\n"
+    "<role> You are a pixel-perfect frontend developer. Your ONLY job is to convert the provided "
+    "Figma JSON document tree into exact HTML/CSS/JS code. Layout fidelity is your top priority. "
+    "You take pride in matching the design exactly — every pixel, every color, every font. </role>\n\n"
     "The user will provide a Figma JSON document tree. Parse it carefully and generate "
     "code that reproduces the design exactly.\n\n"
-    "### How to read the Figma JSON\n\n"
+    "# How to read the Figma JSON\n\n"
+    "## Node types\n"
     "- The root is a DOCUMENT node containing CANVAS nodes (pages).\n"
-    "- Each CANVAS contains FRAME nodes — these are your top-level sections/pages.\n"
-    "- FRAME nodes can contain nested FRAMEs, TEXT nodes, RECTANGLE nodes, "
-    "ELLIPSE nodes, LINE nodes, VECTOR nodes, GROUP nodes, and COMPONENT nodes.\n"
+    "- Each CANVAS contains FRAME nodes — these are your top-level sections.\n"
+    "- FRAME nodes can contain nested FRAMEs, TEXT, RECTANGLE, ELLIPSE, LINE, VECTOR, GROUP, COMPONENT, INSTANCE.\n"
     "- INSTANCE nodes are component instances — treat them like their source component.\n\n"
-    "### Key properties per node\n\n"
-    "- `type`: FRAME, TEXT, RECTANGLE, ELLIPSE, LINE, VECTOR, GROUP, COMPONENT, INSTANCE\n"
-    "- `name`: The layer name in Figma\n"
+    "## Key properties per node\n"
     "- `absoluteBoundingBox`: `{x, y, width, height}` — position and size in pixels\n"
-    "- `fills[]`: Array of fill objects. Each has `type` (SOLID, GRADIENT, IMAGE, etc.) "
-    "and `color` `{r, g, b}` (0-1 range) and `opacity` (0-1).\n"
-    "- `strokes[]`: Array of stroke objects (same structure as fills). "
-    "`strokeWeight` gives the width.\n"
-    "- `cornerRadius`: Border radius in pixels (or `individualCornerRadius` for per-corner).\n"
+    "- `fills[]`: Array of fill objects. Each has `type` (SOLID, GRADIENT, IMAGE) and `color` `{r, g, b}` (0-1) and `opacity` (0-1).\n"
+    "- `strokes[]`: Array of stroke objects (same structure as fills). `strokeWeight` gives the width.\n"
+    "- `cornerRadius`: Border radius in pixels. `individualCornerRadius` for per-corner values.\n"
     "- `effects[]`: Array of effect objects (drop shadows, inner shadows, blurs).\n"
-    "- `opacity`: Node opacity (0-1).\n"
-    "- `blendMode`: Blend mode (e.g. \"PASS_THROUGH\", \"MULTIPLY\").\n"
-    "- `isMask`: Boolean — if true, this node is a mask.\n\n"
-    "### Text nodes (type: TEXT)\n\n"
+    "- `opacity`: Node opacity (0-1).\n\n"
+    "## Text nodes (type: TEXT)\n"
     "- `characters`: The text content\n"
-    "- `style`: Object with `fontFamily`, `fontPostScriptName`, `fontSize`, `fontWeight`, "
-    "`textAlignHorizontal` (LEFT, CENTER, RIGHT), `textAlignVertical` (TOP, CENTER, BOTTOM), "
-    "`lineHeightPx`, `letterSpacing`, `paragraphSpacing`, `paragraphIndent`\n"
+    "- `style`: Object with `fontFamily`, `fontSize`, `fontWeight`, "
+    "`textAlignHorizontal` (LEFT/CENTER/RIGHT), `lineHeightPx`, `letterSpacing`\n"
     "- `fills[0].color`: Text color\n\n"
-    "### Auto-layout (FRAME nodes with layoutMode)\n\n"
+    "## Auto-layout (FRAME nodes with layoutMode)\n"
     "- `layoutMode`: \"NONE\" (no auto-layout), \"HORIZONTAL\" (flex row), \"VERTICAL\" (flex column)\n"
     "- `primaryAxisAlignItems`: \"MIN\" (flex-start), \"CENTER\", \"MAX\" (flex-end), \"SPACE_BETWEEN\"\n"
     "- `counterAxisAlignItems`: \"MIN\", \"CENTER\", \"MAX\"\n"
     "- `itemSpacing`: Gap between children in pixels\n"
-    "- `paddingLeft`, `paddingRight`, `paddingTop`, `paddingBottom`: Padding in pixels\n"
-    "- `layoutWrap`: \"NO_WRAP\" or \"WRAP\"\n"
-    "- `itemReverseZIndex`: Boolean — if true, children are rendered in reverse order\n\n"
-    "### Constraints\n\n"
-    "- `constraints`: `{horizontal: \"MIN\"|\"CENTER\"|\"MAX\"|\"STRETCH\"|\"SCALE\", "
-    "vertical: \"MIN\"|\"CENTER\"|\"MAX\"|\"STRETCH\"|\"SCALE\"}`\n"
-    "- Use constraints to determine how elements should behave on resize.\n\n"
-    "### Gradients\n\n"
-    "- Fills with type \"GRADIENT\" have `gradientType` (LINEAR, RADIAL, ANGULAR, DIAMOND) "
+    "- `paddingLeft/Right/Top/Bottom`: Padding in pixels\n"
+    "- `layoutWrap`: \"NO_WRAP\" or \"WRAP\"\n\n"
+    "## Gradients\n"
+    "- Fills with type \"GRADIENT\" have `gradientType` (LINEAR/RADIAL/ANGULAR/DIAMOND) "
     "and `gradientStops[]` each with `position` (0-1) and `color`.\n\n"
-    "### Images\n\n"
-    "- Fills with type \"IMAGE\" have `imageRef` and `scaleMode` (FILL, FIT, CROP, TILE).\n"
+    "## Images\n"
+    "- Fills with type \"IMAGE\" have `imageRef` and `scaleMode` (FILL/FIT/CROP/TILE).\n"
     "- Use a colored div or inline SVG placeholder. Do NOT use external image URLs.\n\n"
-    "### CRITICAL RULES\n\n"
-    "1. EXACT POSITIONS: Use `absoluteBoundingBox.x` and `absoluteBoundingBox.y` for positioning. "
+    "# CRITICAL RULES\n\n"
+    "1. EXACT POSITIONS: Use `absoluteBoundingBox.x` and `absoluteBoundingBox.y`. "
     "Use CSS position:absolute with left and top.\n"
-    "2. EXACT DIMENSIONS: Use `absoluteBoundingBox.width` and `absoluteBoundingBox.height` for sizing.\n"
-    "3. EXACT COLORS: Convert 0-1 RGB values to 0-255. Use the exact colors from fills. No substitutions.\n"
+    "2. EXACT DIMENSIONS: Use `absoluteBoundingBox.width` and `absoluteBoundingBox.height`.\n"
+    "3. EXACT COLORS: Convert 0-1 RGB to 0-255. Use the exact colors from fills. No substitutions.\n"
     "4. EXACT TYPOGRAPHY: Use the exact font families, sizes, weights, line heights, "
     "letter spacing, and text alignments from the style object.\n"
     "5. EXACT SPACING: Match padding, gaps, and border radii exactly.\n"
@@ -192,17 +181,41 @@ _FIGMA_SYSTEM_PROMPT = (
     "FRAME nodes with layoutMode become flexbox containers (use flexbox, not absolute).\n"
     "8. IMAGE FILLS: Use a colored div or inline SVG as a placeholder. Do NOT use external image URLs.\n"
     "9. THREE FILES: Create index.html, style.css, and script.js. "
-    "index.html links to style.css (<link>) and script.js (<script src>). "
-    "Use semantic HTML5 and modern CSS.\n"
+    "index.html links to style.css and script.js. Use semantic HTML5 and modern CSS.\n"
     "10. NO CREATIVE FREEDOM: Do NOT add, remove, or rearrange elements. Do NOT change "
     "colors, fonts, or spacing. Reproduce the design exactly as specified.\n\n"
-    "OUTPUT FORMAT:\n"
+    "# OUTPUT FORMAT\n\n"
     "Return ONLY valid JSON. Do NOT wrap the JSON in markdown code blocks.\n"
     'The JSON must have a "message" field (string, briefly describe what was built) '
     'and a "files" array where each file has: '
     '"path" (string), "content" (string), "file_type" (one of: html, css, javascript, json, python, other).\n'
     "Always include all three files: index.html (file_type: html), style.css (file_type: css), "
-    "and script.js (file_type: javascript)."
+    "and script.js (file_type: javascript).\n\n"
+    "# EXAMPLE\n\n"
+    'Here is an example of the correct output format for a simple landing page:\n\n'
+    '```json\n'
+    '{\n'
+    '  "message": "Created a landing page with hero section, features grid, and footer.",\n'
+    '  "files": [\n'
+    '    {\n'
+    '      "path": "index.html",\n'
+    '      "content": "<!DOCTYPE html>\\n<html lang=\\"en\\">\\n<head>\\n  <meta charset=\\"UTF-8\\">\\n  <meta name=\\"viewport\\" content=\\"width=device-width, initial-scale=1.0\\">\\n  <title>Design</title>\\n  <link rel=\\"stylesheet\\" href=\\"style.css\\">\\n</head>\\n<body>\\n  <!-- HTML content matching the Figma design -->\\n  <script src=\\"script.js\\"></script>\\n</body>\\n</html>",\n'
+    '      "file_type": "html"\n'
+    '    },\n'
+    '    {\n'
+    '      "path": "style.css",\n'
+    '      "content": "/* CSS matching the Figma design exactly */\\n* { margin: 0; padding: 0; box-sizing: border-box; }\\nbody { font-family: ...; }",\n'
+    '      "file_type": "css"\n'
+    '    },\n'
+    '    {\n'
+    '      "path": "script.js",\n'
+    '      "content": "// JavaScript for interactivity\\n",\n'
+    '      "file_type": "javascript"\n'
+    '    }\n'
+    '  ]\n'
+    '}\n'
+    '```\n\n'
+    "IMPORTANT: The example above is just for format reference. Your actual output must match the Figma design provided in the JSON, not this example."
 )
 
 
@@ -370,6 +383,61 @@ def _parse_final_json(
     return message, merged_files
 
 
+def _validate_generated_files(
+    files: list[ProjectFile],
+    design_name: str = "",
+) -> list[str]:
+    """Validate generated files for common issues.
+
+    Checks:
+    - index.html exists
+    - style.css exists
+    - script.js exists
+    - index.html links to style.css
+    - index.html links to script.js
+    - style.css has content (not empty)
+    - index.html has a <body> tag
+    - index.html has a <title> tag
+
+    Returns a list of warning messages (empty = no issues).
+    """
+    warnings: list[str] = []
+    file_map = {f.path: f for f in files}
+
+    # Check all three required files exist
+    for required in ["index.html", "style.css", "script.js"]:
+        if required not in file_map:
+            warnings.append(f"Missing required file: {required}")
+
+    # Validate index.html structure
+    if "index.html" in file_map:
+        html_content = file_map["index.html"].content
+        if "style.css" not in html_content and '<link rel="stylesheet"' not in html_content:
+            warnings.append("index.html does not link to style.css")
+        if "script.js" not in html_content and '<script' not in html_content:
+            warnings.append("index.html does not link to script.js")
+        if "<body" not in html_content:
+            warnings.append("index.html is missing <body> tag")
+        if "<title>" not in html_content:
+            warnings.append("index.html is missing <title> tag")
+
+    # Validate style.css has content
+    if "style.css" in file_map:
+        css_content = file_map["style.css"].content.strip()
+        if not css_content:
+            warnings.append("style.css is empty")
+        elif len(css_content) < 50:
+            warnings.append(f"style.css seems too short ({len(css_content)} chars)")
+
+    # Validate script.js has content
+    if "script.js" in file_map:
+        js_content = file_map["script.js"].content.strip()
+        if not js_content:
+            warnings.append("script.js is empty")
+
+    return warnings
+
+
 class HttpAIProvider(BaseAIProvider):
     """AI provider that calls a remote HTTP endpoint.
 
@@ -483,7 +551,19 @@ class HttpAIProvider(BaseAIProvider):
         logger.info("AI response content (first 500 chars): %s", content[:500])
         logger.info("AI response content length: %d chars", len(content))
 
-        return _parse_final_json(content, existing_files)
+        message, files = _parse_final_json(content, existing_files)
+
+        # Validate generated files and log warnings
+        warnings = _validate_generated_files(files)
+        if warnings:
+            logger.warning("Generated file validation warnings (%d):", len(warnings))
+            for w in warnings:
+                logger.warning("  - %s", w)
+            # Append warnings to the message so the frontend can display them
+            if warnings:
+                message += "\n\n**Note:** " + " ".join(warnings)
+
+        return message, files
 
     async def generate_stream(
         self,
