@@ -35,7 +35,16 @@ export default function FigmaImport({ onImportComplete, variant = "landing" }: F
     } catch (err) {
       const msg = err instanceof Error ? err.message : "Import failed";
       setErrorMsg(msg);
-      showToast("error", "Failed to import Figma design");
+      // Check if it's a rate limit error with retry info
+      const retryAfter = (err as any)?.retryAfter;
+      if (retryAfter && retryAfter > 0) {
+        const mins = Math.floor(retryAfter / 60);
+        const secs = retryAfter % 60;
+        const timeStr = mins > 0 ? `${mins}m ${secs}s` : `${secs}s`;
+        showToast("error", `Rate limited — retry in ${timeStr}`);
+      } else {
+        showToast("error", "Failed to import Figma design");
+      }
     } finally {
       setImporting(false);
     }

@@ -158,22 +158,23 @@ class FigmaService:
 
     # ── Design prompt builder ─────────────────────────────────
 
+    _RAW_JSON_MAX_CHARS = 500_000  # well within 1M context window
+
     def build_design_prompt(
         self,
         file_data: dict[str, Any],
     ) -> str:
-        """Extract key design information from Figma JSON and build a structured prompt.
+        """Build a prompt that includes the raw Figma JSON for the AI to parse.
 
-        Produces a compact structured spec: design name, color palette, font palette,
-        and a flat list of visual sections with their CSS properties. Keeps it under
-        30k chars to reliably fit within AI context windows.
+        With a 1M context window, the AI can parse the full Figma node tree
+        directly — no need for a lossy text-based spec. The raw JSON preserves
+        all spatial relationships, fill/stroke properties, text styles, auto-layout
+        constraints, and the full node hierarchy.
 
-        Key improvements over the previous version:
-        - Includes x/y position data for every element
-        - Filters to only the largest/primary frames (desktop-first)
-        - Detects image fills and marks them as placeholders
-        - Captures auto-layout properties more reliably
-        - Provides explicit positioning instructions
+        The prompt includes:
+        1. A brief design summary (name, dimensions, key metadata)
+        2. The raw Figma JSON (capped at 500k chars)
+        3. Instructions for the AI to interpret the JSON and generate code
         """
         document = file_data.get("document")
         if not document or not isinstance(document, dict):
@@ -185,337 +186,109 @@ class FigmaService:
             )
 
         name = file_data.get("name", "Untitled Design")
+        last_modified = file_data.get("lastModified", "")
+        thumbnail_url = file_data.get("thumbnailUrl", "")
 
-        # ── Helpers ────────────────────────────────────────────
-
-        def _fmt_color(color: dict[str, float] | None, opacity: float | None = None) -> str:
-            if not color:
-                return ""
-            r = round(color.get("r", 0) * 255)
-            g = round(color.get("g", 0) * 255)
-            b = round(color.get("b", 0) * 255)
-            a = opacity if opacity is not None else color.get("a", 1.0)
-            return f"rgba({r},{g},{b},{a})" if a < 1.0 else f"rgb({r},{g},{b})"
-
-        def _get_fill(node: dict[str, Any]) -> str:
-            """Get the SOLID fill color of a node, or empty string if none."""
-            fills = node.get("fills", [])
-            if isinstance(fills, list):
-                for fill in fills:
-                    if isinstance(fill, dict) and fill.get("type") == "SOLID":
-                        c = _fmt_color(fill.get("color"), fill.get("opacity"))
-                        if c:
-                            return c
-            return ""
-
-        def _has_image_fill(node: dict[str, Any]) -> bool:
-            """Check if a node has an image fill (not a solid color)."""
-            fills = node.get("fills", [])
-            if isinstance(fills, list):
-                for fill in fills:
-                    if isinstance(fill, dict) and fill.get("type") in ("IMAGE", "EMOJI_TILED"):
-                        return True
-            return False
-
-        def _get_text_info(node: dict[str, Any]) -> dict | None:
-            if node.get("type") != "TEXT":
-                return None
-            style = node.get("style", {}) or {}
-            chars = node.get("characters", "")
-            if len(chars) > 100:
-                chars = chars[:100] + "..."
-            info: dict[str, Any] = {"text": chars}
-            if style.get("fontFamily"):
-                info["font"] = style["fontFamily"]
-            if style.get("fontSize"):
-                info["size"] = style["fontSize"]
-            if style.get("fontWeight"):
-                info["weight"] = style["fontWeight"]
-            if style.get("textAlignHorizontal") and style["textAlignHorizontal"] != "LEFT":
-                info["align"] = style["textAlignHorizontal"].lower()
-            if style.get("lineHeightPx"):
-                info["lineHeight"] = style["lineHeightPx"]
-            if style.get("letterSpacing"):
-                info["letterSpacing"] = style["letterSpacing"]
-            fill = _get_fill(node)
-            if fill:
-                info["color"] = fill
-            return info
-
-        def _get_layout_str(node: dict) -> str:
-            """Build a layout description string from a node's auto-layout properties."""
-            lm = node.get("layoutMode")
-            if not lm:
-                return ""
-            direction = "row" if lm == "HORIZONTAL" else "column"
-            parts = [f"flex:{direction}"]
-            pa = node.get("primaryAxisAlignItems")
-            ca = node.get("counterAxisAlignItems")
-            if pa:
-                parts.append(f"justify:{pa.lower()}")
-            if ca:
-                parts.append(f"align:{ca.lower()}")
-            gap = node.get("itemSpacing")
-            if gap:
-                parts.append(f"gap:{round(gap,1)}px")
-            pt = node.get("paddingTop")
-            pb = node.get("paddingBottom")
-            pl = node.get("paddingLeft")
-            pr = node.get("paddingRight")
-            if pt is not None and pt == pb and pl is not None and pl == pr and pt == pl and pt > 0:
-                parts.append(f"pad:{round(pt,1)}px")
-            elif pt is not None or pb is not None or pl is not None or pr is not None:
-                p = f"{round(pt or 0,1)}px {round(pr or 0,1)}px {round(pb or 0,1)}px {round(pl or 0,1)}px"
-                if p != "0px 0px 0px 0px":
-                    parts.append(f"pad:{p}")
-            return " ".join(parts)
-
-        def _get_border_str(node: dict) -> str:
-            """Build a border description string."""
-            strokes = node.get("strokes", [])
-            if not strokes or not isinstance(strokes, list):
-                return ""
-            weight = node.get("strokeWeight")
-            if not weight:
-                return ""
-            for stroke in strokes:
-                if isinstance(stroke, dict) and stroke.get("type") == "SOLID":
-                    c = _fmt_color(stroke.get("color"), stroke.get("opacity"))
-                    if c:
-                        return f"border:{round(weight,1)}px solid {c}"
-            return ""
-
-        # ── Collect frames from canvases ──────────────────────
-
-        def _get_canvases(node: dict) -> list[dict]:
-            """Get all CANVAS nodes from the document."""
-            if node.get("type") == "DOCUMENT":
-                return node.get("children") or []
-            return []
-
-        def _get_top_frames(node: dict) -> list[dict]:
-            if node.get("type") == "DOCUMENT":
-                for c in (node.get("children") or []):
-                    result = _get_top_frames(c)
-                    if result:
-                        return result
-                return []
-            if node.get("type") == "CANVAS":
-                return node.get("children") or []
-            return []
-
-        canvases = _get_canvases(document)
-        top_frames = _get_top_frames(document)
-
-        # ── Select the best canvas to use ─────────────────────
-        # Prefer the first canvas that has desktop-sized frames (>= 1024px wide)
-        # or the canvas with the most frames
-
-        def _frame_width(f: dict) -> float:
-            bb = f.get("absoluteBoundingBox") or {}
-            return float(bb.get("width", 0))
-
-        def _is_desktop_frame(f: dict) -> bool:
-            return _frame_width(f) >= 1024
-
-        def _is_mobile_frame(f: dict) -> bool:
-            w = _frame_width(f)
-            return 0 < w < 600
-
-        # Find the best canvas: prefer one with desktop frames
-        selected_canvas_frames = top_frames
-        for canvas in canvases:
-            cframes = canvas.get("children") or []
-            desktop_frames = [f for f in cframes if _is_desktop_frame(f)]
-            if desktop_frames:
-                selected_canvas_frames = cframes
-                break
-
-        # Filter: prefer desktop frames, fall back to largest frames
-        desktop_frames = [f for f in selected_canvas_frames if _is_desktop_frame(f)]
-        if desktop_frames:
-            # Sort by area (largest first) and take top 8
-            desktop_frames.sort(key=lambda f: _frame_width(f) * (f.get("absoluteBoundingBox") or {}).get("height", 0), reverse=True)
-            working_frames = desktop_frames[:8]
-        else:
-            # No desktop frames — take the largest frames by area
-            sorted_frames = sorted(
-                selected_canvas_frames,
-                key=lambda f: _frame_width(f) * (f.get("absoluteBoundingBox") or {}).get("height", 0),
-                reverse=True,
-            )
-            working_frames = sorted_frames[:8]
-
-        # ── Extract colors and fonts ──────────────────────────
-
-        colors: set[str] = set()
-        fonts: list[dict[str, Any]] = []
-        seen_fonts: set[str] = set()
-
-        def _scan(items: list[dict]) -> None:
-            for item in items:
-                if not isinstance(item, dict):
-                    continue
-                bg = _get_fill(item)
-                if bg:
-                    colors.add(bg)
-                text = _get_text_info(item)
-                if text:
-                    if "color" in text:
-                        colors.add(text["color"])
-                    ff = text.get("font")
-                    if ff and ff not in seen_fonts:
-                        seen_fonts.add(ff)
-                        entry: dict[str, Any] = {"font": ff}
-                        if text.get("size"):
-                            entry["size"] = text["size"]
-                        if text.get("weight"):
-                            entry["weight"] = text["weight"]
-                        fonts.append(entry)
-                for c in (item.get("children") or []):
-                    _scan([c])
-
-        _scan(working_frames)
-
-        # ── Build compact section descriptions ────────────────
+        # ── Build a compact summary header ────────────────────
 
         lines: list[str] = []
-        lines.append(f"Design: {name}")
+        lines.append(f"# Figma Design: {name}")
+        if last_modified:
+            lines.append(f"Last modified: {last_modified}")
         lines.append("")
 
-        if colors:
-            sorted_c = sorted(colors)
-            lines.append("Colors:")
-            for c in sorted_c[:15]:
-                lines.append(f"  {c}")
-            lines.append("")
+        # ── Serialize the raw Figma JSON ──────────────────────
 
-        if fonts:
-            lines.append("Fonts:")
-            for f in fonts[:8]:
-                parts = [f["font"]]
-                if f.get("size"):
-                    parts.append(str(f["size"]))
-                if f.get("weight"):
-                    parts.append(str(f["weight"]))
-                lines.append("  " + " | ".join(parts))
-            lines.append("")
+        raw_json = json.dumps(file_data, indent=2, ensure_ascii=False)
 
-        lines.append("Sections:")
+        if len(raw_json) > self._RAW_JSON_MAX_CHARS:
+            logger.warning(
+                "Figma JSON is %d chars, truncating to %d",
+                len(raw_json), self._RAW_JSON_MAX_CHARS,
+            )
+            raw_json = raw_json[:self._RAW_JSON_MAX_CHARS] + "\n  // ... [JSON truncated]"
 
-        # Track total output size to avoid exceeding context window
-        MAX_OUTPUT_CHARS = 25000
-        estimated = len("\n".join(lines))
-
-        for fi, frame in enumerate(working_frames):
-            if estimated > MAX_OUTPUT_CHARS:
-                lines.append(f"  ... ({len(working_frames) - fi} more sections omitted)")
-                break
-
-            fname = frame.get("name", f"section-{fi}")
-            bbox = frame.get("absoluteBoundingBox") or {}
-            fw = bbox.get("width")
-            fh = bbox.get("height")
-            fx = bbox.get("x", 0)
-            fy = bbox.get("y", 0)
-            dims = f" [{round(fw,1)}x{round(fh,1)}px]" if fw and fh else ""
-            pos = f" @({round(fx,1)},{round(fy,1)})" if fx is not None and fy is not None else ""
-
-            bg = _get_fill(frame)
-            bg_str = f" bg:{bg}" if bg else ""
-
-            is_img = _has_image_fill(frame)
-            img_str = " [IMAGE]" if is_img else ""
-
-            layout_str = _get_layout_str(frame)
-            if layout_str:
-                layout_str = f" {layout_str}"
-
-            cr = frame.get("cornerRadius")
-            radius_str = f" radius:{round(cr,1)}px" if cr and cr > 0 else ""
-
-            border_str = _get_border_str(frame)
-            if border_str:
-                border_str = f" {border_str}"
-
-            lines.append(f"  [{fi}] {fname}{dims}{pos}{bg_str}{img_str}{layout_str}{radius_str}{border_str}")
-            estimated += len(lines[-1])
-
-            # Direct children (one level deep, no recursion)
-            children = frame.get("children") or []
-            for ci, child in enumerate(children):
-                if estimated > MAX_OUTPUT_CHARS:
-                    break
-                if not isinstance(child, dict):
-                    continue
-
-                cname = child.get("name", f"child-{ci}")
-                cbbox = child.get("absoluteBoundingBox") or {}
-                cw = cbbox.get("width")
-                ch = cbbox.get("height")
-                cx = cbbox.get("x", 0)
-                cy = cbbox.get("y", 0)
-                cdims = f" [{round(cw,1)}x{round(ch,1)}px]" if cw and ch else ""
-                cpos = f" @({round(cx,1)},{round(cy,1)})" if cx is not None and cy is not None else ""
-
-                cbg = _get_fill(child)
-                cbg_str = f" bg:{cbg}" if cbg else ""
-
-                c_is_img = _has_image_fill(child)
-                c_img_str = " [IMAGE]" if c_is_img else ""
-
-                text = _get_text_info(child)
-                text_str = ""
-                if text:
-                    t = text.get("text", "")
-                    text_str = f" text:\"{t}\""
-                    if text.get("font"):
-                        text_str += f" font:{text['font']}"
-                    if text.get("size"):
-                        text_str += f" {text['size']}px"
-                    if text.get("weight"):
-                        text_str += f" weight:{text['weight']}"
-                    if text.get("color"):
-                        text_str += f" color:{text['color']}"
-                    if text.get("align"):
-                        text_str += f" align:{text['align']}"
-                    if text.get("lineHeight"):
-                        text_str += f" lh:{text['lineHeight']}px"
-                    if text.get("letterSpacing"):
-                        text_str += f" ls:{text['letterSpacing']}px"
-
-                clayout_str = _get_layout_str(child)
-                if clayout_str:
-                    clayout_str = f" {clayout_str}"
-
-                ccr = child.get("cornerRadius")
-                cradius_str = f" radius:{round(ccr,1)}px" if ccr and ccr > 0 else ""
-
-                cborder_str = _get_border_str(child)
-                if cborder_str:
-                    cborder_str = f" {cborder_str}"
-
-                line = f"    - {cname}{cdims}{cpos}{cbg_str}{c_img_str}{text_str}{clayout_str}{cradius_str}{cborder_str}"
-                lines.append(line)
-                estimated += len(line)
-
+        lines.append("```json")
+        lines.append(raw_json)
+        lines.append("```")
         lines.append("")
+
+        # ── Instructions for the AI ───────────────────────────
+
         lines.append(
-            "RULES:\n"
-            "- Create index.html, style.css, script.js\n"
-            "- index.html links style.css and script.js\n"
-            "- Use the EXACT colors from the Colors list above\n"
-            "- Use the EXACT fonts from the Fonts list above\n"
-            "- Each [N] section is a top-level HTML section element\n"
-            "- Indented children with '-' are nested inside their parent\n"
-            "- Use the @(x,y) position data to place elements with CSS position:absolute\n"
-            "  relative to their parent section. The parent section is positioned at (0,0).\n"
-            "- For elements with flex:row or flex:column, use CSS flexbox instead of absolute\n"
-            "- Match border-radius, border, and dimensions exactly\n"
-            "- [IMAGE] markers mean the node has an image fill — use a colored div or inline SVG\n"
-            "  as a placeholder. Do NOT use external image URLs.\n"
-            "- Do NOT add, remove, or rearrange elements\n"
-            "- Page must look IDENTICAL to the Figma design"
+            "## Instructions\n"
+            "\n"
+            "The JSON above is the full Figma document tree for this design. "
+            "Parse it and generate pixel-perfect HTML/CSS/JS code.\n"
+            "\n"
+            "### How to read the Figma JSON\n"
+            "\n"
+            "- The root is a DOCUMENT node containing CANVAS nodes (pages).\n"
+            "- Each CANVAS contains FRAME nodes — these are your top-level sections/pages.\n"
+            "- FRAME nodes can contain nested FRAMEs, TEXT nodes, RECTANGLE nodes, "
+            "ELLIPSE nodes, LINE nodes, VECTOR nodes, GROUP nodes, and COMPONENT nodes.\n"
+            "- INSTANCE nodes are component instances — treat them like their source component.\n"
+            "\n"
+            "### Key properties per node\n"
+            "\n"
+            "- `type`: FRAME, TEXT, RECTANGLE, ELLIPSE, LINE, VECTOR, GROUP, COMPONENT, INSTANCE\n"
+            "- `name`: The layer name in Figma\n"
+            "- `absoluteBoundingBox`: `{x, y, width, height}` — position and size in pixels\n"
+            "- `fills[]`: Array of fill objects. Each has `type` (SOLID, GRADIENT, IMAGE, etc.) "
+            "and `color` `{r, g, b}` (0-1 range) and `opacity` (0-1).\n"
+            "- `strokes[]`: Array of stroke objects (same structure as fills). "
+            "`strokeWeight` gives the width.\n"
+            "- `cornerRadius`: Border radius in pixels (or `individualCornerRadius` for per-corner).\n"
+            "- `effects[]`: Array of effect objects (drop shadows, inner shadows, blurs).\n"
+            "- `opacity`: Node opacity (0-1).\n"
+            "- `blendMode`: Blend mode (e.g. \"PASS_THROUGH\", \"MULTIPLY\").\n"
+            "- `isMask`: Boolean — if true, this node is a mask.\n"
+            "\n"
+            "### Text nodes (type: TEXT)\n"
+            "\n"
+            "- `characters`: The text content\n"
+            "- `style`: Object with `fontFamily`, `fontPostScriptName`, `fontSize`, `fontWeight`, "
+            "`textAlignHorizontal` (LEFT, CENTER, RIGHT), `textAlignVertical` (TOP, CENTER, BOTTOM), "
+            "`lineHeightPx`, `letterSpacing`, `paragraphSpacing`, `paragraphIndent`\n"
+            "- `fills[0].color`: Text color\n"
+            "\n"
+            "### Auto-layout (FRAME nodes with layoutMode)\n"
+            "\n"
+            "- `layoutMode`: \"NONE\" (no auto-layout), \"HORIZONTAL\" (flex row), \"VERTICAL\" (flex column)\n"
+            "- `primaryAxisAlignItems`: \"MIN\" (flex-start), \"CENTER\", \"MAX\" (flex-end), \"SPACE_BETWEEN\"\n"
+            "- `counterAxisAlignItems`: \"MIN\", \"CENTER\", \"MAX\"\n"
+            "- `itemSpacing`: Gap between children in pixels\n"
+            "- `paddingLeft`, `paddingRight`, `paddingTop`, `paddingBottom`: Padding in pixels\n"
+            "- `layoutWrap`: \"NO_WRAP\" or \"WRAP\"\n"
+            "- `itemReverseZIndex`: Boolean — if true, children are rendered in reverse order\n"
+            "\n"
+            "### Constraints\n"
+            "\n"
+            "- `constraints`: `{horizontal: \"MIN\"|\"CENTER\"|\"MAX\"|\"STRETCH\"|\"SCALE\", "
+            "vertical: \"MIN\"|\"CENTER\"|\"MAX\"|\"STRETCH\"|\"SCALE\"}`\n"
+            "- Use constraints to determine how elements should behave on resize.\n"
+            "\n"
+            "### Gradients\n"
+            "\n"
+            "- Fills with type \"GRADIENT\" have `gradientType` (LINEAR, RADIAL, ANGULAR, DIAMOND) "
+            "and `gradientStops[]` each with `position` (0-1) and `color`.\n"
+            "\n"
+            "### Images\n"
+            "\n"
+            "- Fills with type \"IMAGE\" have `imageRef` and `scaleMode` (FILL, FIT, CROP, TILE).\n"
+            "- Use a colored div or inline SVG placeholder. Do NOT use external image URLs.\n"
+            "\n"
+            "### Output rules\n"
+            "\n"
+            "1. Create index.html, style.css, and script.js\n"
+            "2. index.html links style.css and script.js\n"
+            "3. Use EXACT colors (convert 0-1 RGB to 0-255), EXACT fonts, EXACT dimensions\n"
+            "4. Use CSS position:absolute with left/top for non-auto-layout elements\n"
+            "5. Use CSS flexbox for auto-layout frames (flex-direction based on layoutMode)\n"
+            "6. Match border-radius, border, opacity, and effects exactly\n"
+            "7. Preserve the full node hierarchy — nested frames become nested HTML elements\n"
+            "8. Do NOT add, remove, or rearrange elements\n"
+            "9. Page must look IDENTICAL to the Figma design"
         )
 
         return "\n".join(lines)

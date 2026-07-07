@@ -158,8 +158,14 @@ export function useChat() {
             session.close();
             resolve();
           },
-          onError: (detail) => {
+          onError: (detail, retryAfter) => {
             streamError = detail;
+            if (retryAfter && retryAfter > 0) {
+              const mins = Math.floor(retryAfter / 60);
+              const secs = retryAfter % 60;
+              const timeStr = mins > 0 ? `${mins}m ${secs}s` : `${secs}s`;
+              streamError = `Rate limited — retry in ${timeStr}: ${detail}`;
+            }
             session.close();
             resolve();
           },

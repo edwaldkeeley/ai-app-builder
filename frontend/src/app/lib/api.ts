@@ -117,12 +117,21 @@ async function request<T>(path: string, options?: RequestInit, timeoutMs = 12000
     if (!res.ok) {
       let detail = `Request failed: ${res.status}`;
       let retryAfter: number | undefined;
+
+      // Parse Retry-After header first (most reliable)
+      const retryHeader = res.headers.get("Retry-After");
+      if (retryHeader) {
+        const parsed = parseInt(retryHeader, 10);
+        if (!isNaN(parsed)) retryAfter = parsed;
+      }
+
+      // Then try JSON body for more detail
       try {
         const body = await res.json();
         if (body?.detail) {
           if (typeof body.detail === "object" && body.detail !== null) {
             detail = body.detail.message ?? String(body.detail);
-            retryAfter = body.detail.retry_after;
+            if (body.detail.retry_after != null) retryAfter = body.detail.retry_after;
           } else {
             detail = body.detail;
           }
@@ -132,6 +141,15 @@ async function request<T>(path: string, options?: RequestInit, timeoutMs = 12000
         const text = await res.text().catch(() => "");
         if (text) detail = text;
       }
+
+      // Append retry info to the detail message for display
+      if (retryAfter != null && retryAfter > 0) {
+        const mins = Math.floor(retryAfter / 60);
+        const secs = retryAfter % 60;
+        const timeStr = mins > 0 ? `${mins}m ${secs}s` : `${secs}s`;
+        detail += ` (rate limited — retry after ${timeStr})`;
+      }
+
       const err = new ApiError(detail, res.status);
       if (retryAfter != null) err.retryAfter = retryAfter;
       throw err;
