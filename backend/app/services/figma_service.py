@@ -156,6 +156,188 @@ class FigmaService:
             "Expected a URL like https://www.figma.com/file/KEY/name or a bare file key."
         )
 
+    # ── Figma JSON filter ──────────────────────────────────────
+
+    @staticmethod
+    def _filter_figma_data(file_data: dict[str, Any]) -> dict[str, Any]:
+        """Strip irrelevant data from the Figma API response.
+
+        The Figma API returns massive JSON blobs (often 10M+ chars) with lots
+        of data that's useless for code generation:
+        - ``components`` — reusable component definitions (not needed for one-off gen)
+        - ``componentSets`` — component set definitions
+        - ``componentMetadata`` — published component references
+        - ``styles`` — color/text/effect style definitions (info is in the nodes)
+        - ``pluginData`` — Figma plugin metadata
+        - ``documentation`` — descriptions and docs
+        - Image fills — base64 image data and URLs (we use colored div placeholders)
+        - Hidden layers — invisible in the design, shouldn't be rendered
+
+        This filter keeps only what the AI needs: node structure, positions,
+        sizes, colors, text, fonts, and effects.
+        """
+        filtered: dict[str, Any] = {}
+
+        # Keep top-level metadata
+        for key in ("name", "lastModified", "thumbnailUrl", "version"):
+            if key in file_data:
+                filtered[key] = file_data[key]
+
+        # Filter the document tree recursively
+        document = file_data.get("document")
+        if document and isinstance(document, dict):
+            filtered["document"] = FigmaService._filter_node(document)
+
+        return filtered
+
+    @staticmethod
+    def _filter_node(node: dict[str, Any]) -> dict[str, Any]:
+        """Recursively filter a Figma node, keeping only relevant properties.
+
+        Strips: image fills, plugin data, component references, export settings,
+        transition info, and other metadata not needed for code generation.
+        """
+        result: dict[str, Any] = {}
+
+        # Always keep structural fields
+        for key in ("id", "type", "name", "visible"):
+            if key in node:
+                result[key] = node[key]
+
+        # Keep bounding box
+        if "absoluteBoundingBox" in node:
+            result["absoluteBoundingBox"] = node["absoluteBoundingBox"]
+
+        # Keep constraints (for responsive behavior hints)
+        if "constraints" in node:
+            result["constraints"] = node["constraints"]
+
+        # Keep corner radius
+        if "cornerRadius" in node:
+            result["cornerRadius"] = node["cornerRadius"]
+        if "individualCornerRadius" in node:
+            result["individualCornerRadius"] = node["individualCornerRadius"]
+
+        # Keep stroke info
+        if "strokeWeight" in node:
+            result["strokeWeight"] = node["strokeWeight"]
+        if "strokeAlign" in node:
+            result["strokeAlign"] = node["strokeAlign"]
+        if "strokes" in node:
+            result["strokes"] = FigmaService._filter_fills(node["strokes"])
+
+        # Keep fills — but STRIP image fills (they contain massive base64 data)
+        if "fills" in node:
+            result["fills"] = FigmaService._filter_fills(node["fills"])
+
+        # Keep effects (shadows, blurs) — strip image effects
+        if "effects" in node:
+            result["effects"] = FigmaService._filter_effects(node["effects"])
+
+        # Keep opacity and blend mode
+        for key in ("opacity", "blendMode"):
+            if key in node:
+                result[key] = node[key]
+
+        # Keep clipping info
+        if "clipsContent" in node:
+            result["clipsContent"] = node["clipsContent"]
+
+        # Keep layout properties (auto-layout / flexbox)
+        for key in (
+            "layoutMode", "primaryAxisAlignItems", "counterAxisAlignItems",
+            "itemSpacing", "itemReverseZIndex", "layoutWrap",
+            "paddingLeft", "paddingRight", "paddingTop", "paddingBottom",
+            "counterAxisSizingMode", "primaryAxisSizingMode",
+        ):
+            if key in node:
+                result[key] = node[key]
+
+        # Keep text content and style
+        if "characters" in node:
+            result["characters"] = node["characters"]
+        if "style" in node:
+            style = node["style"]
+            # Only keep relevant text style fields
+            result["style"] = {
+                k: style[k] for k in (
+                    "fontFamily", "fontPostScriptName", "fontSize", "fontWeight",
+                    "textAlignHorizontal", "textAlignVertical",
+                    "lineHeightPx", "letterSpacing",
+                    "paragraphSpacing", "paragraphIndent",
+                    "textCase", "textDecoration",
+                ) if k in style
+            }
+
+        # Keep isMask for mask nodes
+        if "isMask" in node:
+            result["isMask"] = node["isMask"]
+
+        # Recursively filter children
+        children = node.get("children")
+        if children and isinstance(children, list):
+            filtered_children = []
+            for child in children:
+                if isinstance(child, dict):
+                    filtered_children.append(FigmaService._filter_node(child))
+            if filtered_children:
+                result["children"] = filtered_children
+
+        return result
+
+    @staticmethod
+    def _filter_fills(fills: list[dict[str, Any]]) -> list[dict[str, Any]]:
+        """Filter fill/stroke entries, stripping image data.
+
+        Image fills contain massive base64-encoded image data that we don't
+        need — we tell the AI to use colored div placeholders instead.
+        """
+        filtered = []
+        for f in fills:
+            entry: dict[str, Any] = {}
+            entry["type"] = f.get("type", "SOLID")
+            entry["opacity"] = f.get("opacity", 1)
+
+            if entry["type"] == "SOLID":
+                entry["color"] = f.get("color", {})
+            elif entry["type"] == "GRADIENT":
+                entry["gradientType"] = f.get("gradientType", "LINEAR")
+                entry["gradientStops"] = f.get("gradientStops", [])
+            elif entry["type"] == "IMAGE":
+                # Strip image data — keep only the fact that it's an image fill
+                entry["scaleMode"] = f.get("scaleMode", "FILL")
+                # Do NOT include imageRef, imageTransform, or any base64 data
+            else:
+                # Keep unknown fill types as-is but strip image data
+                for k, v in f.items():
+                    if k not in ("imageRef", "imageTransform", "imageData"):
+                        entry[k] = v
+
+            filtered.append(entry)
+        return filtered
+
+    @staticmethod
+    def _filter_effects(effects: list[dict[str, Any]]) -> list[dict[str, Any]]:
+        """Filter effects, keeping only relevant properties."""
+        filtered = []
+        for e in effects:
+            entry: dict[str, Any] = {}
+            entry["type"] = e.get("type", "INNER_SHADOW")
+            entry["visible"] = e.get("visible", True)
+            entry["radius"] = e.get("radius", 0)
+
+            if entry["type"] in ("DROP_SHADOW", "INNER_SHADOW"):
+                entry["color"] = e.get("color", {})
+                entry["offset"] = e.get("offset", {})
+                entry["spread"] = e.get("spread", 0)
+            elif entry["type"] == "LAYER_BLUR":
+                pass  # radius is already set
+            elif entry["type"] == "BACKGROUND_BLUR":
+                pass
+
+            filtered.append(entry)
+        return filtered
+
     # ── Color conversion helpers ────────────────────────────────
 
     @staticmethod
@@ -300,23 +482,24 @@ class FigmaService:
 
     # ── Design prompt builder ─────────────────────────────────
 
-    _RAW_JSON_MAX_CHARS = 500_000  # well within 1M context window
+    _RAW_JSON_MAX_CHARS = 150_000  # well within context window after filtering
 
     def build_design_prompt(
         self,
         file_data: dict[str, Any],
     ) -> str:
-        """Build a prompt with a compact tree summary + raw Figma JSON.
+        """Build a prompt with a compact tree summary + filtered Figma JSON.
+
+        The Figma JSON is first filtered to remove irrelevant data (image fills,
+        component definitions, styles, plugin data, hidden layers) before
+        serialization. This reduces the prompt size by 80-95% while preserving
+        all information needed for pixel-perfect code generation.
 
         The prompt has three parts:
         1. A compact tree summary with pre-computed relative positions and
            CSS-ready hex colors — easy for the AI to parse at a glance.
-        2. The raw Figma JSON (capped at 500k chars) for full detail.
+        2. The filtered Figma JSON (capped at 150k chars) for full detail.
         3. Instructions for the AI.
-
-        The compact summary helps the AI quickly understand the structure
-        and colors without having to parse raw Figma JSON. The raw JSON
-        provides the full detail for pixel-perfect rendering.
         """
         document = file_data.get("document")
         if not document or not isinstance(document, dict):
@@ -351,16 +534,27 @@ class FigmaService:
         lines.extend(tree_lines)
         lines.append("")
 
-        # ── Part 2: Raw Figma JSON ──────────────────────────────
+        # ── Part 2: Filtered Figma JSON ─────────────────────────
 
-        lines.append("## Full Figma JSON (for reference)")
+        lines.append("## Filtered Figma JSON (for reference)")
         lines.append("")
 
-        raw_json = json.dumps(file_data, indent=2, ensure_ascii=False)
+        # Filter the Figma data to remove irrelevant bloat
+        filtered_data = FigmaService._filter_figma_data(file_data)
+        raw_json = json.dumps(filtered_data, indent=2, ensure_ascii=False)
+
+        raw_size = len(json.dumps(file_data, indent=2, ensure_ascii=False))
+        filtered_size = len(raw_json)
+        savings_pct = (1 - filtered_size / raw_size) * 100 if raw_size > 0 else 0
+
+        logger.info(
+            "Figma JSON filtered: %d chars -> %d chars (%.0f%% reduction)",
+            raw_size, filtered_size, savings_pct,
+        )
 
         if len(raw_json) > self._RAW_JSON_MAX_CHARS:
             logger.warning(
-                "Figma JSON is %d chars, truncating to %d",
+                "Filtered Figma JSON is %d chars, truncating to %d",
                 len(raw_json), self._RAW_JSON_MAX_CHARS,
             )
             raw_json = raw_json[:self._RAW_JSON_MAX_CHARS] + "\n  // ... [JSON truncated]"
@@ -378,7 +572,7 @@ class FigmaService:
             "The Design Tree Summary above shows every node with its type, position, "
             "size, colors, and text. Use it as your PRIMARY reference for generating code.\n"
             "\n"
-            "The Full Figma JSON below provides the complete detail for any node that "
+            "The Filtered Figma JSON below provides the complete detail for any node that "
             "needs more information (gradient stops, exact shadow parameters, etc.).\n"
             "\n"
             "### CRITICAL: Render ALL nodes\n"

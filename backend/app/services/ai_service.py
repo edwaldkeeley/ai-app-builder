@@ -138,7 +138,7 @@ _FIGMA_SYSTEM_PROMPT = (
     "The user will provide a Figma design in two formats:\n"
     "1. A **Design Tree Summary** — compact lines showing every node with its type, position, "
     "size, colors, and text. This is your PRIMARY reference.\n"
-    "2. The **Full Figma JSON** — the complete raw JSON for reference.\n\n"
+    "2. The **Filtered Figma JSON** — the Figma JSON with image data, components, styles, and other bloat stripped out.\n\n"
     "# CRITICAL: Render ALL nodes\n\n"
     "- Every [RECTANGLE] node is a background or decorative element — render it as a <div>.\n"
     "- Every [ELLIPSE] node is a circle — render it as a <div> with border-radius:50%.\n"
