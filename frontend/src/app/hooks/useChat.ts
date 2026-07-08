@@ -82,7 +82,7 @@ export function useChat() {
       generatingRef.current = true;
 
       setGenerating(true);
-      setWritingStatus({ type: "thinking" });
+      setWritingStatus({ type: "thinking", message: "Generating response..." });
 
       // Add user message
       const userMsg: ChatMessage = {
@@ -121,6 +121,13 @@ export function useChat() {
                 updated[idx] = { ...updated[idx], content: streamedContent };
               }
               return updated;
+            });
+            // Switch from "thinking" to showing the message is streaming
+            setWritingStatus((prev) => {
+              if (prev?.type === "thinking") {
+                return { type: "writing", file: "response", message: "Streaming response..." };
+              }
+              return prev;
             });
             // Note: "fixing" status is set by the backend when it detects
             // and auto-fixes issues in the generated code

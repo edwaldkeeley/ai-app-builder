@@ -27,7 +27,7 @@ function WritingIndicator({ status }: { status: WritingStatus }) {
       <div className="flex flex-col gap-1 min-w-0">
         {status.type === "thinking" && (
           <div className="flex items-center gap-1.5">
-            <span className="text-foreground font-medium">Analyzing request</span>
+            <span className="text-foreground font-medium">{status.message || "Analyzing request"}</span>
             <span className="flex gap-0.5">
               <span className="w-1 h-1 bg-text-secondary rounded-full animate-bounce" style={{ animationDelay: "0ms" }} />
               <span className="w-1 h-1 bg-text-secondary rounded-full animate-bounce" style={{ animationDelay: "150ms" }} />
@@ -36,7 +36,19 @@ function WritingIndicator({ status }: { status: WritingStatus }) {
           </div>
         )}
 
-        {status.type === "writing" && (
+        {status.type === "writing" && status.file === "response" && (
+          <div className="flex items-center gap-2">
+            <span className="text-accent font-mono text-[11px]">▸</span>
+            <span className="text-foreground font-medium">Generating response</span>
+            <span className="flex gap-0.5">
+              <span className="w-1 h-1 bg-text-secondary rounded-full animate-bounce" style={{ animationDelay: "0ms" }} />
+              <span className="w-1 h-1 bg-text-secondary rounded-full animate-bounce" style={{ animationDelay: "150ms" }} />
+              <span className="w-1 h-1 bg-text-secondary rounded-full animate-bounce" style={{ animationDelay: "300ms" }} />
+            </span>
+          </div>
+        )}
+
+        {status.type === "writing" && status.file && status.file !== "response" && (
           <div className="flex items-center gap-2">
             <span className="text-accent font-mono text-[11px]">▸</span>
             <code className="px-1.5 py-0.5 rounded bg-accent/10 text-accent font-mono text-[11px] font-medium truncate max-w-[200px]">
