@@ -132,6 +132,10 @@ class FigmaUrlImportRequest(BaseModel):
         min_length=1,
         description="Figma personal access token. Generate one at https://www.figma.com/settings",
     )
+    force_refresh: bool = Field(
+        default=False,
+        description="If true, bypass the cache and fetch fresh data from Figma API",
+    )
 
 
 

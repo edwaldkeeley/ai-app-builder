@@ -11,6 +11,7 @@ import asyncio
 import json
 import logging
 import re
+import time
 from datetime import datetime, timezone
 from typing import Any
 
@@ -21,7 +22,16 @@ logger = logging.getLogger(__name__)
 FIGMA_API_URL = "https://api.figma.com/v1"
 
 # Max retries for Figma API 429 responses
-_FIGMA_MAX_RETRIES = 3
+_FIGMA_MAX_RETRIES = 1  # only retry once — don't burn through rate limit
+
+# In-memory cache for Figma file responses
+# Key: file_key, Value: (timestamp, response_data)
+_figma_cache: dict[str, tuple[float, dict[str, Any]]] = {}
+_FIGMA_CACHE_TTL = 300  # 5 minutes
+
+# Rate limiter: track last request time per token
+_last_request_time: float = 0
+_MIN_REQUEST_INTERVAL = 2.0  # minimum 2 seconds between requests
 
 
 def _parse_retry_after(response: httpx.Response, default: int = 10) -> int:
@@ -91,26 +101,63 @@ class FigmaService:
         headers: dict[str, str] | None = None,
         timeout: float = 30.0,
     ) -> httpx.Response:
-        """Make a Figma API request with 429 retry logic.
+        """Make a Figma API request with caching, rate limiting, and 429 retry logic.
 
-        Retries up to ``_FIGMA_MAX_RETRIES`` times on 429, respecting
-        the ``Retry-After`` header. Raises ``FigmaRateLimitError`` if
-        retries are exhausted, or ``FigmaApiError`` for other HTTP errors.
+        Features:
+        - **In-memory cache**: Repeated requests for the same file within 5 minutes
+          return cached data instead of hitting the API.
+        - **Rate limiting**: Enforces a minimum 2-second gap between requests to
+          avoid hitting Figma's aggressive rate limits.
+        - **Single retry**: Only retries once on 429 (retrying more just burns
+          through the rate limit faster).
+        - **Fails fast**: On 429, raises ``FigmaRateLimitError`` immediately
+          with the retry-after duration.
         """
+        global _last_request_time
+
+        # ── Rate limiting: enforce minimum gap between requests ──
+        now = time.time()
+        since_last = now - _last_request_time
+        if since_last < _MIN_REQUEST_INTERVAL and _last_request_time > 0:
+            wait = _MIN_REQUEST_INTERVAL - since_last
+            logger.debug("Rate limiter: waiting %.1fs before Figma API call", wait)
+            await asyncio.sleep(wait)
+        _last_request_time = time.time()
+
+        # ── Check cache for GET requests ─────────────────────────
+        is_file_request = "v1/files/" in url and method.upper() == "GET"
+        if is_file_request:
+            # Extract file key from URL
+            file_key_match = re.search(r"/files/([^/?#]+)", url)
+            if file_key_match:
+                file_key = file_key_match.group(1)
+                cached = _figma_cache.get(file_key)
+                if cached:
+                    cache_time, cache_data = cached
+                    if time.time() - cache_time < _FIGMA_CACHE_TTL:
+                        logger.info("Figma cache HIT for file key: %s", file_key)
+                        # Reconstruct a response-like object
+                        return httpx.Response(
+                            status_code=200,
+                            json=cache_data,
+                            request=httpx.Request(method, url),
+                        )
+                logger.info("Figma cache MISS for file key: %s", file_key)
+
+        # ── Make the request ─────────────────────────────────────
         for attempt in range(_FIGMA_MAX_RETRIES + 1):
             async with httpx.AsyncClient(timeout=timeout) as client:
                 response = await client.request(method, url, headers=headers)
 
             if response.status_code == 429:
                 wait = _parse_retry_after(response)
-                if attempt >= _FIGMA_MAX_RETRIES:
-                    raise FigmaRateLimitError(
-                        retry_after=wait,
-                        message=f"Figma API rate limited (429). Retry after {wait}s. Max retries ({_FIGMA_MAX_RETRIES}) exceeded.",
-                    )
-                logger.warning("Figma API rate limited (429). Retrying in %ds (attempt %d/%d)", wait, attempt + 1, _FIGMA_MAX_RETRIES)
-                await asyncio.sleep(wait)
-                continue
+                # Fail fast — don't retry, just tell the user to wait
+                raise FigmaRateLimitError(
+                    retry_after=wait,
+                    message=f"Figma API rate limited (429). Retry after {wait}s. "
+                    "Personal access tokens have strict rate limits. "
+                    "Wait and try again, or use a different token.",
+                )
 
             if not response.is_success:
                 raise FigmaApiError(
@@ -118,10 +165,53 @@ class FigmaService:
                     detail=f"Figma API returned {response.status_code}: {response.text[:500]}",
                 )
 
+            # ── Cache the response for GET file requests ─────────
+            if is_file_request and file_key_match:
+                file_key = file_key_match.group(1)
+                try:
+                    data = response.json()
+                    _figma_cache[file_key] = (time.time(), data)
+                    logger.info("Figma cache SET for file key: %s (%.1f MB)", file_key, len(json.dumps(data)) / 1024 / 1024)
+                except Exception:
+                    pass
+
             return response
 
         # Should not be reached
         raise FigmaRateLimitError(retry_after=60)
+
+    @staticmethod
+    def clear_cache(file_key: str | None = None) -> int:
+        """Clear the Figma file cache.
+
+        Args:
+            file_key: If provided, only clear the cache for this specific file.
+                      If None, clear the entire cache.
+
+        Returns:
+            Number of cache entries cleared.
+        """
+        global _figma_cache
+        if file_key:
+            if file_key in _figma_cache:
+                del _figma_cache[file_key]
+                logger.info("Figma cache cleared for file key: %s", file_key)
+                return 1
+            return 0
+        count = len(_figma_cache)
+        _figma_cache.clear()
+        logger.info("Figma cache cleared entirely (%d entries)", count)
+        return count
+
+    @staticmethod
+    def get_cache_info() -> dict[str, Any]:
+        """Get cache statistics."""
+        global _figma_cache
+        return {
+            "entries": len(_figma_cache),
+            "keys": list(_figma_cache.keys()),
+            "ttl_seconds": _FIGMA_CACHE_TTL,
+        }
 
     # ── URL parsing ──────────────────────────────────────────
 

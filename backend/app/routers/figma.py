@@ -40,19 +40,18 @@ def set_dependencies(
     _service = service
 
 
-# ── URL import endpoint (no OAuth required) ───────────────────
+# ── URL import endpoint ────────────────────────────────────────
 
 
 @router.post("/import-url", response_model=GenerateResponse, status_code=status.HTTP_201_CREATED)
 async def import_figma_url(body: FigmaUrlImportRequest):
     """Import a Figma design by URL and generate code from it.
 
-    Accepts a Figma file URL (or bare file key) and an optional personal
-    access token. If a token is provided, it is used to fetch the file
-    directly from the Figma REST API.
+    Accepts a Figma file URL (or bare file key) and a personal access token.
+    The Figma file is fetched via the REST API and converted to code.
 
-    This endpoint works for public Figma files without any authentication,
-    and for private files when a personal access token is provided.
+    Results are cached for 5 minutes. Set ``force_refresh=true`` to bypass
+    the cache and fetch fresh data from Figma.
     """
     if _figma is None or _provider is None or _service is None:
         raise HTTPException(
@@ -65,6 +64,11 @@ async def import_figma_url(body: FigmaUrlImportRequest):
         file_key = FigmaService.extract_file_key(body.figma_url)
     except ValueError as e:
         raise HTTPException(status_code=400, detail=str(e))
+
+    # Clear cache if force_refresh is requested
+    if body.force_refresh:
+        FigmaService.clear_cache(file_key)
+        logger.info("Cache bypassed for file key: %s", file_key)
 
     # Fetch the Figma file data
     if not body.access_token:
@@ -140,3 +144,27 @@ async def import_figma_url(body: FigmaUrlImportRequest):
         message=message,
         files=files,
     )
+
+
+# ── Cache management ──────────────────────────────────────────
+
+
+@router.get("/cache", status_code=status.HTTP_200_OK)
+async def get_cache_info():
+    """Get Figma file cache statistics."""
+    if _figma is None:
+        raise HTTPException(status_code=503, detail="Figma service not initialized")
+    return FigmaService.get_cache_info()
+
+
+@router.delete("/cache", status_code=status.HTTP_200_OK)
+async def clear_cache(file_key: str | None = None):
+    """Clear the Figma file cache.
+
+    If ``file_key`` is provided, only that file's cache is cleared.
+    Otherwise, the entire cache is cleared.
+    """
+    if _figma is None:
+        raise HTTPException(status_code=503, detail="Figma service not initialized")
+    cleared = FigmaService.clear_cache(file_key)
+    return {"cleared": cleared, "message": f"Cleared {cleared} cache entr{'y' if cleared == 1 else 'ies'}"}
