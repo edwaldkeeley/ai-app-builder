@@ -1,0 +1,13 @@
+Fix iframe link clicks redirecting to localhost:3000
+
+Root cause: The AI generates code with anchor tags (e.g. href="#", href="/")
+that cause the iframe to navigate. With allow-same-origin on the sandbox,
+this navigation can affect the parent page, redirecting to localhost:3000.
+
+Fix: Inject a navigation guard script into every iframe preview that
+intercepts all link clicks and form submissions via event capturing,
+preventing default behavior. The script is injected before /head.
+
+Also fixed the live streaming issue where message_chunk events were only
+yielded after the regex matched the full JSON structure, causing the
+frontend to show nothing until the AI finished generating.

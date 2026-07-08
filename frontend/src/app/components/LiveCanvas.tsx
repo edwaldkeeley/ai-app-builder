@@ -96,6 +96,27 @@ export default function LiveCanvas({ files }: LiveCanvasProps) {
       );
     }
 
+    // Inject navigation prevention: intercept all link clicks in the iframe
+    // to prevent the AI-generated code from navigating away or redirecting.
+    // The AI sometimes generates <a href="#"> or <a href="/"> links that would
+    // cause the iframe (or parent page) to navigate to localhost:3000.
+    const navGuard = `
+<script>
+(function() {
+  document.addEventListener('click', function(e) {
+    var target = e.target.closest('a');
+    if (target && target.href) {
+      e.preventDefault();
+    }
+  }, true);
+  // Also block form submissions
+  document.addEventListener('submit', function(e) {
+    e.preventDefault();
+  }, true);
+})();
+</script>`;
+    html = html.replace("</head>", `${navGuard}\n</head>`);
+
     return html;
   }, [files]);
 
