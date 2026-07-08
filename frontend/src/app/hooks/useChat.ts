@@ -106,19 +106,43 @@ export function useChat() {
 
       // Track streaming state
       let streamedContent = "";
+      let displayContent = "";  // cleaned-up version for display
       const streamedFiles = new Map<string, string>();
       let resolvedProjectId = projectId;
       let streamError: string | null = null;
+
+      // Strip JSON wrapper characters from streaming content to show clean message text.
+      // The AI generates: {"message": "Hello...", "files": [...]}
+      // We strip: leading '{"message": "' and trailing '", "files":' or '"}
+      const stripJsonWrapper = (raw: string): string => {
+        let cleaned = raw;
+        // Strip leading JSON keys: {"message": "  or  "message": "
+        const msgPrefixMatch = cleaned.match(/^\s*\{?\s*"message"\s*:\s*"/);
+        if (msgPrefixMatch) {
+          cleaned = cleaned.slice(msgPrefixMatch[0].length);
+        }
+        // Strip trailing JSON: ", "files":  or  "}  or  "]  etc
+        // Only strip if it looks like JSON structure, not actual content
+        const fileSuffixMatch = cleaned.match(/",\s*"files"\s*:/);
+        if (fileSuffixMatch) {
+          cleaned = cleaned.slice(0, fileSuffixMatch.index);
+        }
+        // Strip trailing quote + closing brace
+        cleaned = cleaned.replace(/"\s*\}\s*$/, "");
+        return cleaned;
+      };
 
       const streamComplete = new Promise<void>((resolve) => {
         const session = generateStream({
           onMessageChunk: (delta) => {
             streamedContent += delta;
+            // Clean up the display content by stripping JSON wrappers
+            displayContent = stripJsonWrapper(streamedContent);
             setChatMessages((prev) => {
               const updated = [...prev];
               const idx = updated.findIndex((m) => m.id === aiMsgId);
               if (idx !== -1) {
-                updated[idx] = { ...updated[idx], content: streamedContent };
+                updated[idx] = { ...updated[idx], content: displayContent };
               }
               return updated;
             });

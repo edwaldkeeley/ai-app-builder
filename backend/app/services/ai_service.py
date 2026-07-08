@@ -702,14 +702,14 @@ class StreamingHttpAIProvider(BaseAIProvider):
 
                         accumulated_content += content_delta
 
-                        # --- Extract message text via regex ---
-                        msg_match = message_re.search(accumulated_content)
-                        if msg_match:
-                            current_message = msg_match.group(1)
-                            new_part = current_message[len(prev_message):]
-                            if new_part:
-                                prev_message = current_message
-                                yield {"type": "message_chunk", "delta": new_part}
+                        # --- Stream message text in real-time ---
+                        # The AI generates the JSON response token by token.
+                        # We stream every content delta as a message_chunk so the
+                        # frontend shows live character-by-character streaming.
+                        # The frontend strips JSON wrapper characters to show
+                        # clean message text.
+                        if content_delta:
+                            yield {"type": "message_chunk", "delta": content_delta}
 
                         # --- Try to parse partial JSON for file content ---
                         partial = re.sub(r"^```(?:json)?\s*", "", accumulated_content.strip())
