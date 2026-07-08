@@ -156,6 +156,148 @@ class FigmaService:
             "Expected a URL like https://www.figma.com/file/KEY/name or a bare file key."
         )
 
+    # ── Color conversion helpers ────────────────────────────────
+
+    @staticmethod
+    def _rgb_to_hex(r: float, g: float, b: float) -> str:
+        """Convert 0-1 RGB floats to hex string."""
+        return f"#{int(round(r * 255)):02x}{int(round(g * 255)):02x}{int(round(b * 255)):02x}"
+
+    @staticmethod
+    def _get_solid_color(fills: list[dict] | None) -> str | None:
+        """Extract the first solid fill color as hex, or None."""
+        if not fills:
+            return None
+        for f in fills:
+            if f.get("type") == "SOLID":
+                c = f.get("color", {})
+                return FigmaService._rgb_to_hex(c.get("r", 0), c.get("g", 0), c.get("b", 0))
+        return None
+
+    @staticmethod
+    def _get_text_color(node: dict) -> str:
+        """Extract text color from a node's fills."""
+        color = FigmaService._get_solid_color(node.get("fills"))
+        return color or "#000000"
+
+    # ── Node tree walker for compact summary ────────────────────
+
+    @staticmethod
+    def _walk_nodes(
+        node: dict,
+        depth: int = 0,
+        parent_x: float = 0,
+        parent_y: float = 0,
+    ) -> list[str]:
+        """Walk a Figma node tree and produce compact summary lines.
+
+        Each line describes one node with its type, name, relative position,
+        dimensions, color, and text content. This summary is easier for the
+        AI to parse than raw JSON, especially for background shapes and
+        decorative elements that the AI tends to skip.
+        """
+        lines: list[str] = []
+        indent = "  " * depth
+        node_type = node.get("type", "UNKNOWN")
+        node_name = node.get("name", "")
+        bbox = node.get("absoluteBoundingBox") or {}
+
+        x = bbox.get("x", 0)
+        y = bbox.get("y", 0)
+        w = bbox.get("width", 0)
+        h = bbox.get("height", 0)
+
+        # Compute position relative to parent
+        rel_x = x - parent_x
+        rel_y = y - parent_y
+
+        # Get colors
+        bg_color = FigmaService._get_solid_color(node.get("fills"))
+        text_color = FigmaService._get_text_color(node)
+
+        # Get text content
+        characters = node.get("characters", "")
+        style = node.get("style", {}) or {}
+
+        # Get corner radius
+        corner_radius = node.get("cornerRadius", 0)
+
+        # Get stroke info
+        strokes = node.get("strokes", [])
+        stroke_weight = node.get("strokeWeight", 0)
+        stroke_color = None
+        if strokes:
+            stroke_color = FigmaService._get_solid_color(strokes)
+
+        # Get effects
+        effects = node.get("effects", [])
+
+        # Build the line
+        parts = [f"{indent}[{node_type}]"]
+        if node_name:
+            parts.append(f'"{node_name}"')
+        parts.append(f"@({rel_x:.0f},{rel_y:.0f}) {w:.0f}x{h:.0f}")
+
+        if bg_color:
+            parts.append(f"bg:{bg_color}")
+        if corner_radius:
+            parts.append(f"br:{corner_radius:.0f}")
+        if stroke_color and stroke_weight:
+            parts.append(f"bd:{stroke_weight:.0f}px {stroke_color}")
+        if effects:
+            for e in effects:
+                if e.get("type") == "DROP_SHADOW":
+                    offset = e.get("offset", {})
+                    radius = e.get("radius", 0)
+                    sc = e.get("color", {})
+                    sh_color = FigmaService._rgb_to_hex(sc.get("r", 0), sc.get("g", 0), sc.get("b", 0))
+                    parts.append(f"shadow:{offset.get('x', 0):.0f}px {offset.get('y', 0):.0f}px {radius:.0f}px {sh_color}")
+
+        if characters:
+            text_preview = characters[:80].replace("\n", "\\n")
+            font_family = style.get("fontFamily", "")
+            font_size = style.get("fontSize", "")
+            font_weight = style.get("fontWeight", "")
+            text_align = style.get("textAlignHorizontal", "")
+            line_height = style.get("lineHeightPx", "")
+            parts.append(f'text:"{text_preview}"')
+            if font_family:
+                parts.append(f"ff:{font_family}")
+            if font_size:
+                parts.append(f"fs:{font_size}")
+            if font_weight:
+                parts.append(f"fw:{font_weight}")
+            if text_align and text_align != "LEFT":
+                parts.append(f"ta:{text_align}")
+            if line_height:
+                parts.append(f"lh:{line_height:.0f}")
+            if text_color:
+                parts.append(f"co:{text_color}")
+
+        # Handle gradient fills
+        if bg_color is None and node.get("fills"):
+            for f in node.get("fills", []):
+                if f.get("type") == "GRADIENT":
+                    stops = f.get("gradientStops", [])
+                    if len(stops) >= 2:
+                        c1 = stops[0].get("color", {})
+                        c2 = stops[-1].get("color", {})
+                        hex1 = FigmaService._rgb_to_hex(c1.get("r", 0), c1.get("g", 0), c1.get("b", 0))
+                        hex2 = FigmaService._rgb_to_hex(c2.get("r", 0), c2.get("g", 0), c2.get("b", 0))
+                        gtype = f.get("gradientType", "LINEAR")
+                        parts.append(f"gradient:{gtype} {hex1}->{hex2}")
+
+        lines.append(" ".join(parts))
+
+        # Recurse into children
+        children = node.get("children", [])
+        if children:
+            for child in children:
+                child_lines = FigmaService._walk_nodes(child, depth + 1, x, y)
+                lines.extend(child_lines)
+
+        return lines
+
     # ── Design prompt builder ─────────────────────────────────
 
     _RAW_JSON_MAX_CHARS = 500_000  # well within 1M context window
@@ -164,17 +306,17 @@ class FigmaService:
         self,
         file_data: dict[str, Any],
     ) -> str:
-        """Build a prompt that includes the raw Figma JSON for the AI to parse.
+        """Build a prompt with a compact tree summary + raw Figma JSON.
 
-        With a 1M context window, the AI can parse the full Figma node tree
-        directly — no need for a lossy text-based spec. The raw JSON preserves
-        all spatial relationships, fill/stroke properties, text styles, auto-layout
-        constraints, and the full node hierarchy.
+        The prompt has three parts:
+        1. A compact tree summary with pre-computed relative positions and
+           CSS-ready hex colors — easy for the AI to parse at a glance.
+        2. The raw Figma JSON (capped at 500k chars) for full detail.
+        3. Instructions for the AI.
 
-        The prompt includes:
-        1. A brief design summary (name, dimensions, key metadata)
-        2. The raw Figma JSON (capped at 500k chars)
-        3. Instructions for the AI to interpret the JSON and generate code
+        The compact summary helps the AI quickly understand the structure
+        and colors without having to parse raw Figma JSON. The raw JSON
+        provides the full detail for pixel-perfect rendering.
         """
         document = file_data.get("document")
         if not document or not isinstance(document, dict):
@@ -187,9 +329,6 @@ class FigmaService:
 
         name = file_data.get("name", "Untitled Design")
         last_modified = file_data.get("lastModified", "")
-        thumbnail_url = file_data.get("thumbnailUrl", "")
-
-        # ── Build a compact summary header ────────────────────
 
         lines: list[str] = []
         lines.append(f"# Figma Design: {name}")
@@ -197,7 +336,25 @@ class FigmaService:
             lines.append(f"Last modified: {last_modified}")
         lines.append("")
 
-        # ── Serialize the raw Figma JSON ──────────────────────
+        # ── Part 1: Compact tree summary ────────────────────────
+
+        lines.append("## Design Tree Summary")
+        lines.append("")
+        lines.append(
+            "Each line shows: [TYPE] \"name\" @(x,y) widthxheight "
+            "bg:color br:radius bd:stroke shadow:offset color:text-properties"
+        )
+        lines.append("")
+
+        # Walk the document tree
+        tree_lines = FigmaService._walk_nodes(document)
+        lines.extend(tree_lines)
+        lines.append("")
+
+        # ── Part 2: Raw Figma JSON ──────────────────────────────
+
+        lines.append("## Full Figma JSON (for reference)")
+        lines.append("")
 
         raw_json = json.dumps(file_data, indent=2, ensure_ascii=False)
 
@@ -213,80 +370,53 @@ class FigmaService:
         lines.append("```")
         lines.append("")
 
-        # ── Instructions for the AI ───────────────────────────
+        # ── Part 3: Instructions ────────────────────────────────
 
         lines.append(
             "## Instructions\n"
             "\n"
-            "The JSON above is the full Figma document tree for this design. "
-            "Parse it and generate pixel-perfect HTML/CSS/JS code.\n"
+            "The Design Tree Summary above shows every node with its type, position, "
+            "size, colors, and text. Use it as your PRIMARY reference for generating code.\n"
             "\n"
-            "### How to read the Figma JSON\n"
+            "The Full Figma JSON below provides the complete detail for any node that "
+            "needs more information (gradient stops, exact shadow parameters, etc.).\n"
             "\n"
-            "- The root is a DOCUMENT node containing CANVAS nodes (pages).\n"
-            "- Each CANVAS contains FRAME nodes — these are your top-level sections/pages.\n"
-            "- FRAME nodes can contain nested FRAMEs, TEXT nodes, RECTANGLE nodes, "
-            "ELLIPSE nodes, LINE nodes, VECTOR nodes, GROUP nodes, and COMPONENT nodes.\n"
-            "- INSTANCE nodes are component instances — treat them like their source component.\n"
+            "### CRITICAL: Render ALL nodes\n"
             "\n"
-            "### Key properties per node\n"
+            "- Every [RECTANGLE] node is a background or decorative element — render it as a <div>.\n"
+            "- Every [ELLIPSE] node is a circle — render it as a <div> with border-radius:50%.\n"
+            "- Every [VECTOR] node is an icon — render it as a small colored <div> or inline SVG.\n"
+            "- Every [GROUP] node is a container — render it as a <div> (it positions children).\n"
+            "- Every [TEXT] node is text — render it with the exact font, size, weight, color.\n"
+            "- Every [FRAME] node is a section/container — render it as a <div>.\n"
+            "- Do NOT skip any node. Every element in the summary must appear in your HTML.\n"
             "\n"
-            "- `type`: FRAME, TEXT, RECTANGLE, ELLIPSE, LINE, VECTOR, GROUP, COMPONENT, INSTANCE\n"
-            "- `name`: The layer name in Figma\n"
-            "- `absoluteBoundingBox`: `{x, y, width, height}` — position and size in pixels\n"
-            "- `fills[]`: Array of fill objects. Each has `type` (SOLID, GRADIENT, IMAGE, etc.) "
-            "and `color` `{r, g, b}` (0-1 range) and `opacity` (0-1).\n"
-            "- `strokes[]`: Array of stroke objects (same structure as fills). "
-            "`strokeWeight` gives the width.\n"
-            "- `cornerRadius`: Border radius in pixels (or `individualCornerRadius` for per-corner).\n"
-            "- `effects[]`: Array of effect objects (drop shadows, inner shadows, blurs).\n"
-            "- `opacity`: Node opacity (0-1).\n"
-            "- `blendMode`: Blend mode (e.g. \"PASS_THROUGH\", \"MULTIPLY\").\n"
-            "- `isMask`: Boolean — if true, this node is a mask.\n"
+            "### Positioning\n"
             "\n"
-            "### Text nodes (type: TEXT)\n"
+            "- The @(x,y) values are positions RELATIVE to the parent node.\n"
+            "- Use CSS `position: absolute; left: Xpx; top: Ypx` for each element.\n"
+            "- The top-level FRAME is the main container — use `position: relative`.\n"
             "\n"
-            "- `characters`: The text content\n"
-            "- `style`: Object with `fontFamily`, `fontPostScriptName`, `fontSize`, `fontWeight`, "
-            "`textAlignHorizontal` (LEFT, CENTER, RIGHT), `textAlignVertical` (TOP, CENTER, BOTTOM), "
-            "`lineHeightPx`, `letterSpacing`, `paragraphSpacing`, `paragraphIndent`\n"
-            "- `fills[0].color`: Text color\n"
+            "### Colors\n"
             "\n"
-            "### Auto-layout (FRAME nodes with layoutMode)\n"
+            "- Colors are in CSS-ready hex format (e.g. #ff0000). Use them directly.\n"
+            "- Gradients are shown as `gradient:LINEAR #color1->#color2`.\n"
+            "- Shadows are shown as `shadow:offsetX offsetY blur color`.\n"
             "\n"
-            "- `layoutMode`: \"NONE\" (no auto-layout), \"HORIZONTAL\" (flex row), \"VERTICAL\" (flex column)\n"
-            "- `primaryAxisAlignItems`: \"MIN\" (flex-start), \"CENTER\", \"MAX\" (flex-end), \"SPACE_BETWEEN\"\n"
-            "- `counterAxisAlignItems`: \"MIN\", \"CENTER\", \"MAX\"\n"
-            "- `itemSpacing`: Gap between children in pixels\n"
-            "- `paddingLeft`, `paddingRight`, `paddingTop`, `paddingBottom`: Padding in pixels\n"
-            "- `layoutWrap`: \"NO_WRAP\" or \"WRAP\"\n"
-            "- `itemReverseZIndex`: Boolean — if true, children are rendered in reverse order\n"
+            "### Typography\n"
             "\n"
-            "### Constraints\n"
-            "\n"
-            "- `constraints`: `{horizontal: \"MIN\"|\"CENTER\"|\"MAX\"|\"STRETCH\"|\"SCALE\", "
-            "vertical: \"MIN\"|\"CENTER\"|\"MAX\"|\"STRETCH\"|\"SCALE\"}`\n"
-            "- Use constraints to determine how elements should behave on resize.\n"
-            "\n"
-            "### Gradients\n"
-            "\n"
-            "- Fills with type \"GRADIENT\" have `gradientType` (LINEAR, RADIAL, ANGULAR, DIAMOND) "
-            "and `gradientStops[]` each with `position` (0-1) and `color`.\n"
-            "\n"
-            "### Images\n"
-            "\n"
-            "- Fills with type \"IMAGE\" have `imageRef` and `scaleMode` (FILL, FIT, CROP, TILE).\n"
-            "- Use a colored div or inline SVG placeholder. Do NOT use external image URLs.\n"
+            "- Use the exact font family, size, weight, line height, and color shown.\n"
+            "- Import Google Fonts via @import or <link> if needed.\n"
             "\n"
             "### Output rules\n"
             "\n"
             "1. Create index.html, style.css, and script.js\n"
             "2. index.html links style.css and script.js\n"
-            "3. Use EXACT colors (convert 0-1 RGB to 0-255), EXACT fonts, EXACT dimensions\n"
-            "4. Use CSS position:absolute with left/top for non-auto-layout elements\n"
-            "5. Use CSS flexbox for auto-layout frames (flex-direction based on layoutMode)\n"
+            "3. Use EXACT colors, EXACT fonts, EXACT dimensions from the summary\n"
+            "4. Use CSS position:absolute with left/top for all positioned elements\n"
+            "5. Use CSS flexbox for FRAME nodes with layoutMode (HORIZONTAL/VERTICAL)\n"
             "6. Match border-radius, border, opacity, and effects exactly\n"
-            "7. Preserve the full node hierarchy — nested frames become nested HTML elements\n"
+            "7. Preserve the full node hierarchy — every node becomes an HTML element\n"
             "8. Do NOT add, remove, or rearrange elements\n"
             "9. Page must look IDENTICAL to the Figma design"
         )

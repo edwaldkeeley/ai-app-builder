@@ -8,7 +8,7 @@ AI-powered design-to-code platform. Users describe what they want in natural lan
 
 - **Phase 1 (Complete)**: Backend — FastAPI with project CRUD, sandbox file operations, PostgreSQL persistence via raw SQL, AI engine with OpenAI-compatible HTTP provider.
 - **Phase 2 (Complete)**: Frontend — ChatGPT-inspired layout with centered chat landing page, Monaco editor, live canvas iframe preview, sidebar toggles between project list and chat. All 44 bugs (18 critical + 26 medium/low) from frontend and backend audits fixed.
-- **Phase 3 (In Progress)**: Figma URL import (complete, OAuth removed, raw JSON prompt), ZIP export, design upload, testing.
+- **Phase 3 (In Progress)**: Figma URL import (complete, OAuth removed, hybrid summary+JSON prompt), ZIP export, design upload, testing.
 
 ## Architecture
 
