@@ -1,13 +1,16 @@
-Fix iframe link clicks redirecting to localhost:3000
+Fix live streaming: backend now extracts clean message text from JSON
 
-Root cause: The AI generates code with anchor tags (e.g. href="#", href="/")
-that cause the iframe to navigate. With allow-same-origin on the sandbox,
-this navigation can affect the parent page, redirecting to localhost:3000.
+Root cause: The backend was sending raw JSON tokens (including JSON key prefixes
+and suffixes) as message_chunk events. The frontend's stripJsonWrapper tried to
+clean this up but produced garbled output on partial tokens.
 
-Fix: Inject a navigation guard script into every iframe preview that
-intercepts all link clicks and form submissions via event capturing,
-preventing default behavior. The script is injected before /head.
+Fix:
+1. Backend (ai_service.py): Now uses regex to extract ONLY the message text value
+   from the streaming JSON. Two strategies:
+   a) Primary: message_re matches the full message value before files key
+   b) Fallback: simpler regex matches partial message value during early tokens
+   Only clean text is sent as message_chunk - no raw JSON reaches the frontend.
+2. Frontend (useChat.ts): Removed stripJsonWrapper entirely. The backend now
+   sends clean text, so the frontend just appends deltas directly.
 
-Also fixed the live streaming issue where message_chunk events were only
-yielded after the regex matched the full JSON structure, causing the
-frontend to show nothing until the AI finished generating.
+The UI now shows clean character-by-character streaming of the AI response.

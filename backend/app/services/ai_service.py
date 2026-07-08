@@ -702,14 +702,33 @@ class StreamingHttpAIProvider(BaseAIProvider):
 
                         accumulated_content += content_delta
 
-                        # --- Stream message text in real-time ---
-                        # The AI generates the JSON response token by token.
-                        # We stream every content delta as a message_chunk so the
-                        # frontend shows live character-by-character streaming.
-                        # The frontend strips JSON wrapper characters to show
-                        # clean message text.
-                        if content_delta:
-                            yield {"type": "message_chunk", "delta": content_delta}
+                        # --- Extract and stream message text in real-time ---
+                        # The AI generates: {"message": "Hello...", "files": [...]}
+                        # We extract just the message text value and send it as
+                        # clean message_chunk deltas. The frontend never sees raw JSON.
+                        #
+                        # Strategy: try to parse the "message" field value from the
+                        # accumulated JSON using a regex that matches the message
+                        # value before the "files" key appears.
+                        msg_match = message_re.search(accumulated_content)
+                        if msg_match:
+                            current_message = msg_match.group(1)
+                            new_part = current_message[len(prev_message):]
+                            if new_part:
+                                prev_message = current_message
+                                yield {"type": "message_chunk", "delta": new_part}
+                        else:
+                            # Before the regex can match, the message value is still
+                            # being built. Try a simpler extraction: find text between
+                            # '"message": "' and the next '", "'
+                            # This handles the early tokens before "files" appears.
+                            simple_match = re.search(r'"message"\s*:\s*"((?:[^"\\]|\\.)*)', accumulated_content)
+                            if simple_match:
+                                current_message = simple_match.group(1)
+                                new_part = current_message[len(prev_message):]
+                                if new_part:
+                                    prev_message = current_message
+                                    yield {"type": "message_chunk", "delta": new_part}
 
                         # --- Try to parse partial JSON for file content ---
                         partial = re.sub(r"^```(?:json)?\s*", "", accumulated_content.strip())
