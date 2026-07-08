@@ -25,6 +25,8 @@ interface MainContentProps {
   onToggleExplorer: () => void;
   saveStatus?: SaveStatus;
   onFigmaImportComplete?: (projectId: string) => void;
+  viewMode: ViewMode;
+  onViewModeChange: (mode: ViewMode) => void;
 }
 
 const VIEW_BUTTONS: { mode: ViewMode; label: string }[] = [
@@ -49,9 +51,10 @@ export default function MainContent({
   onToggleExplorer,
   saveStatus,
   onFigmaImportComplete,
+  viewMode,
+  onViewModeChange,
 }: MainContentProps) {
   const [promptValue, setPromptValue] = useState("");
-  const [viewMode, setViewMode] = useState<ViewMode>("preview");
   const promptTextareaRef = useRef<HTMLTextAreaElement>(null);
   const filesRef = useRef(files);
   useEffect(() => {
@@ -203,7 +206,7 @@ export default function MainContent({
             {VIEW_BUTTONS.map(({ mode, label }) => (
               <button
                 key={mode}
-                onClick={() => setViewMode(mode)}
+                onClick={() => onViewModeChange(mode)}
                 className={`px-2.5 py-1 text-xs font-medium rounded-md transition-colors ${
                   viewMode === mode
                     ? "bg-accent text-white shadow-sm"

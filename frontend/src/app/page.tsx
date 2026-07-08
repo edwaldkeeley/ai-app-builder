@@ -55,6 +55,7 @@ export default function Home() {
   const [activeFilePath, setActiveFilePath] = useState<string | null>(null);
   const [showExplorer, setShowExplorer] = useState(true);
   const [isMobile, setIsMobile] = useState(false);
+  const [viewMode, setViewMode] = useState<"preview" | "code" | "split">("preview");
   const [showMobileSidebar, setShowMobileSidebar] = useState(false);
   const filesRef = useRef(files);
   const activeProjectIdRef = useRef(activeProjectId);
@@ -197,8 +198,8 @@ export default function Home() {
         onCloseMobileSidebar={() => setShowMobileSidebar(false)}
       />
 
-      {/* File Explorer (only when a project is active) */}
-      {activeProject && (
+      {/* File Explorer (only when a project is active and not in preview mode) */}
+      {activeProject && viewMode !== "preview" && (
         <FileExplorer
           key={activeProjectId}
           files={files}
@@ -245,6 +246,8 @@ export default function Home() {
           onToggleExplorer={() => setShowExplorer((prev) => !prev)}
           saveStatus={saveStatus}
           onFigmaImportComplete={handleFigmaImportComplete}
+          viewMode={viewMode}
+          onViewModeChange={setViewMode}
         />
       </main>
     </div>

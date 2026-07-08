@@ -42,6 +42,13 @@ export function useChat() {
       const msgs = await api.getChatMessages(projectId);
       // Only apply if this is still the latest request
       if (requestId !== loadRequestIdRef.current) return;
+      // Guard: if we already have messages for this project and the count matches,
+      // don't re-set state (prevents duplication from React Strict Mode double-fire)
+      if (chatMessages.length > 0 && msgs.length > 0) {
+        const lastExisting = chatMessages[chatMessages.length - 1];
+        const lastFetched = msgs[msgs.length - 1];
+        if (lastExisting.id === `chat-${lastFetched.id}`) return;
+      }
       const converted: ChatMessage[] = msgs.map((m) => ({
         id: `chat-${m.id}`,
         role: m.role as "user" | "assistant",
@@ -55,7 +62,7 @@ export function useChat() {
     } catch {
       // Silently fail
     }
-  }, []);
+  }, [chatMessages]);
 
   const clearChatMessages = useCallback(() => {
     setChatMessages([]);
