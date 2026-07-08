@@ -16,30 +16,52 @@ interface ChatPanelProps {
 
 function WritingIndicator({ status }: { status: WritingStatus }) {
   return (
-    <div className="flex items-center gap-2 text-xs text-text-secondary">
-      <div className="w-3 h-3 border-2 border-accent border-t-transparent rounded-full animate-spin" aria-label="Loading" />
-      <div className="flex items-center gap-1.5">
-        {status.type === "thinking" && <span>AI is thinking...</span>}
+    <div className="flex items-start gap-2.5 text-xs text-text-secondary py-1">
+      {/* Animated icon */}
+      {status.type === "done" ? (
+        <span className="mt-0.5 text-green-500">✓</span>
+      ) : (
+        <span className="mt-0.5 w-3.5 h-3.5 border-2 border-accent border-t-transparent rounded-full animate-spin flex-shrink-0" aria-label="Loading" />
+      )}
+
+      <div className="flex flex-col gap-1 min-w-0">
+        {status.type === "thinking" && (
+          <div className="flex items-center gap-1.5">
+            <span className="text-foreground font-medium">Analyzing request</span>
+            <span className="flex gap-0.5">
+              <span className="w-1 h-1 bg-text-secondary rounded-full animate-bounce" style={{ animationDelay: "0ms" }} />
+              <span className="w-1 h-1 bg-text-secondary rounded-full animate-bounce" style={{ animationDelay: "150ms" }} />
+              <span className="w-1 h-1 bg-text-secondary rounded-full animate-bounce" style={{ animationDelay: "300ms" }} />
+            </span>
+          </div>
+        )}
+
         {status.type === "writing" && (
-          <>
-            <span>Writing</span>
-            <code className="px-1 py-0.5 rounded bg-surface text-accent text-[10px] font-mono">
+          <div className="flex items-center gap-2">
+            <span className="text-accent font-mono text-[11px]">▸</span>
+            <code className="px-1.5 py-0.5 rounded bg-accent/10 text-accent font-mono text-[11px] font-medium truncate max-w-[200px]">
               {status.file}
             </code>
-            <span>...</span>
-          </>
+            <span className="text-text-secondary/60">writing...</span>
+          </div>
         )}
+
         {status.type === "fixing" && (
-          <>
-            <span className="text-amber-500" role="img" aria-label="Fixing">🔧</span>
-            <span>{status.message || "Fixing issue..."}</span>
-          </>
+          <div className="flex items-center gap-1.5">
+            <span className="text-amber-500">🔧</span>
+            <span className="text-amber-600 dark:text-amber-400 font-medium">
+              {status.message || "Fixing issues..."}
+            </span>
+          </div>
         )}
+
         {status.type === "done" && (
-          <>
-            <span className="text-green-500">✓</span>
-            <span>Done</span>
-          </>
+          <div className="flex items-center gap-1.5">
+            <span className="text-green-600 dark:text-green-400 font-medium">Generation complete</span>
+            {status.message && (
+              <span className="text-text-secondary">— {status.message}</span>
+            )}
+          </div>
         )}
       </div>
     </div>
