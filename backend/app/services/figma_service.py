@@ -480,6 +480,62 @@ class FigmaService:
 
         return lines
 
+    # ── Canvas selection ───────────────────────────────────────
+
+    @staticmethod
+    def _get_canvases(document: dict) -> list[dict]:
+        """Extract all CANVAS nodes from the document tree.
+
+        Figma files often have multiple canvases (Desktop, Mobile, Tablet).
+        Returns them all so the AI can generate responsive code.
+        """
+        canvases: list[dict] = []
+        children = document.get("children", [])
+        for child in children:
+            if isinstance(child, dict) and child.get("type") == "CANVAS":
+                canvases.append(child)
+        return canvases
+
+    @staticmethod
+    def _get_canvas_dimensions(canvas: dict) -> tuple[float, float]:
+        """Get the effective dimensions of a canvas by looking at its top-level FRAMEs."""
+        max_w = 0.0
+        max_h = 0.0
+        for child in canvas.get("children", []):
+            if isinstance(child, dict):
+                bbox = child.get("absoluteBoundingBox") or {}
+                w = bbox.get("width", 0) or 0
+                h = bbox.get("height", 0) or 0
+                if w > max_w:
+                    max_w = w
+                if h > max_h:
+                    max_h = h
+        return max_w, max_h
+
+    @staticmethod
+    def _classify_canvas(canvas: dict) -> str:
+        """Classify a canvas as 'desktop', 'tablet', 'mobile', or 'unknown' based on name and dimensions."""
+        name = (canvas.get("name") or "").lower()
+        w, h = FigmaService._get_canvas_dimensions(canvas)
+
+        # Check name first
+        if any(kw in name for kw in ("desktop", "web", "laptop", "1440", "1920")):
+            return "desktop"
+        if any(kw in name for kw in ("mobile", "phone", "iphone", "android", "375", "390", "414")):
+            return "mobile"
+        if any(kw in name for kw in ("tablet", "ipad", "768", "834")):
+            return "tablet"
+
+        # Fall back to width heuristic
+        if w >= 1024:
+            return "desktop"
+        if w >= 600:
+            return "tablet"
+        if w > 0:
+            return "mobile"
+
+        return "unknown"
+
     # ── Design prompt builder ─────────────────────────────────
 
     _RAW_JSON_MAX_CHARS = 150_000  # well within context window after filtering
@@ -500,6 +556,10 @@ class FigmaService:
            CSS-ready hex colors — easy for the AI to parse at a glance.
         2. The filtered Figma JSON (capped at 150k chars) for full detail.
         3. Instructions for the AI.
+
+        If the Figma file has multiple canvases (Desktop, Mobile, Tablet),
+        all are included and the AI is instructed to generate responsive code
+        that covers all viewports.
         """
         document = file_data.get("document")
         if not document or not isinstance(document, dict):
@@ -519,6 +579,21 @@ class FigmaService:
             lines.append(f"Last modified: {last_modified}")
         lines.append("")
 
+        # ── Identify canvases ────────────────────────────────────
+
+        canvases = FigmaService._get_canvases(document)
+        canvas_labels: dict[int, str] = {}
+        for i, canvas in enumerate(canvases):
+            label = FigmaService._classify_canvas(canvas)
+            canvas_labels[i] = label
+
+        # Log what we found
+        canvas_info = ", ".join(
+            f'"{c.get("name", "?")}" -> {canvas_labels[i]}'
+            for i, c in enumerate(canvases)
+        )
+        logger.info("Figma canvases detected: %s", canvas_info)
+
         # ── Part 1: Compact tree summary ────────────────────────
 
         lines.append("## Design Tree Summary")
@@ -529,10 +604,16 @@ class FigmaService:
         )
         lines.append("")
 
-        # Walk the document tree
-        tree_lines = FigmaService._walk_nodes(document)
-        lines.extend(tree_lines)
-        lines.append("")
+        for i, canvas in enumerate(canvases):
+            label = canvas_labels.get(i, "unknown")
+            canvas_name = canvas.get("name", f"Canvas {i}")
+            w, h = FigmaService._get_canvas_dimensions(canvas)
+            lines.append(f"### Canvas: \"{canvas_name}\" ({label}, {w:.0f}x{h:.0f}px)")
+            lines.append("")
+
+            tree_lines = FigmaService._walk_nodes(canvas)
+            lines.extend(tree_lines)
+            lines.append("")
 
         # ── Part 2: Filtered Figma JSON ─────────────────────────
 
@@ -566,6 +647,35 @@ class FigmaService:
 
         # ── Part 3: Instructions ────────────────────────────────
 
+        # Build responsive instruction based on what canvases we found
+        has_multiple = len(canvases) > 1
+        desktop_idx = next((i for i, l in canvas_labels.items() if l == "desktop"), None)
+        mobile_idx = next((i for i, l in canvas_labels.items() if l == "mobile"), None)
+
+        if has_multiple:
+            responsive_instruction = (
+                "This design has multiple canvases representing different viewports:\n"
+            )
+            for i, canvas in enumerate(canvases):
+                label = canvas_labels.get(i, "unknown")
+                canvas_name = canvas.get("name", f"Canvas {i}")
+                w, h = FigmaService._get_canvas_dimensions(canvas)
+                responsive_instruction += (
+                    f"- **\"{canvas_name}\"** ({label}, {w:.0f}x{h:.0f}px)\n"
+                )
+            responsive_instruction += (
+                "\nGenerate a SINGLE responsive HTML page that works across ALL viewports. "
+                "Use CSS media queries to adapt the layout for each breakpoint. "
+                "The desktop canvas is the primary reference — start with that layout "
+                "and add media queries for tablet and mobile."
+            )
+        else:
+            label = canvas_labels.get(0, "desktop")
+            responsive_instruction = (
+                f"This design has one canvas ({label}). "
+                "Generate code that matches it exactly."
+            )
+
         lines.append(
             "## Instructions\n"
             "\n"
@@ -574,6 +684,10 @@ class FigmaService:
             "\n"
             "The Filtered Figma JSON below provides the complete detail for any node that "
             "needs more information (gradient stops, exact shadow parameters, etc.).\n"
+            "\n"
+            "### Viewports\n"
+            "\n"
+            + responsive_instruction + "\n"
             "\n"
             "### CRITICAL: Render ALL nodes\n"
             "\n"
