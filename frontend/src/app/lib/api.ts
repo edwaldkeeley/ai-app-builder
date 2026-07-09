@@ -1,4 +1,4 @@
-import type { ChatMessageSchema, GenerateResponse, Project, ProjectDetail, ProjectFile, SandboxState } from "./types";
+import type { ChatMessageSchema, GenerateResponse, Project, ProjectDetail, ProjectFile, SandboxState, User } from "./types";
 
 const BASE = process.env.NEXT_PUBLIC_API_URL || "http://localhost:8000";
 const WS_BASE = process.env.NEXT_PUBLIC_WS_URL || "ws://localhost:8000";
@@ -110,6 +110,7 @@ async function request<T>(path: string, options?: RequestInit, timeoutMs = 12000
   try {
     const res = await fetch(`${BASE}${path}`, {
       headers: { "Content-Type": "application/json" },
+      credentials: "include",
       signal: controller.signal,
       ...options,
     });
@@ -250,6 +251,30 @@ export const api = {
       method: "POST",
       body: JSON.stringify({ figma_url: figmaUrl, access_token: accessToken }),
     }, 300000); // 5 min timeout — Figma fetch + AI generation
+  },
+
+  // ── Auth ──────────────────────────────────────────────────
+
+  login(email: string, password: string): Promise<User> {
+    return request("/api/auth/login", {
+      method: "POST",
+      body: JSON.stringify({ email, password }),
+    });
+  },
+
+  register(email: string, username: string, password: string): Promise<User> {
+    return request("/api/auth/register", {
+      method: "POST",
+      body: JSON.stringify({ email, username, password }),
+    });
+  },
+
+  logout(): Promise<void> {
+    return request("/api/auth/logout", { method: "POST" });
+  },
+
+  me(): Promise<User> {
+    return request("/api/auth/me");
   },
 
   // ── Health ────────────────────────────────────────────────

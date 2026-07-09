@@ -7,10 +7,11 @@ import re
 from pathlib import Path
 from uuid import UUID
 
-from fastapi import APIRouter, HTTPException
+from fastapi import APIRouter, Depends, HTTPException
 from fastapi.responses import Response
 
 from app.models.schemas import ProjectFile, SandboxFileUpdate, SandboxState
+from app.routers.dependencies import get_current_user
 from app.routers.projects import get_service
 
 # Map file extensions to MIME types for serving files
@@ -47,12 +48,20 @@ def _validate_sandbox_path(path: str) -> None:
         raise HTTPException(status_code=422, detail="File path is too long")
 
 
-@router.get("/{project_id}", response_model=SandboxState)
-async def get_sandbox_state(project_id: UUID):
-    """Return the full sandbox state for a project (all files + active file)."""
+async def _check_project_owner(project_id: UUID, current_user: dict) -> None:
+    """Verify the current user owns the project. Raises 403/404 if not."""
     project = await get_service().get(project_id)
     if project is None:
         raise HTTPException(status_code=404, detail="Project not found")
+    if project.user_id is not None and project.user_id != current_user["id"]:
+        raise HTTPException(status_code=403, detail="Not authorized")
+
+
+@router.get("/{project_id}", response_model=SandboxState)
+async def get_sandbox_state(project_id: UUID, current_user: dict = Depends(get_current_user)):
+    """Return the full sandbox state for a project (all files + active file)."""
+    await _check_project_owner(project_id, current_user)
+    project = await get_service().get(project_id)
     return SandboxState(
         project_id=project.id,
         files=project.files,
@@ -61,8 +70,9 @@ async def get_sandbox_state(project_id: UUID):
 
 
 @router.put("/{project_id}/files", response_model=ProjectFile)
-async def upsert_file(project_id: UUID, body: SandboxFileUpdate):
+async def upsert_file(project_id: UUID, body: SandboxFileUpdate, current_user: dict = Depends(get_current_user)):
     """Create or update a single file in the sandbox."""
+    await _check_project_owner(project_id, current_user)
     _validate_sandbox_path(body.path)
     result = await get_service().upsert_file(project_id, body.path, body.content)
     if result is None:
@@ -71,15 +81,16 @@ async def upsert_file(project_id: UUID, body: SandboxFileUpdate):
 
 
 @router.delete("/{project_id}/files", status_code=204)
-async def delete_file(project_id: UUID, path: str):
+async def delete_file(project_id: UUID, path: str, current_user: dict = Depends(get_current_user)):
     """Delete a file from the sandbox. Pass ``?path=...`` as a query param."""
+    await _check_project_owner(project_id, current_user)
     _validate_sandbox_path(path)
     if not await get_service().delete_file(project_id, path):
         raise HTTPException(status_code=404, detail="Project or file not found")
 
 
 @router.get("/{project_id}/file")
-async def serve_file(project_id: UUID, path: str):
+async def serve_file(project_id: UUID, path: str, current_user: dict = Depends(get_current_user)):
     """Serve a single file from the sandbox with the correct MIME type.
 
     Used by the live preview iframe to load images and other binary assets.

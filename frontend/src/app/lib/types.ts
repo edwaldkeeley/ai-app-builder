@@ -45,6 +45,24 @@ export interface ChatMessage {
   timestamp: string;
 }
 
+export interface User {
+  id: string;
+  email: string;
+  username: string;
+  created_at: string;
+}
+
+export interface LoginRequest {
+  email: string;
+  password: string;
+}
+
+export interface RegisterRequest {
+  email: string;
+  username: string;
+  password: string;
+}
+
 export interface ChatMessageSchema {
   id: number;
   project_id: string;

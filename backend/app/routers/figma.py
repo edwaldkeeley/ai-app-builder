@@ -9,13 +9,14 @@ from __future__ import annotations
 import logging
 
 import httpx
-from fastapi import APIRouter, HTTPException, status
+from fastapi import APIRouter, Depends, HTTPException, status
 
 from app.models.schemas import (
     FigmaUrlImportRequest,
     GenerateResponse,
     ProjectCreate,
 )
+from app.routers.dependencies import get_current_user
 from app.services.ai_service import BaseAIProvider, RateLimitError, _FIGMA_SYSTEM_PROMPT
 from app.services.figma_service import FigmaApiError, FigmaRateLimitError, FigmaService
 from app.services.project_service import ProjectService
@@ -44,7 +45,7 @@ def set_dependencies(
 
 
 @router.post("/import-url", response_model=GenerateResponse, status_code=status.HTTP_201_CREATED)
-async def import_figma_url(body: FigmaUrlImportRequest):
+async def import_figma_url(body: FigmaUrlImportRequest, current_user: dict = Depends(get_current_user)):
     """Import a Figma design by URL and generate code from it.
 
     Accepts a Figma file URL (or bare file key) and a personal access token.
@@ -113,7 +114,8 @@ async def import_figma_url(body: FigmaUrlImportRequest):
         ProjectCreate(
             name=design_name,
             description=f"Imported from Figma URL: {body.figma_url}",
-        )
+        ),
+        user_id=current_user["id"],
     )
     project_id = project.id
 
@@ -150,7 +152,7 @@ async def import_figma_url(body: FigmaUrlImportRequest):
 
 
 @router.get("/cache", status_code=status.HTTP_200_OK)
-async def get_cache_info():
+async def get_cache_info(current_user: dict = Depends(get_current_user)):
     """Get Figma file cache statistics."""
     if _figma is None:
         raise HTTPException(status_code=503, detail="Figma service not initialized")
@@ -158,7 +160,7 @@ async def get_cache_info():
 
 
 @router.delete("/cache", status_code=status.HTTP_200_OK)
-async def clear_cache(file_key: str | None = None):
+async def clear_cache(file_key: str | None = None, current_user: dict = Depends(get_current_user)):
     """Clear the Figma file cache.
 
     If ``file_key`` is provided, only that file's cache is cleared.

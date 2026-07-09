@@ -1,8 +1,10 @@
 "use client";
 
 import { useState, useEffect, useRef } from "react";
+import { useRouter } from "next/navigation";
 import type { ChatMessage, Project } from "../lib/types";
 import type { WritingStatus } from "../hooks/useChat";
+import { useAuth } from "../contexts/AuthContext";
 import ChatPanel from "./ChatPanel";
 import { SkeletonSidebar } from "./Skeleton";
 
@@ -47,7 +49,15 @@ export default function Sidebar({
 }: SidebarProps) {
   const [collapsed, setCollapsed] = useState(false);
   const [confirmDelete, setConfirmDelete] = useState<string | null>(null);
+  const [showUserMenu, setShowUserMenu] = useState(false);
   const sidebarRef = useRef<HTMLDivElement>(null);
+  const { user, logout } = useAuth();
+  const router = useRouter();
+
+  const handleLogout = async () => {
+    await logout();
+    router.push("/login");
+  };
 
   // Trap focus inside mobile sidebar overlay
   useEffect(() => {
@@ -305,11 +315,37 @@ export default function Sidebar({
         )}
       </div>
 
-      {/* Bottom section */}
+      {/* Bottom section — user menu */}
       <div className="border-t border-border p-2">
-        <div className="flex items-center gap-2 px-3 py-2 rounded-lg text-xs text-text-secondary">
-          <div className="w-2 h-2 rounded-full bg-accent" />
-          <span>Connected</span>
+        <div className="relative">
+          <button
+            onClick={() => setShowUserMenu((prev) => !prev)}
+            className="w-full flex items-center gap-2 px-3 py-2 rounded-lg hover:bg-surface transition-colors"
+          >
+            <div className="w-6 h-6 rounded-full bg-accent flex items-center justify-center text-xs font-medium text-white flex-shrink-0">
+              {user?.username?.charAt(0).toUpperCase() || "?"}
+            </div>
+            <div className="flex-1 text-left min-w-0">
+              <div className="text-xs font-medium text-foreground truncate">{user?.username || "User"}</div>
+              <div className="text-[10px] text-text-secondary truncate">{user?.email || ""}</div>
+            </div>
+          </button>
+          {showUserMenu && (
+            <>
+              <div
+                className="fixed inset-0 z-10"
+                onClick={() => setShowUserMenu(false)}
+              />
+              <div className="absolute bottom-full left-0 right-0 mb-1 mx-2 z-20 bg-surface border border-border rounded-lg shadow-lg py-1">
+                <button
+                  onClick={handleLogout}
+                  className="w-full text-left px-3 py-1.5 text-xs text-text-secondary hover:text-foreground hover:bg-sidebar transition-colors"
+                >
+                  Sign out
+                </button>
+              </div>
+            </>
+          )}
         </div>
       </div>
     </aside>

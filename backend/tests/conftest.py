@@ -178,7 +178,7 @@ async def test_app(db_pool, mock_ai_provider):
     from fastapi.middleware.cors import CORSMiddleware
 
     from app.config import settings
-    from app.routers import ai, chat, figma, projects, sandbox
+    from app.routers import ai, auth, chat, figma, projects, sandbox
 
     app = FastAPI(title="AI Design Sandbox Test")
     app.add_middleware(
@@ -193,6 +193,7 @@ async def test_app(db_pool, mock_ai_provider):
     app.include_router(ai.router)
     app.include_router(chat.router)
     app.include_router(figma.router)
+    app.include_router(auth.router)
 
     @app.get("/api/health")
     async def health():
@@ -223,11 +224,13 @@ async def async_client(test_app) -> AsyncIterator[AsyncClient]:
 
 
 @pytest_asyncio.fixture
-async def sample_project(project_service):
+async def sample_project(project_service, test_user):
     """Create a sample project for testing."""
     from app.models.schemas import ProjectCreate
+    user, _ = test_user
     project = await project_service.create(
-        ProjectCreate(name="Test Project", description="A test project")
+        ProjectCreate(name="Test Project", description="A test project"),
+        user_id=user["id"],
     )
     return project
 
@@ -242,3 +245,39 @@ async def project_with_files(project_service, sample_project):
     ]
     await project_service.upsert_files_transactional(sample_project.id, files)
     return await project_service.get(sample_project.id)
+
+
+# ── Auth fixtures ─────────────────────────────────────────────
+
+
+@pytest_asyncio.fixture
+async def test_user(db_pool):
+    """Create a test user and return user data + auth token."""
+    from app.services.auth_service import create_access_token, hash_password
+    from app.db.database import acquire_with_retry, get_pool
+
+    pool = get_pool()
+    conn = await acquire_with_retry(pool)
+    try:
+        row = await conn.fetchrow(
+            "INSERT INTO users (email, username, password_hash) "
+            "VALUES ($1, $2, $3) "
+            "RETURNING id, email, username, created_at",
+            "test@example.com",
+            "testuser",
+            hash_password("testpass123"),
+        )
+    finally:
+        await pool.release(conn)
+    token = create_access_token({"sub": str(row["id"])})
+    return dict(row), token
+
+
+@pytest_asyncio.fixture
+async def auth_client(test_app, test_user):
+    """Async client with auth cookie pre-set."""
+    user, token = test_user
+    transport = ASGITransport(app=test_app)
+    async with AsyncClient(transport=transport, base_url="http://test") as client:
+        client.cookies.set("access_token", token)
+        yield client

@@ -4,9 +4,10 @@ from __future__ import annotations
 
 import json
 
-from fastapi import APIRouter, HTTPException, WebSocket, WebSocketDisconnect, status
+from fastapi import APIRouter, Depends, HTTPException, WebSocket, WebSocketDisconnect, status
 
 from app.models.schemas import GenerateResponse, ProjectCreate, ProjectFile, PromptRequest
+from app.routers.dependencies import get_current_user
 from app.services.ai_service import BaseAIProvider, RateLimitError
 from app.services.project_service import ProjectService
 
@@ -26,7 +27,7 @@ def set_dependencies(provider: BaseAIProvider, service: ProjectService) -> None:
 
 
 @router.post("/generate", response_model=GenerateResponse, status_code=status.HTTP_201_CREATED)
-async def generate(body: PromptRequest):
+async def generate(body: PromptRequest, current_user: dict = Depends(get_current_user)):
     """Generate code from a text prompt using the configured AI provider.
 
     If ``project_id`` is provided, the generated files are added to that
@@ -46,6 +47,8 @@ async def generate(body: PromptRequest):
         project = await _service.get(body.project_id)
         if project is None:
             raise HTTPException(status_code=404, detail="Project not found")
+        if project.user_id is not None and project.user_id != current_user["id"]:
+            raise HTTPException(status_code=403, detail="Not authorized")
         existing_files = project.files
         # Load chat history for context
         chat_msgs = await _service.get_chat_messages(body.project_id)
@@ -83,7 +86,8 @@ async def generate(body: PromptRequest):
             ProjectCreate(
                 name=name,
                 description=f"Generated from: {body.prompt[:200]}",
-            )
+            ),
+            user_id=current_user["id"],
         )
         project_id = project.id
         project_name = project.name
@@ -107,7 +111,7 @@ async def generate(body: PromptRequest):
 
 
 @router.websocket("/ws/generate")
-async def ws_generate(websocket: WebSocket):
+async def ws_generate(websocket: WebSocket, token: str | None = None):
     """Stream AI generation results over WebSocket.
 
     Protocol — client sends::
@@ -124,12 +128,25 @@ async def ws_generate(websocket: WebSocket):
         {"type": "file_done", "path": "..."}
         {"type": "done", "message": "...", "files": [...]}
         {"type": "error", "detail": "..."}
+
+    Authentication: pass ``?token=...`` as a query parameter.
     """
     if _provider is None or _service is None:
         await websocket.accept()
         await websocket.send_json({"type": "error", "detail": "AI provider not configured."})
         await websocket.close()
         return
+
+    # Validate auth token
+    from app.services.auth_service import decode_access_token
+
+    payload = decode_access_token(token) if token else None
+    if payload is None:
+        await websocket.accept()
+        await websocket.send_json({"type": "error", "detail": "Not authenticated. Pass ?token=... query parameter."})
+        await websocket.close()
+        return
+    current_user_id = payload.get("sub")
 
     await websocket.accept()
     await websocket.send_json({"type": "status", "status": "connected"})
@@ -161,13 +178,18 @@ async def ws_generate(websocket: WebSocket):
                 await websocket.send_json({"type": "error", "detail": "Project not found."})
                 await websocket.close()
                 return
+            if project.user_id is not None and str(project.user_id) != current_user_id:
+                await websocket.send_json({"type": "error", "detail": "Not authorized."})
+                await websocket.close()
+                return
         else:
             name = prompt[:120].strip()
             project = await _service.create(
                 ProjectCreate(
                     name=name,
                     description=f"Generated from: {prompt[:200]}",
-                )
+                ),
+                user_id=UUID(current_user_id) if current_user_id else None,
             )
 
         project_id = str(project.id)

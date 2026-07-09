@@ -1,10 +1,12 @@
 "use client";
 
 import { useState, useEffect, useCallback, useRef } from "react";
+import { useRouter } from "next/navigation";
 import Sidebar from "./components/Sidebar";
 import MainContent from "./components/MainContent";
 import FileExplorer from "./components/FileExplorer";
 import { api } from "./lib/api";
+import { useAuth } from "./contexts/AuthContext";
 import { useProjects } from "./hooks/useProjects";
 import { useChat } from "./hooks/useChat";
 import { useFileSave } from "./hooks/useFileSave";
@@ -13,7 +15,10 @@ import { useToast } from "./components/Toast";
 
 export default function Home() {
   const { showToast } = useToast();
+  const { user, loading: authLoading } = useAuth();
+  const router = useRouter();
 
+  // ── All hooks MUST be called unconditionally (before any early return) ──
   const {
     projects,
     activeProjectId,
@@ -59,6 +64,8 @@ export default function Home() {
   const [showMobileSidebar, setShowMobileSidebar] = useState(false);
   const filesRef = useRef(files);
   const activeProjectIdRef = useRef(activeProjectId);
+
+  // ── Effects (also hooks — must be before early returns) ──
   useEffect(() => {
     filesRef.current = files;
   }, [files]);
@@ -67,9 +74,6 @@ export default function Home() {
   }, [activeProjectId]);
 
   // Load chat messages when a project is selected
-  // NOTE: generating is intentionally excluded from deps — including it would
-  // cause the effect to re-fetch messages when generation finishes, overwriting
-  // the in-memory streaming state with stale backend data.
   useEffect(() => {
     if (!activeProjectId) {
       clearChatMessages();
@@ -128,13 +132,12 @@ export default function Home() {
     });
   }, [activeProjectId]); // eslint-disable-line react-hooks/exhaustive-deps
 
-  // Wrap handleSelectProject to also set chat mode
+  // ── Callbacks (also hooks — must be before early returns) ──
   const handleSelectProject = useCallback((id: string) => {
     selectProject(id);
     setChatMode(true);
   }, [selectProject, setChatMode]);
 
-  // Wrap handleNewProject to also set chat mode
   const handleCreateProject = useCallback(async () => {
     const project = await handleNewProject();
     if (project) {
@@ -143,11 +146,9 @@ export default function Home() {
     }
   }, [handleNewProject, setChatMode, setFiles]);
 
-  // Wrap handlePrompt to also handle project creation
   const handlePrompt = useCallback(async (prompt: string) => {
     if (generating) return;
 
-    // Use ref to avoid stale closure on activeProjectId
     let projectId = activeProjectIdRef.current;
     if (!projectId) {
       const project = await handleNewProject();
@@ -157,24 +158,41 @@ export default function Home() {
     }
 
     if (!projectId) return;
-    // Use ref to avoid stale closure on files (which changes on every keystroke)
     generate(prompt, projectId, filesRef.current, setFiles, fetchProjects, setError);
   }, [generating, handleNewProject, setChatMode, setFiles, fetchProjects, setError, generate]);
 
-  // Back to projects
   const handleBackToProjects = useCallback(() => {
     setActiveProjectId(null);
     setChatMode(false);
   }, [setActiveProjectId, setChatMode]);
 
-  // Handle Figma import complete — navigate to the new project
   const handleFigmaImportComplete = useCallback((projectId: string) => {
-    // Refresh the project list so the new project appears
     fetchProjects();
-    // Navigate to the new project
     selectProject(projectId);
     setChatMode(true);
   }, [fetchProjects, selectProject, setChatMode]);
+
+  // Auth guard — redirect to login if not authenticated
+  useEffect(() => {
+    if (!authLoading && !user) {
+      router.push("/login");
+    }
+  }, [user, authLoading, router]);
+
+  if (authLoading) {
+    return (
+      <div className="h-dvh flex items-center justify-center bg-background">
+        <div className="flex flex-col items-center gap-3">
+          <div className="w-6 h-6 border-2 border-accent border-t-transparent rounded-full animate-spin" />
+          <p className="text-sm text-text-secondary">Loading...</p>
+        </div>
+      </div>
+    );
+  }
+
+  if (!user) {
+    return null; // Will redirect to /login
+  }
 
   return (
     <div className="h-dvh flex">

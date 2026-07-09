@@ -28,6 +28,11 @@ class Settings(BaseSettings):
     max_tokens: int = 0  # 0 = use provider default (provider says no token limits)
     timeout_seconds: int = 600  # AI provider request timeout (default 10 min)
 
+    # ── Auth ──────────────────────────────────────────────
+    secret_key: str = "change-me-in-production"
+    algorithm: str = "HS256"
+    access_token_expire_minutes: int = 1440  # 24 hours
+
     # ── Database ────────────────────────────────────────────
     database_url: str = "postgresql://postgres:postgres@localhost:5432/ai_design_sandbox"
     database_pool_min_size: int = 2

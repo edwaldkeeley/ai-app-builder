@@ -53,6 +53,7 @@ class Project(BaseModel):
     name: str
     description: str = ""
     status: ProjectStatus = ProjectStatus.idle
+    user_id: UUID | None = None
     files: list[ProjectFile] = []
     created_at: datetime = Field(default_factory=lambda: datetime.now(timezone.utc))
     updated_at: datetime = Field(default_factory=lambda: datetime.now(timezone.utc))
@@ -65,6 +66,7 @@ class ProjectSummary(BaseModel):
     name: str
     description: str
     status: ProjectStatus
+    user_id: UUID | None = None
     file_count: int = 0
     created_at: datetime
     updated_at: datetime

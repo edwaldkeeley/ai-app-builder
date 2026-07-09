@@ -6,7 +6,10 @@ All methods are async.  The connection pool is obtained from
 
 from __future__ import annotations
 
+import base64
+import io
 import json
+import zipfile
 from pathlib import Path
 from uuid import UUID
 
@@ -50,6 +53,7 @@ class ProjectService:
             name=row["name"],
             description=row["description"],
             status=row["status"],
+            user_id=row.get("user_id"),
             files=[
                 ProjectFile(path=r["path"], content=r["content"], file_type=r["file_type"])
                 for r in file_rows
@@ -60,19 +64,20 @@ class ProjectService:
 
     # ── CRUD ──────────────────────────────────────────────────────
 
-    async def create(self, data: ProjectCreate) -> Project:
+    async def create(self, data: ProjectCreate, user_id: UUID | None = None) -> Project:
         pool = get_pool()
         conn = await acquire_with_retry(pool)
         try:
             async with conn.transaction():
                 row = await conn.fetchrow(
                     """
-                    INSERT INTO projects (name, description)
-                    VALUES ($1, $2)
-                    RETURNING id, name, description, status, created_at, updated_at
+                    INSERT INTO projects (name, description, user_id)
+                    VALUES ($1, $2, $3)
+                    RETURNING id, name, description, status, user_id, created_at, updated_at
                     """,
                     data.name,
                     data.description,
+                    user_id,
                 )
 
                 boilerplate = [
@@ -106,7 +111,7 @@ class ProjectService:
         conn = await acquire_with_retry(pool)
         try:
             row = await conn.fetchrow(
-                "SELECT id, name, description, status, created_at, updated_at FROM projects WHERE id = $1",
+                "SELECT id, name, description, status, user_id, created_at, updated_at FROM projects WHERE id = $1",
                 project_id,
             )
             if row is None:
@@ -119,20 +124,22 @@ class ProjectService:
             await pool.release(conn)
         return self._row_to_project(row, file_rows)
 
-    async def list_all(self) -> list[ProjectSummary]:
+    async def list_all(self, user_id: UUID | None = None) -> list[ProjectSummary]:
         pool = get_pool()
         conn = await acquire_with_retry(pool)
         try:
             rows = await conn.fetch(
                 """
-                SELECT p.id, p.name, p.description, p.status,
+                SELECT p.id, p.name, p.description, p.status, p.user_id,
                        p.created_at, p.updated_at,
                        COUNT(f.id)::int AS file_count
                 FROM projects p
                 LEFT JOIN files f ON f.project_id = p.id
+                WHERE ($1::uuid IS NULL OR p.user_id = $1)
                 GROUP BY p.id
                 ORDER BY p.updated_at DESC
-                """
+                """,
+                user_id,
             )
         finally:
             await pool.release(conn)
@@ -142,6 +149,7 @@ class ProjectService:
                 name=r["name"],
                 description=r["description"],
                 status=r["status"],
+                user_id=r.get("user_id"),
                 file_count=r["file_count"],
                 created_at=r["created_at"],
                 updated_at=r["updated_at"],
@@ -172,7 +180,7 @@ class ProjectService:
             params.append(project_id)
             sql = (
                 f"UPDATE projects SET {', '.join(sets)} WHERE id = ${idx}"
-                " RETURNING id, name, description, status, created_at, updated_at"
+                " RETURNING id, name, description, status, user_id, created_at, updated_at"
             )
             row = await conn.fetchrow(sql, *params)
             if row is None:
@@ -301,6 +309,35 @@ class ProjectService:
             return deleted
         finally:
             await pool.release(conn)
+
+    # ── Export ─────────────────────────────────────────────────
+
+    _BINARY_EXTENSIONS = {".png", ".jpg", ".jpeg", ".gif", ".webp", ".ico", ".svg"}
+
+    async def export_as_zip(self, project_id: UUID) -> bytes | None:
+        """Build an in-memory ZIP archive of all project files.
+
+        Image files stored as base64 in the DB are decoded back to raw bytes.
+        Returns ``None`` if the project does not exist.
+        """
+        project = await self.get(project_id)
+        if project is None:
+            return None
+
+        buf = io.BytesIO()
+        with zipfile.ZipFile(buf, "w", zipfile.ZIP_DEFLATED) as zf:
+            for file in project.files:
+                ext = Path(file.path).suffix.lower()
+                if ext in self._BINARY_EXTENSIONS:
+                    try:
+                        raw = base64.b64decode(file.content, validate=True)
+                        zf.writestr(file.path, raw)
+                    except Exception:
+                        # Fallback: write as text if base64 decode fails
+                        zf.writestr(file.path, file.content)
+                else:
+                    zf.writestr(file.path, file.content)
+        return buf.getvalue()
 
     # ── Chat messages ───────────────────────────────────────────
 
