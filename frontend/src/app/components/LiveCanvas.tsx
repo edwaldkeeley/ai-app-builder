@@ -96,20 +96,22 @@ export default function LiveCanvas({ files }: LiveCanvasProps) {
       );
     }
 
-    // Inject navigation prevention: intercept all link clicks in the iframe
-    // to prevent the AI-generated code from navigating away or redirecting.
-    // The AI sometimes generates <a href="#"> or <a href="/"> links that would
-    // cause the iframe (or parent page) to navigate to localhost:3000.
+    // Inject navigation guard: allow hash/anchor links (href="#section")
+    // but block external navigation that would redirect the iframe away.
     const navGuard = `
 <script>
 (function() {
   document.addEventListener('click', function(e) {
     var target = e.target.closest('a');
     if (target && target.href) {
+      // Allow hash/anchor links (e.g. href="#home") for SPA navigation
+      if (target.href.indexOf('#') !== -1) {
+        return;
+      }
+      // Block all other navigation
       e.preventDefault();
     }
   }, true);
-  // Also block form submissions
   document.addEventListener('submit', function(e) {
     e.preventDefault();
   }, true);

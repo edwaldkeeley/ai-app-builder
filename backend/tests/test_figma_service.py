@@ -413,7 +413,7 @@ class TestBuildDesignPrompt:
     def test_build_prompt_includes_instructions(self, svc, mock_simple_design):
         prompt = svc.build_design_prompt(mock_simple_design)
         assert "## Instructions" in prompt
-        assert "Render ALL nodes" in prompt
+        assert "Node rendering guide" in prompt
 
     def test_build_prompt_includes_canvas_label(self, svc, mock_simple_design):
         prompt = svc.build_design_prompt(mock_simple_design)

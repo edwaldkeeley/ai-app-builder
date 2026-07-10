@@ -275,24 +275,19 @@ class TestParseRetryAfter:
 
 class TestSystemPrompts:
     def test_figma_prompt_contains_role(self):
-        assert "<role>" in _FIGMA_SYSTEM_PROMPT
         assert "pixel-perfect" in _FIGMA_SYSTEM_PROMPT
 
-    def test_figma_prompt_mentions_summary(self):
-        assert "Design Tree Summary" in _FIGMA_SYSTEM_PROMPT
-
-    def test_figma_prompt_mentions_filtered_json(self):
-        assert "Filtered Figma JSON" in _FIGMA_SYSTEM_PROMPT
-
-    def test_figma_prompt_has_render_all_nodes(self):
-        assert "Render ALL nodes" in _FIGMA_SYSTEM_PROMPT
+    def test_figma_prompt_has_rules(self):
+        assert "Rules" in _FIGMA_SYSTEM_PROMPT
 
     def test_figma_prompt_has_output_format(self):
-        assert "OUTPUT FORMAT" in _FIGMA_SYSTEM_PROMPT
+        assert "Output format" in _FIGMA_SYSTEM_PROMPT
         assert "files" in _FIGMA_SYSTEM_PROMPT
 
-    def test_figma_prompt_has_example(self):
-        assert "EXAMPLE" in _FIGMA_SYSTEM_PROMPT
+    def test_figma_prompt_has_three_files(self):
+        assert "index.html" in _FIGMA_SYSTEM_PROMPT
+        assert "style.css" in _FIGMA_SYSTEM_PROMPT
+        assert "script.js" in _FIGMA_SYSTEM_PROMPT
 
     def test_default_prompt_has_guidelines(self):
         assert "GUIDELINES" in _SYSTEM_PROMPT

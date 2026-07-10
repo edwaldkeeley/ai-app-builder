@@ -10,6 +10,7 @@ from __future__ import annotations
 import asyncio
 import json
 import logging
+import os
 import re
 import time
 from datetime import datetime, timezone
@@ -32,6 +33,58 @@ _FIGMA_CACHE_TTL = 300  # 5 minutes
 # Rate limiter: track last request time per token
 _last_request_time: float = 0
 _MIN_REQUEST_INTERVAL = 2.0  # minimum 2 seconds between requests
+
+# Disk cache directory for Figma file responses (survives restarts)
+_FIGMA_DISK_CACHE_DIR = os.path.join(
+    os.path.dirname(os.path.dirname(os.path.abspath(__file__))),
+    ".figma_cache",
+)
+_FIGMA_DISK_CACHE_TTL = 86400 * 7  # 7 days
+
+
+def _disk_cache_path(file_key: str) -> str:
+    """Get the disk cache file path for a Figma file key."""
+    os.makedirs(_FIGMA_DISK_CACHE_DIR, exist_ok=True)
+    # Sanitize file key for filesystem
+    safe_key = re.sub(r"[^a-zA-Z0-9_-]", "_", file_key)
+    return os.path.join(_FIGMA_DISK_CACHE_DIR, f"{safe_key}.json")
+
+
+def _read_disk_cache(file_key: str) -> dict[str, Any] | None:
+    """Read Figma data from disk cache if it exists and is not expired."""
+    path = _disk_cache_path(file_key)
+    try:
+        if not os.path.exists(path):
+            return None
+        with open(path, "r", encoding="utf-8") as f:
+            cached = json.load(f)
+        cache_time = cached.get("_cached_at", 0)
+        if time.time() - cache_time > _FIGMA_DISK_CACHE_TTL:
+            logger.info("Figma disk cache EXPIRED for file key: %s", file_key)
+            os.remove(path)
+            return None
+        logger.info("Figma disk cache HIT for file key: %s", file_key)
+        return cached.get("data")
+    except Exception as e:
+        logger.warning("Figma disk cache read error for %s: %s", file_key, e)
+        return None
+
+
+def _write_disk_cache(file_key: str, data: dict[str, Any]) -> None:
+    """Write Figma data to disk cache."""
+    try:
+        path = _disk_cache_path(file_key)
+        cached = {
+            "_cached_at": time.time(),
+            "_file_key": file_key,
+            "data": data,
+        }
+        with open(path, "w", encoding="utf-8") as f:
+            json.dump(cached, f, ensure_ascii=False)
+        size_mb = len(json.dumps(data)) / 1024 / 1024
+        logger.info("Figma disk cache WRITTEN for file key: %s (%.1f MB)", file_key, size_mb)
+    except Exception as e:
+        logger.warning("Figma disk cache write error for %s: %s", file_key, e)
 
 
 def _parse_retry_after(response: httpx.Response, default: int = 10) -> int:
@@ -131,17 +184,30 @@ class FigmaService:
             file_key_match = re.search(r"/files/([^/?#]+)", url)
             if file_key_match:
                 file_key = file_key_match.group(1)
+
+                # 1. Check in-memory cache first
                 cached = _figma_cache.get(file_key)
                 if cached:
                     cache_time, cache_data = cached
                     if time.time() - cache_time < _FIGMA_CACHE_TTL:
-                        logger.info("Figma cache HIT for file key: %s", file_key)
-                        # Reconstruct a response-like object
+                        logger.info("Figma memory cache HIT for file key: %s", file_key)
                         return httpx.Response(
                             status_code=200,
                             json=cache_data,
                             request=httpx.Request(method, url),
                         )
+
+                # 2. Check disk cache (survives restarts)
+                disk_data = _read_disk_cache(file_key)
+                if disk_data is not None:
+                    # Populate in-memory cache too
+                    _figma_cache[file_key] = (time.time(), disk_data)
+                    return httpx.Response(
+                        status_code=200,
+                        json=disk_data,
+                        request=httpx.Request(method, url),
+                    )
+
                 logger.info("Figma cache MISS for file key: %s", file_key)
 
         # ── Make the request ─────────────────────────────────────
@@ -171,6 +237,8 @@ class FigmaService:
                 try:
                     data = response.json()
                     _figma_cache[file_key] = (time.time(), data)
+                    # Also persist to disk so it survives restarts
+                    _write_disk_cache(file_key, data)
                     logger.info("Figma cache SET for file key: %s (%.1f MB)", file_key, len(json.dumps(data)) / 1024 / 1024)
                 except Exception:
                     pass
@@ -182,7 +250,7 @@ class FigmaService:
 
     @staticmethod
     def clear_cache(file_key: str | None = None) -> int:
-        """Clear the Figma file cache.
+        """Clear the Figma file cache (memory + disk).
 
         Args:
             file_key: If provided, only clear the cache for this specific file.
@@ -192,16 +260,36 @@ class FigmaService:
             Number of cache entries cleared.
         """
         global _figma_cache
+        cleared = 0
         if file_key:
+            # Clear memory
             if file_key in _figma_cache:
                 del _figma_cache[file_key]
-                logger.info("Figma cache cleared for file key: %s", file_key)
-                return 1
-            return 0
+                cleared += 1
+            # Clear disk
+            disk_path = _disk_cache_path(file_key)
+            if os.path.exists(disk_path):
+                try:
+                    os.remove(disk_path)
+                    cleared += 1
+                except Exception as e:
+                    logger.warning("Failed to remove disk cache for %s: %s", file_key, e)
+            logger.info("Figma cache cleared for file key: %s (%d entries)", file_key, cleared)
+            return cleared
+        # Clear all
         count = len(_figma_cache)
         _figma_cache.clear()
-        logger.info("Figma cache cleared entirely (%d entries)", count)
-        return count
+        # Clear all disk cache files
+        if os.path.exists(_FIGMA_DISK_CACHE_DIR):
+            for fname in os.listdir(_FIGMA_DISK_CACHE_DIR):
+                if fname.endswith(".json"):
+                    try:
+                        os.remove(os.path.join(_FIGMA_DISK_CACHE_DIR, fname))
+                        cleared += 1
+                    except Exception:
+                        pass
+        logger.info("Figma cache cleared entirely (%d memory + %d disk)", count, cleared)
+        return count + cleared
 
     @staticmethod
     def get_cache_info() -> dict[str, Any]:
@@ -628,28 +716,14 @@ class FigmaService:
 
     # ── Design prompt builder ─────────────────────────────────
 
-    _RAW_JSON_MAX_CHARS = 150_000  # well within context window after filtering
-
     def build_design_prompt(
         self,
         file_data: dict[str, Any],
     ) -> str:
-        """Build a prompt with a compact tree summary + filtered Figma JSON.
+        """Build a prompt with a Design Tree Summary + Filtered Figma JSON.
 
-        The Figma JSON is first filtered to remove irrelevant data (image fills,
-        component definitions, styles, plugin data, hidden layers) before
-        serialization. This reduces the prompt size by 80-95% while preserving
-        all information needed for pixel-perfect code generation.
-
-        The prompt has three parts:
-        1. A compact tree summary with pre-computed relative positions and
-           CSS-ready hex colors — easy for the AI to parse at a glance.
-        2. The filtered Figma JSON (capped at 150k chars) for full detail.
-        3. Instructions for the AI.
-
-        If the Figma file has multiple canvases (Desktop, Mobile, Tablet),
-        all are included and the AI is instructed to generate responsive code
-        that covers all viewports.
+        The Figma JSON is filtered to remove irrelevant data (image fills,
+        components, styles, plugin data) before serialization.
         """
         document = file_data.get("document")
         if not document or not isinstance(document, dict):
@@ -663,12 +737,6 @@ class FigmaService:
         name = file_data.get("name", "Untitled Design")
         last_modified = file_data.get("lastModified", "")
 
-        lines: list[str] = []
-        lines.append(f"# Figma Design: {name}")
-        if last_modified:
-            lines.append(f"Last modified: {last_modified}")
-        lines.append("")
-
         # ── Identify canvases ────────────────────────────────────
 
         canvases = FigmaService._get_canvases(document)
@@ -677,15 +745,23 @@ class FigmaService:
             label = FigmaService._classify_canvas(canvas)
             canvas_labels[i] = label
 
-        # Log what we found
         canvas_info = ", ".join(
             f'"{c.get("name", "?")}" -> {canvas_labels[i]}'
             for i, c in enumerate(canvases)
         )
         logger.info("Figma canvases detected: %s", canvas_info)
 
-        # ── Part 1: Compact tree summary ────────────────────────
+        unique_types = set(canvas_labels.values())
+        all_same_type = len(unique_types) <= 1 and len(canvases) > 1
+        has_multiple = len(canvases) > 1
 
+        # ── Part 1: Design Tree Summary ─────────────────────────
+
+        lines: list[str] = []
+        lines.append(f"# Figma Design: {name}")
+        if last_modified:
+            lines.append(f"Last modified: {last_modified}")
+        lines.append("")
         lines.append("## Design Tree Summary")
         lines.append("")
         lines.append(
@@ -700,36 +776,22 @@ class FigmaService:
             w, h = FigmaService._get_canvas_dimensions(canvas)
             lines.append(f"### Canvas: \"{canvas_name}\" ({label}, {w:.0f}x{h:.0f}px)")
             lines.append("")
-
             tree_lines = FigmaService._walk_nodes(canvas)
-            lines.extend(tree_lines)
+            # Cap tree summary at 20k chars to keep total prompt manageable
+            tree_text = "\n".join(tree_lines)
+            if len(tree_text) > 20_000:
+                tree_text = tree_text[:20_000] + "\n  // ... [tree truncated]"
+            lines.append(tree_text)
             lines.append("")
 
         # ── Part 2: Filtered Figma JSON ─────────────────────────
 
         lines.append("## Filtered Figma JSON (for reference)")
         lines.append("")
-
-        # Filter the Figma data to remove irrelevant bloat
         filtered_data = FigmaService._filter_figma_data(file_data)
         raw_json = json.dumps(filtered_data, indent=2, ensure_ascii=False)
-
-        raw_size = len(json.dumps(file_data, indent=2, ensure_ascii=False))
-        filtered_size = len(raw_json)
-        savings_pct = (1 - filtered_size / raw_size) * 100 if raw_size > 0 else 0
-
-        logger.info(
-            "Figma JSON filtered: %d chars -> %d chars (%.0f%% reduction)",
-            raw_size, filtered_size, savings_pct,
-        )
-
-        if len(raw_json) > self._RAW_JSON_MAX_CHARS:
-            logger.warning(
-                "Filtered Figma JSON is %d chars, truncating to %d",
-                len(raw_json), self._RAW_JSON_MAX_CHARS,
-            )
-            raw_json = raw_json[:self._RAW_JSON_MAX_CHARS] + "\n  // ... [JSON truncated]"
-
+        if len(raw_json) > 40_000:
+            raw_json = raw_json[:40_000] + "\n  // ... [JSON truncated]"
         lines.append("```json")
         lines.append(raw_json)
         lines.append("```")
@@ -737,86 +799,58 @@ class FigmaService:
 
         # ── Part 3: Instructions ────────────────────────────────
 
-        # Build responsive instruction based on what canvases we found
-        has_multiple = len(canvases) > 1
-        desktop_idx = next((i for i, l in canvas_labels.items() if l == "desktop"), None)
-        mobile_idx = next((i for i, l in canvas_labels.items() if l == "mobile"), None)
-
-        if has_multiple:
-            responsive_instruction = (
-                "This design has multiple canvases representing different viewports:\n"
+        if has_multiple and all_same_type:
+            canvas_list = "\n".join(
+                f'  {i+1}. "{c.get("name", f"Canvas {i}")}"'
+                for i, c in enumerate(canvases)
             )
-            for i, canvas in enumerate(canvases):
-                label = canvas_labels.get(i, "unknown")
-                canvas_name = canvas.get("name", f"Canvas {i}")
-                w, h = FigmaService._get_canvas_dimensions(canvas)
-                responsive_instruction += (
-                    f"- **\"{canvas_name}\"** ({label}, {w:.0f}x{h:.0f}px)\n"
-                )
-            responsive_instruction += (
-                "\nGenerate a SINGLE responsive HTML page that works across ALL viewports. "
-                "Use CSS media queries to adapt the layout for each breakpoint. "
-                "The desktop canvas is the primary reference — start with that layout "
-                "and add media queries for tablet and mobile."
+            viewport_instruction = (
+                "This design has multiple canvases that are DIFFERENT PAGES of the same website.\n"
+                f"{canvas_list}\n"
+                "Generate a SINGLE HTML file (index.html) with ALL pages. "
+                "Render ALL nodes from the tree — do not skip any elements. "
+                "Use your judgment on the best layout: stack them vertically for a scrolling page, "
+                "or use JavaScript section switching if the design has a navigation bar.\n"
+            )
+        elif has_multiple:
+            viewport_instruction = (
+                "This design has multiple canvases for different viewports.\n"
+                "Generate a SINGLE responsive HTML page with CSS media queries.\n"
             )
         else:
-            label = canvas_labels.get(0, "desktop")
-            responsive_instruction = (
-                f"This design has one canvas ({label}). "
-                "Generate code that matches it exactly."
-            )
+            viewport_instruction = "Generate code that matches this design exactly.\n"
 
         lines.append(
             "## Instructions\n"
             "\n"
-            "The Design Tree Summary above shows every node with its type, position, "
-            "size, colors, and text. Use it as your PRIMARY reference for generating code.\n"
+            "Use the Design Tree Summary as your PRIMARY reference. "
+            "The Filtered Figma JSON is for additional detail.\n"
             "\n"
-            "The Filtered Figma JSON below provides the complete detail for any node that "
-            "needs more information (gradient stops, exact shadow parameters, etc.).\n"
+            + viewport_instruction + "\n"
+            "### Node rendering guide\n"
             "\n"
-            "### Viewports\n"
-            "\n"
-            + responsive_instruction + "\n"
-            "\n"
-            "### CRITICAL: Render ALL nodes\n"
-            "\n"
-            "- Every [RECTANGLE] node is a background or decorative element — render it as a <div>.\n"
-            "- Every [ELLIPSE] node is a circle — render it as a <div> with border-radius:50%.\n"
-            "- Every [VECTOR] node is an icon — render it as a small colored <div> or inline SVG.\n"
-            "- Every [GROUP] node is a container — render it as a <div> (it positions children).\n"
-            "- Every [TEXT] node is text — render it with the exact font, size, weight, color.\n"
-            "- Every [FRAME] node is a section/container — render it as a <div>.\n"
-            "- Do NOT skip any node. Every element in the summary must appear in your HTML.\n"
+            "- [RECTANGLE] → <div> (background or decoration)\n"
+            "- [ELLIPSE] → <div> with border-radius:50%\n"
+            "- [VECTOR] → small colored <div> or inline SVG\n"
+            "- [GROUP] → <div> container (positions children)\n"
+            "- [TEXT] → text with exact font, size, weight, color\n"
+            "- [FRAME] → <div> section/container\n"
             "\n"
             "### Positioning\n"
             "\n"
-            "- The @(x,y) values are positions RELATIVE to the parent node.\n"
-            "- Use CSS `position: absolute; left: Xpx; top: Ypx` for each element.\n"
+            "- @(x,y) values are RELATIVE to the parent node.\n"
+            "- Use `position: absolute; left: Xpx; top: Ypx` for each element.\n"
             "- The top-level FRAME is the main container — use `position: relative`.\n"
+            "- For FRAME nodes with layoutMode (HORIZONTAL/VERTICAL), use CSS flexbox.\n"
             "\n"
-            "### Colors\n"
-            "\n"
-            "- Colors are in CSS-ready hex format (e.g. #ff0000). Use them directly.\n"
-            "- Gradients are shown as `gradient:LINEAR #color1->#color2`.\n"
-            "- Shadows are shown as `shadow:offsetX offsetY blur color`.\n"
-            "\n"
-            "### Typography\n"
-            "\n"
-            "- Use the exact font family, size, weight, line height, and color shown.\n"
-            "- Import Google Fonts via @import or <link> if needed.\n"
-            "\n"
-            "### Output rules\n"
+            "### Output\n"
             "\n"
             "1. Create index.html, style.css, and script.js\n"
-            "2. index.html links style.css and script.js\n"
-            "3. Use EXACT colors, EXACT fonts, EXACT dimensions from the summary\n"
-            "4. Use CSS position:absolute with left/top for all positioned elements\n"
-            "5. Use CSS flexbox for FRAME nodes with layoutMode (HORIZONTAL/VERTICAL)\n"
-            "6. Match border-radius, border, opacity, and effects exactly\n"
-            "7. Preserve the full node hierarchy — every node becomes an HTML element\n"
-            "8. Do NOT add, remove, or rearrange elements\n"
-            "9. Page must look IDENTICAL to the Figma design"
+            "2. Use EXACT colors, fonts, dimensions, border-radius, and effects from the summary\n"
+            "3. Every node in the summary must appear in your HTML — do not skip any\n"
+            "4. Do NOT add, remove, or rearrange elements\n"
+            "5. Center the design in the viewport (use margin: 0 auto on the main container)\n"
+            "6. Page must look IDENTICAL to the Figma design"
         )
 
         return "\n".join(lines)
