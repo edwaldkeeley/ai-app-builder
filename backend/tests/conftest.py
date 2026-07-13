@@ -25,6 +25,7 @@ os.environ.setdefault("DATABASE_POOL_MAX_SIZE", "2")
 os.environ.setdefault("TARGET_URL", "http://test-ai.local/v1/chat/completions")
 os.environ.setdefault("JWT_TOKEN", "test-jwt-token")
 os.environ.setdefault("MODEL", "test-model")
+os.environ.setdefault("DESIGN_UPLOAD_MODEL", "")
 
 from app.models.schemas import FileType, ProjectFile  # noqa: E402
 from app.services.ai_service import BaseAIProvider  # noqa: E402
@@ -178,7 +179,7 @@ async def test_app(db_pool, mock_ai_provider):
     from fastapi.middleware.cors import CORSMiddleware
 
     from app.config import settings
-    from app.routers import ai, auth, chat, figma, projects, sandbox
+    from app.routers import ai, auth, chat, figma, projects, sandbox, upload
 
     app = FastAPI(title="AI Design Sandbox Test")
     app.add_middleware(
@@ -193,6 +194,7 @@ async def test_app(db_pool, mock_ai_provider):
     app.include_router(ai.router)
     app.include_router(chat.router)
     app.include_router(figma.router)
+    app.include_router(upload.router)
     app.include_router(auth.router)
 
     @app.get("/api/health")
@@ -211,6 +213,8 @@ async def test_app(db_pool, mock_ai_provider):
     figma_svc = FigmaService()
     figma.set_dependencies(figma_svc, mock_ai_provider, svc)
     app.state.figma_service = figma_svc
+
+    upload.set_dependencies(mock_ai_provider, svc)
 
     return app
 

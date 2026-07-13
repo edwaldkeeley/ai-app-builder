@@ -131,6 +131,22 @@ _SYSTEM_PROMPT = (
     "14. After fixing, explain in the 'message' field what the bug was and how you fixed it."
 )
 
+_DESIGN_UPLOAD_SYSTEM_PROMPT = (
+    "You are a pixel-perfect frontend developer. Convert the provided design image into exact HTML/CSS/JS code.\n\n"
+    "### Rules\n"
+    "- Analyze the image carefully for layout, colors, typography, spacing, and visual hierarchy\n"
+    "- Reproduce the design as accurately as possible using HTML, CSS, and JavaScript\n"
+    "- Use exact colors, fonts (use system fonts or Google Fonts), dimensions, border-radius, and effects\n"
+    "- Use modern CSS (flexbox/grid) for layout\n"
+    "- Make the page responsive where appropriate\n"
+    "- Use placeholder SVGs or colored divs for any images/icons in the design\n"
+    "- Center the design in the viewport (margin: 0 auto on the main container)\n\n"
+    "### Output format\n"
+    "Return ONLY valid JSON with \"message\" (string) and \"files\" array. "
+    "Each file has \"path\", \"content\", \"file_type\" (html/css/javascript/json/python/other). "
+    "Always include index.html, style.css, and script.js."
+)
+
 _FIGMA_SYSTEM_PROMPT = (
     "You are a pixel-perfect frontend developer. Convert the provided Figma design into exact HTML/CSS/JS code.\n\n"
     "The design has two parts:\n"
@@ -775,5 +791,32 @@ def create_provider() -> BaseAIProvider:
         target_url=settings.target_url,
         jwt_token=settings.jwt_token,
         model=settings.model,
+        timeout=float(settings.timeout_seconds),
+    )
+
+
+def create_design_upload_provider() -> BaseAIProvider:
+    """Factory — create an AI provider for design upload (vision) tasks.
+
+    Uses ``design_upload_target_url`` / ``design_upload_jwt_token`` /
+    ``design_upload_model`` if set, otherwise falls back to the main AI config.
+    This allows pointing design uploads at a different provider (e.g. a vision model).
+    """
+    target_url = settings.design_upload_target_url or settings.target_url
+    jwt_token = settings.design_upload_jwt_token or settings.jwt_token
+    model = settings.design_upload_model or settings.model
+
+    if not settings.design_upload_target_url:
+        logger.info("  [Upload] DESIGN_UPLOAD_TARGET_URL not set — falling back to TARGET_URL")
+    if not settings.design_upload_jwt_token:
+        logger.info("  [Upload] DESIGN_UPLOAD_JWT_TOKEN not set — falling back to JWT_TOKEN")
+    if not settings.design_upload_model:
+        logger.info("  [Upload] DESIGN_UPLOAD_MODEL not set — falling back to MODEL")
+
+    logger.info("  [Upload] Design upload provider — URL: %s, model: %s", target_url, model)
+    return HttpAIProvider(
+        target_url=target_url,
+        jwt_token=jwt_token,
+        model=model,
         timeout=float(settings.timeout_seconds),
     )

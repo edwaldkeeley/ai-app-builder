@@ -453,3 +453,84 @@ class TestExport:
         assert "/" not in filename
         assert "?" not in filename
         assert filename.endswith(".zip")
+
+
+# ── Design Upload ─────────────────────────────────────────────
+
+
+class TestDesignUpload:
+    async def test_upload_design_success(self, auth_client, sample_project):
+        """Upload a PNG image and verify code is generated."""
+        import io
+
+        # Minimal valid 1x1 pixel PNG
+        png_bytes = (
+            b'\x89PNG\r\n\x1a\n'
+            b'\x00\x00\x00\rIHDR\x00\x00\x00\x01\x00\x00\x00\x01\x08\x02\x00\x00\x00\x90wS\xde'
+            b'\x00\x00\x00\x0cIDATx\x9cc\xf8\x0f\x00\x00\x01\x01\x00\x05\x18\xd8N'
+            b'\x00\x00\x00\x00IEND\xaeB`\x82'
+        )
+        project_id = sample_project.id
+        response = await auth_client.post(
+            f"/api/projects/{project_id}/upload-design",
+            files={"file": ("test.png", io.BytesIO(png_bytes), "image/png")},
+        )
+        assert response.status_code == 201
+        data = response.json()
+        assert data["project_id"] == str(project_id)
+        assert "message" in data
+        assert "files" in data
+        assert len(data["files"]) >= 1
+
+    async def test_upload_design_with_prompt(self, auth_client, sample_project):
+        """Upload with an additional text prompt."""
+        import io
+
+        png_bytes = b'\x89PNG\r\n\x1a\n' + b'\x00' * 100
+        project_id = sample_project.id
+        response = await auth_client.post(
+            f"/api/projects/{project_id}/upload-design",
+            data={"prompt": "Make it dark mode"},
+            files={"file": ("design.png", io.BytesIO(png_bytes), "image/png")},
+        )
+        assert response.status_code == 201
+
+    async def test_upload_design_invalid_file_type(self, auth_client, sample_project):
+        """Upload a non-image file should be rejected."""
+        project_id = sample_project.id
+        response = await auth_client.post(
+            f"/api/projects/{project_id}/upload-design",
+            files={"file": ("test.txt", b"not an image", "text/plain")},
+        )
+        assert response.status_code == 400
+
+    async def test_upload_design_project_not_found(self, auth_client):
+        """Upload to a non-existent project should 404."""
+        response = await auth_client.post(
+            "/api/projects/00000000-0000-0000-0000-000000000000/upload-design",
+            files={"file": ("test.png", b"fake", "image/png")},
+        )
+        assert response.status_code == 404
+
+    async def test_upload_design_unauthorized(self, async_client, sample_project):
+        """Upload without auth should 401."""
+        project_id = sample_project.id
+        response = await async_client.post(
+            f"/api/projects/{project_id}/upload-design",
+            files={"file": ("test.png", b"fake", "image/png")},
+        )
+        assert response.status_code == 401
+
+    async def test_upload_design_saves_chat_messages(self, auth_client, sample_project):
+        """Verify chat messages are saved after upload."""
+        import io
+
+        png_bytes = b'\x89PNG\r\n\x1a\n' + b'\x00' * 100
+        project_id = sample_project.id
+        await auth_client.post(
+            f"/api/projects/{project_id}/upload-design",
+            files={"file": ("test.png", io.BytesIO(png_bytes), "image/png")},
+        )
+        chat_response = await auth_client.get(f"/api/projects/{project_id}/chat")
+        messages = chat_response.json()
+        assert len(messages) >= 2  # user prompt + AI response

@@ -172,6 +172,12 @@ export default function Home() {
     setChatMode(true);
   }, [fetchProjects, selectProject, setChatMode]);
 
+  const handleDesignUploadComplete = useCallback((projectId: string) => {
+    fetchProjects();
+    selectProject(projectId);
+    setChatMode(true);
+  }, [fetchProjects, selectProject, setChatMode]);
+
   // Auth guard — redirect to login if not authenticated
   useEffect(() => {
     if (!authLoading && !user) {
@@ -264,6 +270,7 @@ export default function Home() {
           onToggleExplorer={() => setShowExplorer((prev) => !prev)}
           saveStatus={saveStatus}
           onFigmaImportComplete={handleFigmaImportComplete}
+          onDesignUploadComplete={handleDesignUploadComplete}
           viewMode={viewMode}
           onViewModeChange={setViewMode}
         />

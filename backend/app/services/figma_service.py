@@ -777,10 +777,10 @@ class FigmaService:
             lines.append(f"### Canvas: \"{canvas_name}\" ({label}, {w:.0f}x{h:.0f}px)")
             lines.append("")
             tree_lines = FigmaService._walk_nodes(canvas)
-            # Cap tree summary at 20k chars to keep total prompt manageable
+            # Cap tree summary at 100k chars to keep total prompt manageable
             tree_text = "\n".join(tree_lines)
-            if len(tree_text) > 20_000:
-                tree_text = tree_text[:20_000] + "\n  // ... [tree truncated]"
+            if len(tree_text) > 100_000:
+                tree_text = tree_text[:100_000] + "\n  // ... [tree truncated]"
             lines.append(tree_text)
             lines.append("")
 

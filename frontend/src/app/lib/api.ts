@@ -277,6 +277,41 @@ export const api = {
     return request("/api/auth/me");
   },
 
+  // ── Design Upload ──────────────────────────────────────────
+
+  async uploadDesign(
+    projectId: string,
+    file: File,
+    prompt?: string,
+    signal?: AbortSignal,
+  ): Promise<GenerateResponse> {
+    const formData = new FormData();
+    formData.append("file", file);
+    if (prompt) formData.append("prompt", prompt);
+
+    const res = await fetch(`${BASE}/api/projects/${projectId}/upload-design`, {
+      method: "POST",
+      credentials: "include",
+      body: formData,
+      signal,
+    });
+
+    if (!res.ok) {
+      let detail = `Upload failed: ${res.status}`;
+      try {
+        const body = await res.json();
+        if (body?.detail) {
+          detail = typeof body.detail === "object" ? body.detail.message ?? String(body.detail) : body.detail;
+        }
+      } catch {
+        // ignore
+      }
+      throw new ApiError(detail, res.status);
+    }
+
+    return res.json();
+  },
+
   // ── Health ────────────────────────────────────────────────
 
   health(): Promise<{ status: string; app: string }> {

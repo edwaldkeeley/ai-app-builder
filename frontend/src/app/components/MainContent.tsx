@@ -4,6 +4,7 @@ import { useState, useCallback, useRef, useEffect, useMemo } from "react";
 import type { Project, ProjectFile } from "../lib/types";
 import type { SaveStatus } from "../hooks/useFileSave";
 import EditorPane from "./EditorPane";
+import DesignUpload from "./DesignUpload";
 import FigmaImport from "./FigmaImport";
 import LiveCanvas from "./LiveCanvas";
 
@@ -25,6 +26,7 @@ interface MainContentProps {
   onToggleExplorer: () => void;
   saveStatus?: SaveStatus;
   onFigmaImportComplete?: (projectId: string) => void;
+  onDesignUploadComplete?: (projectId: string) => void;
   viewMode: ViewMode;
   onViewModeChange: (mode: ViewMode) => void;
 }
@@ -51,6 +53,7 @@ export default function MainContent({
   onToggleExplorer,
   saveStatus,
   onFigmaImportComplete,
+  onDesignUploadComplete,
   viewMode,
   onViewModeChange,
 }: MainContentProps) {
@@ -200,6 +203,13 @@ export default function MainContent({
 
           {/* Figma import (toolbar variant) */}
           <FigmaImport variant="toolbar" onImportComplete={onFigmaImportComplete} />
+
+          {/* Design upload (toolbar variant) */}
+          <DesignUpload
+            projectId={activeProject.id}
+            variant="toolbar"
+            onUploadComplete={onDesignUploadComplete}
+          />
 
           {/* Export / Download ZIP */}
           <a

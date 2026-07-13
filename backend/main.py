@@ -25,8 +25,8 @@ if str(_backend_dir) not in sys.path:
 
 from app.config import settings  # noqa: E402
 from app.db.database import close_pool, init_pool, run_migrations  # noqa: E402
-from app.routers import ai, auth, chat, figma, projects, sandbox  # noqa: E402
-from app.services.ai_service import create_provider  # noqa: E402
+from app.routers import ai, auth, chat, figma, projects, sandbox, upload  # noqa: E402
+from app.services.ai_service import create_design_upload_provider, create_provider  # noqa: E402
 from app.services.figma_service import FigmaService  # noqa: E402
 from app.services.project_service import ProjectService  # noqa: E402
 
@@ -64,6 +64,22 @@ async def lifespan(app: FastAPI):
     app.state.figma_service = figma_svc
     print(f"  [Figma] URL import available (requires personal access token)")
 
+    # Initialise upload service
+    upload.set_dependencies(provider, svc)
+    # If a separate vision provider is configured, create a dedicated one for design upload
+    if settings.design_upload_target_url or settings.design_upload_jwt_token or settings.design_upload_model:
+        vision_provider = create_design_upload_provider()
+        upload.set_vision_provider(vision_provider)
+        print(f"  [Upload] Design upload using separate vision provider")
+        if not settings.design_upload_target_url:
+            print(f"    DESIGN_UPLOAD_TARGET_URL not set — falling back to TARGET_URL")
+        if not settings.design_upload_jwt_token:
+            print(f"    DESIGN_UPLOAD_JWT_TOKEN not set — falling back to JWT_TOKEN")
+        if not settings.design_upload_model:
+            print(f"    DESIGN_UPLOAD_MODEL not set — falling back to MODEL")
+    else:
+        print(f"  [Upload] Design upload available (max {settings.max_upload_size_mb} MB) (using main AI provider)")
+
     print(f"  [START] {settings.app_name} running at http://{settings.host}:{settings.port}")
     print(f"  [DB] Connected to PostgreSQL")
     yield
@@ -93,6 +109,7 @@ app.include_router(sandbox.router)
 app.include_router(ai.router)
 app.include_router(chat.router)
 app.include_router(figma.router)
+app.include_router(upload.router)
 app.include_router(auth.router)
 
 
