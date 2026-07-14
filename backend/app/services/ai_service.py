@@ -862,6 +862,9 @@ class HttpAIProvider(BaseAIProvider):
         Sends the image to the vision model with a detailed analysis prompt.
         The model returns a rich natural-language description of the design
         (not code, not JSON).
+
+        Note: This provider (qwen2.5-vl-7b) only supports SSE streaming responses,
+        so we read the event stream and collect the full text.
         """
         headers = {
             "Authorization": f"Bearer {self._jwt_token}",
@@ -881,48 +884,51 @@ class HttpAIProvider(BaseAIProvider):
             max_tokens=2048,  # keep output small to fit 8k context window
         )
         payload["model"] = self._model
+        payload["stream"] = True  # this provider only supports SSE streaming
 
         logger.info("Design analysis request: %s, model=%s", filename, self._model)
 
         max_retries = 2
         for attempt in range(max_retries + 1):
             async with httpx.AsyncClient(timeout=httpx.Timeout(self._timeout, connect=self._connect_timeout)) as client:
-                response = await client.post(self._target_url, json=payload, headers=headers)
+                async with client.stream("POST", self._target_url, json=payload, headers=headers) as response:
 
-            if response.status_code == 429:
-                wait = _parse_retry_after(response)
-                if attempt >= max_retries:
-                    raise RateLimitError(
-                        retry_after=wait,
-                        message=f"AI provider rate limited (429). Retry after {wait}s.",
-                    )
-                logger.warning("Rate limited (429). Retrying in %ds (attempt %d/%d)", wait, attempt + 1, max_retries)
-                await asyncio.sleep(wait)
-                continue
-            if not response.is_success:
-                raise RuntimeError(
-                    f"AI provider returned {response.status_code}: {response.text[:500]}"
-                )
-            break
+                    if response.status_code == 429:
+                        wait = _parse_retry_after(response)
+                        if attempt >= max_retries:
+                            raise RateLimitError(
+                                retry_after=wait,
+                                message=f"AI provider rate limited (429). Retry after {wait}s.",
+                            )
+                        logger.warning("Rate limited (429). Retrying in %ds (attempt %d/%d)", wait, attempt + 1, max_retries)
+                        await asyncio.sleep(wait)
+                        continue
+                    if not response.is_success:
+                        raise RuntimeError(
+                            f"AI provider returned {response.status_code}: {response.text[:500]}"
+                        )
 
-        logger.info("Design analysis response status: %d, body length: %d", response.status_code, len(response.text))
-        logger.debug("Design analysis response body: %s", response.text[:500])
+                    # Read the SSE stream and collect the full content
+                    full_content = ""
+                    async for line in response.aiter_lines():
+                        if line.startswith("data: "):
+                            data_str = line[6:].strip()
+                            if data_str == "[DONE]":
+                                break
+                            try:
+                                chunk = json.loads(data_str)
+                                delta = chunk.get("choices", [{}])[0].get("delta", {})
+                                text = delta.get("content", "")
+                                if text:
+                                    full_content += text
+                            except json.JSONDecodeError:
+                                continue
 
-        data = response.json()
-        try:
-            content = data["choices"][0]["message"]["content"]
-        except (KeyError, IndexError, TypeError) as e:
-            raise RuntimeError(
-                f"Unexpected AI response format: {str(data)[:300]}"
-            ) from e
+                    if not full_content or not full_content.strip():
+                        raise RuntimeError("AI provider returned empty response for design analysis.")
 
-        if not content or not content.strip():
-            raise RuntimeError("AI provider returned empty response for design analysis.")
-
-        logger.info("Design analysis response: %d chars", len(content))
-
-        # Return the raw text description (not parsed JSON)
-        return content.strip()
+                    logger.info("Design analysis response: %d chars", len(full_content))
+                    return full_content.strip()
 
     async def generate_from_spec(
         self,
