@@ -72,7 +72,7 @@ def _resize_image(raw_bytes: bytes, content_type: str) -> bytes:
     try:
         img = PILImage.open(io.BytesIO(raw_bytes))
         w, h = img.size
-        max_dim = 300
+        max_dim = 400
         if w > max_dim or h > max_dim:
             ratio = max_dim / max(w, h)
             new_w, new_h = int(w * ratio), int(h * ratio)
