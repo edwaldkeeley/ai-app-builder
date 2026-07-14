@@ -456,10 +456,51 @@ def _validate_generated_files(
     return warnings
 
 
+def _repair_json(content: str) -> str:
+    """Attempt to repair common JSON issues from LLM output.
+
+    Handles:
+    - Single quotes instead of double quotes
+    - Trailing commas before ``]`` or ``}``
+    - Missing commas between key-value pairs or array elements
+    - Unquoted string values (e.g. ``true``, ``null`` — these are valid JSON)
+    """
+    # Replace single quotes with double quotes FIRST so all subsequent regexes
+    # can rely on double-quote patterns
+    content = content.replace("'", '"')
+
+    # Strip trailing commas before ] or }
+    content = re.sub(r",\s*([}\]])", r"\1", content)
+
+    # Insert missing commas: a closing quote followed by whitespace then an opening
+    # quote, but NOT separated by a colon (which would be a key:value pair).
+    # Pattern: "value" "key" → "value", "key"  (missing comma between array elements
+    # or between one value and the next key)
+    content = re.sub(r'"\s+"', r'", "', content)
+
+    # Insert missing commas: } followed by " (end of object then next key)
+    content = re.sub(r'}\s*"', r'}, "', content)
+
+    # Insert missing commas: } followed by { (end of object then next object in array)
+    content = re.sub(r'}\s*\{', r'}, {', content)
+
+    # Insert missing commas: ] followed by " (end of array then next key)
+    content = re.sub(r']\s*"', r'], "', content)
+
+    # Insert missing commas: digit/true/false/null followed by " (value then next key)
+    content = re.sub(r'(\d|true|false|null)\s+"', r'\1, "', content)
+
+    # Insert missing commas: " followed by { (key then nested object value)
+    content = re.sub(r'"\s*\{', r'", {', content)
+
+    return content
+
+
 def _parse_design_spec_response(content: str) -> DesignSpec:
     """Parse the vision model's JSON response into a DesignSpec.
 
-    Handles markdown-wrapped JSON and extracts the first JSON object.
+    Handles markdown-wrapped JSON, trailing commas, missing commas, and other
+    common LLM JSON issues. Extracts the first JSON object robustly.
     """
     # Strip markdown code block if present
     content = re.sub(r"^```(?:json)?\s*", "", content.strip())
@@ -471,7 +512,25 @@ def _parse_design_spec_response(content: str) -> DesignSpec:
     if first_brace != -1 and last_brace != -1 and last_brace > first_brace:
         content = content[first_brace : last_brace + 1]
 
-    parsed = json.loads(content)
+    # First attempt: basic trailing comma fix
+    content = re.sub(r",\s*([}\]])", r"\1", content)
+
+    try:
+        parsed = json.loads(content)
+    except json.JSONDecodeError:
+        logger.warning("Initial JSON parse failed, attempting repair...")
+        logger.debug("Raw content (first 2000 chars): %s", content[:2000])
+        # Second attempt: comprehensive repair
+        content = _repair_json(content)
+        try:
+            parsed = json.loads(content)
+        except json.JSONDecodeError as e:
+            logger.error(
+                "Failed to parse design spec JSON after repair at line %d col %d (char %d): %s",
+                e.lineno, e.colno, e.pos, e.msg,
+            )
+            logger.error("Repaired content (first 2000 chars): %s", content[:2000])
+            raise
 
     # Convert raw dicts to DesignSpec (handles nested DesignElement/DesignSection)
     return DesignSpec.model_validate(parsed)
