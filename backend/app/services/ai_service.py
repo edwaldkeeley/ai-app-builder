@@ -510,8 +510,9 @@ def _try_parse_json(content: str) -> dict | None:
         try:
             fixed = fixer(content)
             return json.loads(fixed)
-        except json.JSONDecodeError:
-            logger.debug("Strategy '%s' failed, trying next...", name)
+        except json.JSONDecodeError as e:
+            logger.debug("Strategy '%s' failed at line %d col %d: %s",
+                          name, e.lineno, e.colno, e.msg)
             continue
 
     # Last resort: try ast.literal_eval after converting JSON literals to Python
@@ -524,8 +525,8 @@ def _try_parse_json(content: str) -> dict | None:
         result = ast.literal_eval(py_content)
         if isinstance(result, dict):
             return result
-    except (SyntaxError, ValueError):
-        pass
+    except (SyntaxError, ValueError) as e:
+        logger.debug("ast.literal_eval failed: %s", e)
 
     return None
 
@@ -550,7 +551,7 @@ def _parse_design_spec_response(content: str) -> DesignSpec:
     if parsed is None:
         logger.error(
             "All JSON parsing strategies failed for design spec. "
-            "Content (first 2000 chars): %s", content[:2000],
+            "Full content: %s", content,
         )
         raise ValueError("Failed to parse design spec JSON after all repair attempts")
 
