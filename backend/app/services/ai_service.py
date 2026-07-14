@@ -12,6 +12,7 @@ events as the response is received, enabling real-time UI updates.
 from __future__ import annotations
 
 import asyncio
+import base64
 import json
 import logging
 import re
@@ -528,6 +529,22 @@ def _try_parse_json(content: str) -> dict | None:
     except (SyntaxError, ValueError) as e:
         logger.debug("ast.literal_eval failed: %s", e)
 
+    # Absolute last resort: use raw_decode to find the first valid JSON object.
+    # This handles cases where the model appends extra text after valid JSON.
+    try:
+        decoder = json.JSONDecoder()
+        for fixer_name, fixer in strategies:
+            fixed = fixer(content)
+            try:
+                obj, _ = decoder.raw_decode(fixed)
+                if isinstance(obj, dict):
+                    logger.debug("raw_decode succeeded after '%s'", fixer_name)
+                    return obj
+            except json.JSONDecodeError:
+                continue
+    except Exception:
+        pass
+
     return None
 
 
@@ -872,6 +889,8 @@ class HttpAIProvider(BaseAIProvider):
             raise RuntimeError("AI provider returned empty response for design analysis.")
 
         logger.info("Design analysis response: %d chars", len(content))
+        logger.debug("Design analysis raw response (base64): %s",
+                      base64.b64encode(content.encode()).decode())
 
         # Parse the JSON response into a DesignSpec
         return _parse_design_spec_response(content)
