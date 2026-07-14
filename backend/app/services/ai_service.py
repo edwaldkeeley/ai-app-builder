@@ -496,6 +496,40 @@ def _repair_json(content: str) -> str:
     return content
 
 
+def _try_parse_json(content: str) -> dict | None:
+    """Try multiple strategies to parse JSON from LLM output.
+
+    Returns the parsed dict on success, or ``None`` if all strategies fail.
+    """
+    strategies = [
+        ("basic trailing comma fix", lambda c: re.sub(r",\s*([}\]])", r"\1", c)),
+        ("comprehensive repair", _repair_json),
+    ]
+
+    for name, fixer in strategies:
+        try:
+            fixed = fixer(content)
+            return json.loads(fixed)
+        except json.JSONDecodeError:
+            logger.debug("Strategy '%s' failed, trying next...", name)
+            continue
+
+    # Last resort: try ast.literal_eval after converting JSON literals to Python
+    try:
+        import ast
+        py_content = content
+        py_content = py_content.replace("true", "True")
+        py_content = py_content.replace("false", "False")
+        py_content = py_content.replace("null", "None")
+        result = ast.literal_eval(py_content)
+        if isinstance(result, dict):
+            return result
+    except (SyntaxError, ValueError):
+        pass
+
+    return None
+
+
 def _parse_design_spec_response(content: str) -> DesignSpec:
     """Parse the vision model's JSON response into a DesignSpec.
 
@@ -512,25 +546,13 @@ def _parse_design_spec_response(content: str) -> DesignSpec:
     if first_brace != -1 and last_brace != -1 and last_brace > first_brace:
         content = content[first_brace : last_brace + 1]
 
-    # First attempt: basic trailing comma fix
-    content = re.sub(r",\s*([}\]])", r"\1", content)
-
-    try:
-        parsed = json.loads(content)
-    except json.JSONDecodeError:
-        logger.warning("Initial JSON parse failed, attempting repair...")
-        logger.debug("Raw content (first 2000 chars): %s", content[:2000])
-        # Second attempt: comprehensive repair
-        content = _repair_json(content)
-        try:
-            parsed = json.loads(content)
-        except json.JSONDecodeError as e:
-            logger.error(
-                "Failed to parse design spec JSON after repair at line %d col %d (char %d): %s",
-                e.lineno, e.colno, e.pos, e.msg,
-            )
-            logger.error("Repaired content (first 2000 chars): %s", content[:2000])
-            raise
+    parsed = _try_parse_json(content)
+    if parsed is None:
+        logger.error(
+            "All JSON parsing strategies failed for design spec. "
+            "Content (first 2000 chars): %s", content[:2000],
+        )
+        raise ValueError("Failed to parse design spec JSON after all repair attempts")
 
     # Convert raw dicts to DesignSpec (handles nested DesignElement/DesignSection)
     return DesignSpec.model_validate(parsed)
