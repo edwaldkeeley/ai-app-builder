@@ -905,6 +905,9 @@ class HttpAIProvider(BaseAIProvider):
                 )
             break
 
+        logger.info("Design analysis response status: %d, body length: %d", response.status_code, len(response.text))
+        logger.debug("Design analysis response body: %s", response.text[:500])
+
         data = response.json()
         try:
             content = data["choices"][0]["message"]["content"]
