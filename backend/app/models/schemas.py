@@ -140,6 +140,10 @@ class DesignElement(BaseModel):
     children: list[DesignElement] = []
 
 
+# Rebuild DesignElement to resolve the self-referencing forward reference
+DesignElement.model_rebuild()
+
+
 class DesignSection(BaseModel):
     """A section of the design (hero, features, footer, etc.)."""
 
