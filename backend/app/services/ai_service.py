@@ -12,7 +12,6 @@ events as the response is received, enabling real-time UI updates.
 from __future__ import annotations
 
 import asyncio
-import base64
 import json
 import logging
 import re
@@ -100,8 +99,8 @@ class BaseAIProvider(ABC):
         image_data_uri: str,
         filename: str = "design",
         mime_type: str = "image/png",
-    ) -> DesignSpec:
-        """Stage 1: Analyze a design image and return a structured DesignSpec.
+    ) -> str:
+        """Stage 1: Analyze a design image and return a detailed text description.
 
         Args:
             image_data_uri: Base64-encoded data URI of the design image.
@@ -109,20 +108,20 @@ class BaseAIProvider(ABC):
             mime_type: MIME type of the image.
 
         Returns:
-            A DesignSpec describing the design layout, colors, fonts, and sections.
+            A detailed natural-language description of the design.
         """
         ...
 
     @abstractmethod
     async def generate_from_spec(
         self,
-        spec: DesignSpec,
+        design_description: str,
         user_prompt: str = "",
     ) -> tuple[str, list[ProjectFile]]:
-        """Stage 2: Generate full HTML/CSS/JS code from a DesignSpec.
+        """Stage 2: Generate full HTML/CSS/JS code from a design description.
 
         Args:
-            spec: The structured design spec from analyze_design().
+            design_description: The text description from analyze_design().
             user_prompt: Optional additional instructions from the user.
 
         Returns:
@@ -185,32 +184,37 @@ _DESIGN_UPLOAD_SYSTEM_PROMPT = (
 )
 
 _DESIGN_ANALYSIS_PROMPT = (
-    "You are a design analyzer. Your job is to look at the provided design image and output a "
-    "structured JSON description of what you see. Do NOT write any code.\n\n"
-    "### What to extract\n"
-    "- **layout**: Overall layout type (e.g. 'centered single column', 'full-width', 'sidebar left', 'split-screen')\n"
-    "- **width**: The design width in pixels (e.g. 1200, 1440, 375 for mobile)\n"
-    "- **colors**: A color palette dict with keys like bg, primary, secondary, text, accent, muted, border, surface\n"
-    "- **fonts**: Array of font families used, each with name and sizes used\n"
-    "- **sections**: Array of design sections, each with:\n"
-    "  - type: Section type (hero, features, footer, header, pricing, testimonials, cta, content, gallery, etc.)\n"
-    "  - x, y, w, h: Position and size\n"
-    "  - bg: Background color\n"
-    "  - columns: Number of columns (1 for single, 2+ for grid)\n"
-    "  - elements: Array of visual elements in this section\n"
-    "\n"
-    "### Element types\n"
-    "Each element has: type, text (if any), x, y, w, h, color, bg, font_family, font_size, font_weight, text_align, border_radius, opacity, children\n"
-    "Types: heading, paragraph, button, image, icon, card, input, nav, container, divider, list, badge, avatar, progress, chart, table, modal, tabs, accordion, carousel, sidebar, header, footer, hero, section, wrapper\n"
-    "\n"
+    "You are a design analyzer. Your job is to look at the provided design image and describe "
+    "it in DETAILED plain text. Do NOT write any code. Do NOT output JSON.\n\n"
+    "Describe the design thoroughly, covering:\n\n"
+    "### 1. Overall Layout\n"
+    "- Layout type (centered single column, full-width, sidebar, split-screen, etc.)\n"
+    "- Design width in pixels\n"
+    "- How content is arranged (stacked, grid, overlapping, etc.)\n\n"
+    "### 2. Color Palette\n"
+    "- List EVERY distinct color you see with its exact hex value (#rrggbb)\n"
+    "- Describe where each color is used (background, text, buttons, borders, etc.)\n\n"
+    "### 3. Typography\n"
+    "- Font families used (serif, sans-serif, specific names if identifiable)\n"
+    "- Font sizes, weights, and styles for each text element\n"
+    "- Text alignment and colors\n\n"
+    "### 4. Sections (describe each one in order from top to bottom)\n"
+    "For each section:\n"
+    "- Section type/name (header, hero, features, pricing, footer, etc.)\n"
+    "- Background color and dimensions\n"
+    "- Number of columns if a grid layout\n"
+    "- Every element inside: type (heading, paragraph, button, image, icon, card, input, nav link, etc.), "
+    "exact text content, position, size, colors, font details, border-radius\n"
+    "- For buttons: text, colors, size, border-radius, hover state if visible\n"
+    "- For images/icons: position, size, shape, color\n"
+    "- For navigation: list all links with their text and position\n\n"
     "### Rules\n"
-    "- Be precise with colors — use exact hex values (#rrggbb)\n"
+    "- Be EXTREMELY precise with colors — use exact hex values\n"
     "- Be precise with dimensions and positions\n"
-    "- Extract ALL visible text content exactly as shown\n"
-    "- Identify font families, sizes, weights, and alignments from the text\n"
-    "- Group elements into sections by visual proximity and purpose\n"
-    "- If you see icons or images, mark them as type 'icon' or 'image' with their position and size\n"
-    "- Output ONLY valid JSON matching the DesignSpec schema — no markdown, no explanation"
+    "- Extract ALL visible text content exactly as shown — every heading, paragraph, button label, link\n"
+    "- Note any visual effects: shadows, gradients, borders, opacity\n"
+    "- Describe the visual hierarchy: what stands out most, what's secondary\n"
+    "- If the design has multiple pages or states, describe each one"
 )
 
 _FIGMA_SYSTEM_PROMPT = (
@@ -548,6 +552,54 @@ def _try_parse_json(content: str) -> dict | None:
     return None
 
 
+def _coerce_design_spec_types(obj: Any) -> Any:
+    """Coerce string values to their expected numeric types in a DesignSpec dict.
+
+    The vision model often outputs string values like ``"24px"``, ``"700"``,
+    ``"bold"``, ``"1"`` for fields that should be ``int`` or ``float``.
+    This walks the parsed dict and converts values to appropriate types.
+    """
+    if isinstance(obj, dict):
+        numeric_int_fields = {"x", "y", "w", "h", "font_size", "font_weight",
+                              "border_radius", "columns", "width"}
+        numeric_float_fields = {"opacity"}
+
+        for key, value in obj.items():
+            if isinstance(value, str):
+                # Strip px, %, em, rem suffixes for size/dimension fields
+                if key in numeric_int_fields:
+                    cleaned = value.lower().replace("px", "").replace("%", "").replace("em", "").replace("rem", "")
+                    try:
+                        obj[key] = int(float(cleaned))
+                    except (ValueError, TypeError):
+                        pass  # Keep original string if conversion fails
+                elif key in numeric_float_fields:
+                    try:
+                        obj[key] = float(value)
+                    except (ValueError, TypeError):
+                        pass
+                elif key == "font_weight":
+                    # Map common font-weight keywords to numeric values
+                    weight_map = {
+                        "thin": 100, "extralight": 200, "light": 300,
+                        "normal": 400, "regular": 400,
+                        "medium": 500, "semibold": 600, "bold": 700,
+                        "extrabold": 800, "black": 900,
+                    }
+                    lower = value.lower().strip()
+                    if lower in weight_map:
+                        obj[key] = weight_map[lower]
+            elif isinstance(value, list):
+                obj[key] = [_coerce_design_spec_types(item) for item in value]
+            elif isinstance(value, dict):
+                obj[key] = _coerce_design_spec_types(value)
+
+    elif isinstance(obj, list):
+        return [_coerce_design_spec_types(item) for item in obj]
+
+    return obj
+
+
 def _parse_design_spec_response(content: str) -> DesignSpec:
     """Parse the vision model's JSON response into a DesignSpec.
 
@@ -564,14 +616,6 @@ def _parse_design_spec_response(content: str) -> DesignSpec:
     if first_brace != -1 and last_brace != -1 and last_brace > first_brace:
         content = content[first_brace : last_brace + 1]
 
-    # DEBUG: Write extracted content to file
-    try:
-        with open("/tmp/design_spec_extracted.json", "w") as f:
-            f.write(content)
-        logger.info("Wrote extracted content to /tmp/design_spec_extracted.json (%d chars)", len(content))
-    except Exception as e:
-        logger.warning("Could not write extracted content: %s", e)
-
     parsed = _try_parse_json(content)
     if parsed is None:
         logger.error(
@@ -580,75 +624,50 @@ def _parse_design_spec_response(content: str) -> DesignSpec:
         )
         raise ValueError("Failed to parse design spec JSON after all repair attempts")
 
+    # Coerce string values to expected numeric types (vision model often
+    # outputs "24px", "700", "bold" instead of 24, 700, etc.)
+    parsed = _coerce_design_spec_types(parsed)
+
     # Convert raw dicts to DesignSpec (handles nested DesignElement/DesignSection)
     return DesignSpec.model_validate(parsed)
 
 
-def _build_design_code_prompt(spec: DesignSpec, user_prompt: str = "") -> str:
-    """Build a prompt for the main code generation model from a DesignSpec.
+def _build_design_code_prompt(design_description: str, user_prompt: str = "") -> str:
+    """Build a prompt for the main code generation model from a design description.
 
     Args:
-        spec: The structured design spec from the vision model.
+        design_description: The text description from Stage 1 (vision model analysis).
         user_prompt: Optional additional instructions from the user.
 
     Returns:
         A prompt string for the main AI provider.
     """
     lines: list[str] = []
-    lines.append("Generate HTML/CSS/JS code from this design specification.")
+    lines.append("Generate HTML/CSS/JS code from this design description.")
     lines.append("")
     if user_prompt:
         lines.append(f"Additional instructions: {user_prompt}")
         lines.append("")
-
-    # Layout info
-    lines.append(f"Layout: {spec.layout}")
-    lines.append(f"Design width: {spec.width}px")
+    lines.append("=" * 60)
+    lines.append("DESIGN DESCRIPTION")
+    lines.append("=" * 60)
+    lines.append(design_description)
     lines.append("")
-
-    # Colors
-    if spec.colors:
-        lines.append("## Color Palette")
-        for key, val in spec.colors.items():
-            lines.append(f"  {key}: {val}")
-        lines.append("")
-
-    # Fonts
-    if spec.fonts:
-        lines.append("## Typography")
-        for font in spec.fonts:
-            family = font.get("family", "system-ui")
-            sizes = font.get("sizes", [])
-            if sizes:
-                lines.append(f"  {family}: sizes {', '.join(str(s) for s in sizes)}px")
-            else:
-                lines.append(f"  {family}")
-        lines.append("")
-
-    # Sections
-    if spec.sections:
-        lines.append("## Sections")
-        for i, section in enumerate(spec.sections):
-            lines.append(f"")
-            lines.append(f"### Section {i+1}: {section.type} ({section.w}x{section.h})")
-            if section.bg:
-                lines.append(f"  Background: {section.bg}")
-            if section.columns > 1:
-                lines.append(f"  Columns: {section.columns}")
-            lines.append("")
-
-            for elem in section.elements:
-                _format_element_for_prompt(lines, elem, indent=2)
-
-    lines.append("")
-    lines.append("### Requirements")
+    lines.append("=" * 60)
+    lines.append("REQUIREMENTS")
+    lines.append("=" * 60)
     lines.append("- Create index.html, style.css, and script.js")
-    lines.append("- Use EXACT colors, fonts, dimensions, border-radius from the spec")
+    lines.append("- Use EXACT colors, fonts, dimensions, border-radius from the description")
     lines.append("- Use modern CSS (flexbox/grid) for layout")
     lines.append("- Make the page responsive")
     lines.append("- Use placeholder SVGs or colored divs for images/icons")
     lines.append("- Center the design in the viewport")
-    lines.append("- Every element in the spec must appear in your HTML")
+    lines.append("- Every element described must appear in your HTML")
+    lines.append("- Match the visual hierarchy: primary headings should be largest, then secondary, etc.")
+    lines.append("- Use proper semantic HTML elements (<header>, <nav>, <main>, <section>, <footer>)")
+    lines.append("- Include hover effects on buttons and links where described")
+
+    return "\n".join(lines)
 
     return "\n".join(lines)
 
@@ -837,11 +856,12 @@ class HttpAIProvider(BaseAIProvider):
         image_data_uri: str,
         filename: str = "design",
         mime_type: str = "image/png",
-    ) -> DesignSpec:
-        """Stage 1: Analyze a design image and return a structured DesignSpec.
+    ) -> str:
+        """Stage 1: Analyze a design image and return a detailed text description.
 
-        Sends the image to the vision model with a compact analysis prompt.
-        The model returns a structured JSON spec (not code).
+        Sends the image to the vision model with a detailed analysis prompt.
+        The model returns a rich natural-language description of the design
+        (not code, not JSON).
         """
         headers = {
             "Authorization": f"Bearer {self._jwt_token}",
@@ -849,7 +869,7 @@ class HttpAIProvider(BaseAIProvider):
         }
 
         prompt = (
-            f"Analyze this design image and output a structured JSON spec.\n"
+            f"Describe this design image in detail.\n"
             f"Filename: {filename}\n"
             f"Type: {mime_type}\n"
             f"Image (data URI):\n{image_data_uri}"
@@ -858,7 +878,7 @@ class HttpAIProvider(BaseAIProvider):
         payload = _build_payload(
             prompt,
             system_prompt_override=_DESIGN_ANALYSIS_PROMPT,
-            max_tokens=2048,  # spec is compact, no need for huge output
+            max_tokens=4096,  # description needs more room than JSON
         )
         payload["model"] = self._model
 
@@ -897,31 +917,21 @@ class HttpAIProvider(BaseAIProvider):
             raise RuntimeError("AI provider returned empty response for design analysis.")
 
         logger.info("Design analysis response: %d chars", len(content))
-        logger.debug("Design analysis raw response (base64): %s",
-                      base64.b64encode(content.encode()).decode())
 
-        # DEBUG: Write raw response to file for inspection
-        try:
-            with open("/tmp/design_analysis_raw.json", "w") as f:
-                f.write(content)
-            logger.info("Wrote raw response to /tmp/design_analysis_raw.json")
-        except Exception as e:
-            logger.warning("Could not write raw response to file: %s", e)
-
-        # Parse the JSON response into a DesignSpec
-        return _parse_design_spec_response(content)
+        # Return the raw text description (not parsed JSON)
+        return content.strip()
 
     async def generate_from_spec(
         self,
-        spec: DesignSpec,
+        design_description: str,
         user_prompt: str = "",
     ) -> tuple[str, list[ProjectFile]]:
-        """Stage 2: Generate full HTML/CSS/JS code from a DesignSpec.
+        """Stage 2: Generate full HTML/CSS/JS code from a design description.
 
-        Builds a structured prompt from the spec and sends it to the main
-        code generation model.
+        Takes the text description from Stage 1 (vision model analysis) and
+        feeds it into the main code generation model.
         """
-        code_prompt = _build_design_code_prompt(spec, user_prompt)
+        code_prompt = _build_design_code_prompt(design_description, user_prompt)
         return await self.generate(
             code_prompt,
             system_prompt_override=_DESIGN_UPLOAD_SYSTEM_PROMPT,
@@ -1183,7 +1193,7 @@ class StreamingHttpAIProvider(BaseAIProvider):
         image_data_uri: str,
         filename: str = "design",
         mime_type: str = "image/png",
-    ) -> DesignSpec:
+    ) -> str:
         """Stage 1: Analyze a design image — delegates to HttpAIProvider."""
         provider = HttpAIProvider(
             self._target_url, self._jwt_token, self._model, self._timeout
@@ -1192,14 +1202,14 @@ class StreamingHttpAIProvider(BaseAIProvider):
 
     async def generate_from_spec(
         self,
-        spec: DesignSpec,
+        design_description: str,
         user_prompt: str = "",
     ) -> tuple[str, list[ProjectFile]]:
-        """Stage 2: Generate code from spec — delegates to HttpAIProvider."""
+        """Stage 2: Generate code from description — delegates to HttpAIProvider."""
         provider = HttpAIProvider(
             self._target_url, self._jwt_token, self._model, self._timeout
         )
-        return await provider.generate_from_spec(spec, user_prompt)
+        return await provider.generate_from_spec(design_description, user_prompt)
 
 
 def create_provider() -> BaseAIProvider:

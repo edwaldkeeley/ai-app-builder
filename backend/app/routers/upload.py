@@ -60,10 +60,10 @@ def set_vision_provider(provider: BaseAIProvider) -> None:
 
 
 def _resize_image(raw_bytes: bytes, content_type: str) -> bytes:
-    """Resize and compress an image for the vision model's small context window.
+    """Resize and compress an image for the vision model.
 
-    The vision model (qwen2.5-vl-7b) has only ~8k tokens total.
-    We resize to max 150px and use JPEG quality 30 to keep the payload small.
+    We resize to max 1200px (preserving detail for the AI to analyze)
+    and use JPEG quality 85 for a good balance of quality and size.
     """
     if not HAS_PIL:
         return raw_bytes
@@ -71,18 +71,20 @@ def _resize_image(raw_bytes: bytes, content_type: str) -> bytes:
     try:
         img = PILImage.open(io.BytesIO(raw_bytes))
         w, h = img.size
-        max_dim = 150
+        max_dim = 1200
         if w > max_dim or h > max_dim:
             ratio = max_dim / max(w, h)
             new_w, new_h = int(w * ratio), int(h * ratio)
             img = img.resize((new_w, new_h), PILImage.LANCZOS)
-        # Convert to RGB (JPEG doesn't support RGBA) and save as low-quality JPEG
+        else:
+            new_w, new_h = w, h
+        # Convert to RGB (JPEG doesn't support RGBA) and save
         if img.mode in ("RGBA", "P"):
             img = img.convert("RGB")
         buf = io.BytesIO()
-        img.save(buf, format="JPEG", quality=30, optimize=True)
+        img.save(buf, format="JPEG", quality=85, optimize=True)
         result = buf.getvalue()
-        logger.info("Resized upload image: %dx%d -> %dx%d (%d bytes, JPEG q30)", w, h, new_w, new_h, len(result))
+        logger.info("Resized upload image: %dx%d -> %dx%d (%d bytes, JPEG q85)", w, h, new_w, new_h, len(result))
         return result
     except Exception as e:
         logger.warning("Failed to resize upload image, sending original: %s", e)
@@ -152,7 +154,7 @@ async def upload_design(
     )
 
     try:
-        design_spec = await vision.analyze_design(
+        design_description = await vision.analyze_design(
             image_data_uri=data_uri,
             filename=file.filename or "design",
             mime_type=mime_type,
@@ -166,21 +168,19 @@ async def upload_design(
         raise HTTPException(status_code=502, detail=str(e))
 
     logger.info(
-        "Stage 1 complete: layout=%s, %d sections, %d colors",
-        design_spec.layout,
-        len(design_spec.sections),
-        len(design_spec.colors),
+        "Stage 1 complete: %d chars of design description",
+        len(design_description),
     )
 
-    # ── Stage 2: Main model generates code from the spec ────────
+    # ── Stage 2: Main model generates code from the description ──
     logger.info(
-        "Stage 2: Generating code from design spec with model=%s",
+        "Stage 2: Generating code from design description with model=%s",
         getattr(_provider, '_model', 'unknown'),
     )
 
     try:
         message, files = await _provider.generate_from_spec(
-            spec=design_spec,
+            design_description=design_description,
             user_prompt=prompt,
         )
     except RateLimitError as e:
