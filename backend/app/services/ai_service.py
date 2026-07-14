@@ -564,6 +564,14 @@ def _parse_design_spec_response(content: str) -> DesignSpec:
     if first_brace != -1 and last_brace != -1 and last_brace > first_brace:
         content = content[first_brace : last_brace + 1]
 
+    # DEBUG: Write extracted content to file
+    try:
+        with open("/tmp/design_spec_extracted.json", "w") as f:
+            f.write(content)
+        logger.info("Wrote extracted content to /tmp/design_spec_extracted.json (%d chars)", len(content))
+    except Exception as e:
+        logger.warning("Could not write extracted content: %s", e)
+
     parsed = _try_parse_json(content)
     if parsed is None:
         logger.error(
@@ -891,6 +899,14 @@ class HttpAIProvider(BaseAIProvider):
         logger.info("Design analysis response: %d chars", len(content))
         logger.debug("Design analysis raw response (base64): %s",
                       base64.b64encode(content.encode()).decode())
+
+        # DEBUG: Write raw response to file for inspection
+        try:
+            with open("/tmp/design_analysis_raw.json", "w") as f:
+                f.write(content)
+            logger.info("Wrote raw response to /tmp/design_analysis_raw.json")
+        except Exception as e:
+            logger.warning("Could not write raw response to file: %s", e)
 
         # Parse the JSON response into a DesignSpec
         return _parse_design_spec_response(content)
