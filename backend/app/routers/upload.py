@@ -72,7 +72,7 @@ def _resize_image(raw_bytes: bytes, content_type: str) -> bytes:
     try:
         img = PILImage.open(io.BytesIO(raw_bytes))
         w, h = img.size
-        max_dim = 400
+        max_dim = 300
         if w > max_dim or h > max_dim:
             ratio = max_dim / max(w, h)
             new_w, new_h = int(w * ratio), int(h * ratio)
@@ -83,9 +83,9 @@ def _resize_image(raw_bytes: bytes, content_type: str) -> bytes:
         if img.mode in ("RGBA", "P"):
             img = img.convert("RGB")
         buf = io.BytesIO()
-        img.save(buf, format="JPEG", quality=60, optimize=True)
+        img.save(buf, format="JPEG", quality=50, optimize=True)
         result = buf.getvalue()
-        logger.info("Resized upload image: %dx%d -> %dx%d (%d bytes, JPEG q60)", w, h, new_w, new_h, len(result))
+        logger.info("Resized upload image: %dx%d -> %dx%d (%d bytes, JPEG q50)", w, h, new_w, new_h, len(result))
         return result
     except Exception as e:
         logger.warning("Failed to resize upload image, sending original: %s", e)
