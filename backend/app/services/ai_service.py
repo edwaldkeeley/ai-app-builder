@@ -878,7 +878,7 @@ class HttpAIProvider(BaseAIProvider):
         payload = _build_payload(
             prompt,
             system_prompt_override=_DESIGN_ANALYSIS_PROMPT,
-            max_tokens=4096,  # description needs more room than JSON
+            max_tokens=2048,  # keep output small to fit 8k context window
         )
         payload["model"] = self._model
 

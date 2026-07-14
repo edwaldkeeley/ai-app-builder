@@ -60,10 +60,11 @@ def set_vision_provider(provider: BaseAIProvider) -> None:
 
 
 def _resize_image(raw_bytes: bytes, content_type: str) -> bytes:
-    """Resize and compress an image for the vision model.
+    """Resize and compress an image for the vision model's limited context.
 
-    We resize to max 1200px (preserving detail for the AI to analyze)
-    and use JPEG quality 85 for a good balance of quality and size.
+    The vision model (qwen2.5-vl-7b) has only ~8k tokens total.
+    We resize to max 400px and use JPEG quality 60 to balance detail
+    with token budget (image tokens + prompt + output must fit in 8192).
     """
     if not HAS_PIL:
         return raw_bytes
@@ -71,7 +72,7 @@ def _resize_image(raw_bytes: bytes, content_type: str) -> bytes:
     try:
         img = PILImage.open(io.BytesIO(raw_bytes))
         w, h = img.size
-        max_dim = 1200
+        max_dim = 400
         if w > max_dim or h > max_dim:
             ratio = max_dim / max(w, h)
             new_w, new_h = int(w * ratio), int(h * ratio)
@@ -82,9 +83,9 @@ def _resize_image(raw_bytes: bytes, content_type: str) -> bytes:
         if img.mode in ("RGBA", "P"):
             img = img.convert("RGB")
         buf = io.BytesIO()
-        img.save(buf, format="JPEG", quality=85, optimize=True)
+        img.save(buf, format="JPEG", quality=60, optimize=True)
         result = buf.getvalue()
-        logger.info("Resized upload image: %dx%d -> %dx%d (%d bytes, JPEG q85)", w, h, new_w, new_h, len(result))
+        logger.info("Resized upload image: %dx%d -> %dx%d (%d bytes, JPEG q60)", w, h, new_w, new_h, len(result))
         return result
     except Exception as e:
         logger.warning("Failed to resize upload image, sending original: %s", e)
