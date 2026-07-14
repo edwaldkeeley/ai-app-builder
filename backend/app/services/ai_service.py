@@ -1050,6 +1050,26 @@ class StreamingHttpAIProvider(BaseAIProvider):
                             f"AI provider returned {response.status_code}"
                         )
 
+                    # Check if the response is SSE or regular JSON
+                    content_type = response.headers.get("content-type", "")
+                    is_sse = "text/event-stream" in content_type
+
+                    if not is_sse:
+                        # Regular JSON response (e.g. deepseek-v4-flash) — parse
+                        # the full response and yield as a single event
+                        body = await response.aread()
+                        try:
+                            data = json.loads(body)
+                            content = data.get("choices", [{}])[0].get("message", {}).get("content", "")
+                        except (json.JSONDecodeError, KeyError, IndexError, TypeError):
+                            content = body.decode("utf-8", errors="replace")
+
+                        if content:
+                            accumulated_content = content
+                            # Stream the full message
+                            yield {"type": "message_chunk", "delta": content}
+                        break  # Exit the streaming loop — we have the full response
+
                     # Read SSE stream
                     async for line in response.aiter_lines():
                         if not line.startswith("data: "):
