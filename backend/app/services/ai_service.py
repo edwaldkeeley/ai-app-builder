@@ -22,7 +22,7 @@ from typing import Any, AsyncIterator
 import httpx
 
 from app.config import settings
-from app.models.schemas import FileType, ProjectFile
+from app.models.schemas import DesignSpec, FileType, ProjectFile
 
 logger = logging.getLogger(__name__)
 # Ensure logger output is visible — uvicorn's log config may not capture app.* loggers
@@ -93,6 +93,42 @@ class BaseAIProvider(ABC):
         """
         ...
 
+    @abstractmethod
+    async def analyze_design(
+        self,
+        image_data_uri: str,
+        filename: str = "design",
+        mime_type: str = "image/png",
+    ) -> DesignSpec:
+        """Stage 1: Analyze a design image and return a structured DesignSpec.
+
+        Args:
+            image_data_uri: Base64-encoded data URI of the design image.
+            filename: Original filename for context.
+            mime_type: MIME type of the image.
+
+        Returns:
+            A DesignSpec describing the design layout, colors, fonts, and sections.
+        """
+        ...
+
+    @abstractmethod
+    async def generate_from_spec(
+        self,
+        spec: DesignSpec,
+        user_prompt: str = "",
+    ) -> tuple[str, list[ProjectFile]]:
+        """Stage 2: Generate full HTML/CSS/JS code from a DesignSpec.
+
+        Args:
+            spec: The structured design spec from analyze_design().
+            user_prompt: Optional additional instructions from the user.
+
+        Returns:
+            (message, list of ProjectFile) from the AI provider.
+        """
+        ...
+
 
 _SYSTEM_PROMPT = (
     "You are a Full-Stack Software Engineer and a brilliant Product Designer. "
@@ -145,6 +181,35 @@ _DESIGN_UPLOAD_SYSTEM_PROMPT = (
     "Return ONLY valid JSON with \"message\" (string) and \"files\" array. "
     "Each file has \"path\", \"content\", \"file_type\" (html/css/javascript/json/python/other). "
     "Always include index.html, style.css, and script.js."
+)
+
+_DESIGN_ANALYSIS_PROMPT = (
+    "You are a design analyzer. Your job is to look at the provided design image and output a "
+    "structured JSON description of what you see. Do NOT write any code.\n\n"
+    "### What to extract\n"
+    "- **layout**: Overall layout type (e.g. 'centered single column', 'full-width', 'sidebar left', 'split-screen')\n"
+    "- **width**: The design width in pixels (e.g. 1200, 1440, 375 for mobile)\n"
+    "- **colors**: A color palette dict with keys like bg, primary, secondary, text, accent, muted, border, surface\n"
+    "- **fonts**: Array of font families used, each with name and sizes used\n"
+    "- **sections**: Array of design sections, each with:\n"
+    "  - type: Section type (hero, features, footer, header, pricing, testimonials, cta, content, gallery, etc.)\n"
+    "  - x, y, w, h: Position and size\n"
+    "  - bg: Background color\n"
+    "  - columns: Number of columns (1 for single, 2+ for grid)\n"
+    "  - elements: Array of visual elements in this section\n"
+    "\n"
+    "### Element types\n"
+    "Each element has: type, text (if any), x, y, w, h, color, bg, font_family, font_size, font_weight, text_align, border_radius, opacity, children\n"
+    "Types: heading, paragraph, button, image, icon, card, input, nav, container, divider, list, badge, avatar, progress, chart, table, modal, tabs, accordion, carousel, sidebar, header, footer, hero, section, wrapper\n"
+    "\n"
+    "### Rules\n"
+    "- Be precise with colors — use exact hex values (#rrggbb)\n"
+    "- Be precise with dimensions and positions\n"
+    "- Extract ALL visible text content exactly as shown\n"
+    "- Identify font families, sizes, weights, and alignments from the text\n"
+    "- Group elements into sections by visual proximity and purpose\n"
+    "- If you see icons or images, mark them as type 'icon' or 'image' with their position and size\n"
+    "- Output ONLY valid JSON matching the DesignSpec schema — no markdown, no explanation"
 )
 
 _FIGMA_SYSTEM_PROMPT = (
@@ -391,6 +456,133 @@ def _validate_generated_files(
     return warnings
 
 
+def _parse_design_spec_response(content: str) -> DesignSpec:
+    """Parse the vision model's JSON response into a DesignSpec.
+
+    Handles markdown-wrapped JSON and extracts the first JSON object.
+    """
+    # Strip markdown code block if present
+    content = re.sub(r"^```(?:json)?\s*", "", content.strip())
+    content = re.sub(r"\s*```$", "", content)
+
+    # Find the first '{' and last '}' to extract JSON robustly
+    first_brace = content.find("{")
+    last_brace = content.rfind("}")
+    if first_brace != -1 and last_brace != -1 and last_brace > first_brace:
+        content = content[first_brace : last_brace + 1]
+
+    parsed = json.loads(content)
+
+    # Convert raw dicts to DesignSpec (handles nested DesignElement/DesignSection)
+    return DesignSpec.model_validate(parsed)
+
+
+def _build_design_code_prompt(spec: DesignSpec, user_prompt: str = "") -> str:
+    """Build a prompt for the main code generation model from a DesignSpec.
+
+    Args:
+        spec: The structured design spec from the vision model.
+        user_prompt: Optional additional instructions from the user.
+
+    Returns:
+        A prompt string for the main AI provider.
+    """
+    lines: list[str] = []
+    lines.append("Generate HTML/CSS/JS code from this design specification.")
+    lines.append("")
+    if user_prompt:
+        lines.append(f"Additional instructions: {user_prompt}")
+        lines.append("")
+
+    # Layout info
+    lines.append(f"Layout: {spec.layout}")
+    lines.append(f"Design width: {spec.width}px")
+    lines.append("")
+
+    # Colors
+    if spec.colors:
+        lines.append("## Color Palette")
+        for key, val in spec.colors.items():
+            lines.append(f"  {key}: {val}")
+        lines.append("")
+
+    # Fonts
+    if spec.fonts:
+        lines.append("## Typography")
+        for font in spec.fonts:
+            family = font.get("family", "system-ui")
+            sizes = font.get("sizes", [])
+            if sizes:
+                lines.append(f"  {family}: sizes {', '.join(str(s) for s in sizes)}px")
+            else:
+                lines.append(f"  {family}")
+        lines.append("")
+
+    # Sections
+    if spec.sections:
+        lines.append("## Sections")
+        for i, section in enumerate(spec.sections):
+            lines.append(f"")
+            lines.append(f"### Section {i+1}: {section.type} ({section.w}x{section.h})")
+            if section.bg:
+                lines.append(f"  Background: {section.bg}")
+            if section.columns > 1:
+                lines.append(f"  Columns: {section.columns}")
+            lines.append("")
+
+            for elem in section.elements:
+                _format_element_for_prompt(lines, elem, indent=2)
+
+    lines.append("")
+    lines.append("### Requirements")
+    lines.append("- Create index.html, style.css, and script.js")
+    lines.append("- Use EXACT colors, fonts, dimensions, border-radius from the spec")
+    lines.append("- Use modern CSS (flexbox/grid) for layout")
+    lines.append("- Make the page responsive")
+    lines.append("- Use placeholder SVGs or colored divs for images/icons")
+    lines.append("- Center the design in the viewport")
+    lines.append("- Every element in the spec must appear in your HTML")
+
+    return "\n".join(lines)
+
+
+def _format_element_for_prompt(lines: list[str], elem: DesignSpec | None = None, indent: int = 0, **kwargs) -> None:
+    """Format a design element for the prompt."""
+    # Handle both DesignElement objects and raw dicts
+    if elem is not None:
+        pass  # use elem
+    elif "element" in kwargs:
+        elem = kwargs["element"]
+    else:
+        return
+
+    prefix = "  " * indent
+    parts = [f"{prefix}[{elem.type}]"]
+    if elem.text:
+        parts.append(f'"{elem.text[:60]}"')
+    parts.append(f"@({elem.x},{elem.y}) {elem.w}x{elem.h}")
+    if elem.color:
+        parts.append(f"color:{elem.color}")
+    if elem.bg:
+        parts.append(f"bg:{elem.bg}")
+    if elem.font_family:
+        parts.append(f"font:{elem.font_family}")
+    if elem.font_size:
+        parts.append(f"size:{elem.font_size}")
+    if elem.font_weight:
+        parts.append(f"weight:{elem.font_weight}")
+    if elem.text_align and elem.text_align != "left":
+        parts.append(f"align:{elem.text_align}")
+    if elem.border_radius:
+        parts.append(f"radius:{elem.border_radius}")
+    if elem.opacity < 1.0:
+        parts.append(f"opacity:{elem.opacity}")
+    lines.append(" ".join(parts))
+
+    for child in elem.children:
+        _format_element_for_prompt(lines, child, indent + 1)
+
+
 class HttpAIProvider(BaseAIProvider):
     """AI provider that calls a remote HTTP endpoint.
 
@@ -532,6 +724,91 @@ class HttpAIProvider(BaseAIProvider):
             yield {"type": "file_chunk", "path": f.path, "delta": f.content}
             yield {"type": "file_done", "path": f.path}
         yield {"type": "done", "message": message, "files": [f.model_dump() for f in files]}
+
+    async def analyze_design(
+        self,
+        image_data_uri: str,
+        filename: str = "design",
+        mime_type: str = "image/png",
+    ) -> DesignSpec:
+        """Stage 1: Analyze a design image and return a structured DesignSpec.
+
+        Sends the image to the vision model with a compact analysis prompt.
+        The model returns a structured JSON spec (not code).
+        """
+        headers = {
+            "Authorization": f"Bearer {self._jwt_token}",
+            "Content-Type": "application/json",
+        }
+
+        prompt = (
+            f"Analyze this design image and output a structured JSON spec.\n"
+            f"Filename: {filename}\n"
+            f"Type: {mime_type}\n"
+            f"Image (data URI):\n{image_data_uri}"
+        )
+
+        payload = _build_payload(
+            prompt,
+            system_prompt_override=_DESIGN_ANALYSIS_PROMPT,
+            max_tokens=2048,  # spec is compact, no need for huge output
+        )
+        payload["model"] = self._model
+
+        logger.info("Design analysis request: %s, model=%s", filename, self._model)
+
+        max_retries = 2
+        for attempt in range(max_retries + 1):
+            async with httpx.AsyncClient(timeout=httpx.Timeout(self._timeout, connect=self._connect_timeout)) as client:
+                response = await client.post(self._target_url, json=payload, headers=headers)
+
+            if response.status_code == 429:
+                wait = _parse_retry_after(response)
+                if attempt >= max_retries:
+                    raise RateLimitError(
+                        retry_after=wait,
+                        message=f"AI provider rate limited (429). Retry after {wait}s.",
+                    )
+                logger.warning("Rate limited (429). Retrying in %ds (attempt %d/%d)", wait, attempt + 1, max_retries)
+                await asyncio.sleep(wait)
+                continue
+            if not response.is_success:
+                raise RuntimeError(
+                    f"AI provider returned {response.status_code}: {response.text[:500]}"
+                )
+            break
+
+        data = response.json()
+        try:
+            content = data["choices"][0]["message"]["content"]
+        except (KeyError, IndexError, TypeError) as e:
+            raise RuntimeError(
+                f"Unexpected AI response format: {str(data)[:300]}"
+            ) from e
+
+        if not content or not content.strip():
+            raise RuntimeError("AI provider returned empty response for design analysis.")
+
+        logger.info("Design analysis response: %d chars", len(content))
+
+        # Parse the JSON response into a DesignSpec
+        return _parse_design_spec_response(content)
+
+    async def generate_from_spec(
+        self,
+        spec: DesignSpec,
+        user_prompt: str = "",
+    ) -> tuple[str, list[ProjectFile]]:
+        """Stage 2: Generate full HTML/CSS/JS code from a DesignSpec.
+
+        Builds a structured prompt from the spec and sends it to the main
+        code generation model.
+        """
+        code_prompt = _build_design_code_prompt(spec, user_prompt)
+        return await self.generate(
+            code_prompt,
+            system_prompt_override=_DESIGN_UPLOAD_SYSTEM_PROMPT,
+        )
 
 
 class StreamingHttpAIProvider(BaseAIProvider):
@@ -783,6 +1060,29 @@ class StreamingHttpAIProvider(BaseAIProvider):
             "message": message,
             "files": [f.model_dump() for f in files],
         }
+
+    async def analyze_design(
+        self,
+        image_data_uri: str,
+        filename: str = "design",
+        mime_type: str = "image/png",
+    ) -> DesignSpec:
+        """Stage 1: Analyze a design image — delegates to HttpAIProvider."""
+        provider = HttpAIProvider(
+            self._target_url, self._jwt_token, self._model, self._timeout
+        )
+        return await provider.analyze_design(image_data_uri, filename, mime_type)
+
+    async def generate_from_spec(
+        self,
+        spec: DesignSpec,
+        user_prompt: str = "",
+    ) -> tuple[str, list[ProjectFile]]:
+        """Stage 2: Generate code from spec — delegates to HttpAIProvider."""
+        provider = HttpAIProvider(
+            self._target_url, self._jwt_token, self._model, self._timeout
+        )
+        return await provider.generate_from_spec(spec, user_prompt)
 
 
 def create_provider() -> BaseAIProvider:
