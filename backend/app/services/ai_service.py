@@ -868,25 +868,18 @@ class HttpAIProvider(BaseAIProvider):
             "Content-Type": "application/json",
         }
 
-        # Use OpenAI vision API format (content array with image_url) instead of
-        # embedding the data URI in text. This is much more token-efficient as the
-        # model processes image pixels directly rather than tokenizing base64 text.
-        messages: list[dict[str, Any]] = [
-            {"role": "system", "content": _DESIGN_ANALYSIS_PROMPT},
-            {
-                "role": "user",
-                "content": [
-                    {"type": "text", "text": f"Describe this design image in detail. Filename: {filename}, Type: {mime_type}"},
-                    {"type": "image_url", "image_url": {"url": image_data_uri}},
-                ],
-            },
-        ]
+        prompt = (
+            f"Describe this design image in detail.\n"
+            f"Filename: {filename}\n"
+            f"Type: {mime_type}\n"
+            f"Image (data URI):\n{image_data_uri}"
+        )
 
-        payload = {
-            "messages": messages,
-            "max_tokens": 2048,
-            "temperature": 0.7,
-        }
+        payload = _build_payload(
+            prompt,
+            system_prompt_override=_DESIGN_ANALYSIS_PROMPT,
+            max_tokens=2048,  # keep output small to fit 8k context window
+        )
         payload["model"] = self._model
 
         logger.info("Design analysis request: %s, model=%s", filename, self._model)
