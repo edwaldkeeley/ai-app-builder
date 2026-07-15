@@ -492,9 +492,7 @@ export default function FileExplorer({
 
   const explorerPanel = (
     <div
-      className={`flex flex-col bg-sidebar border-r border-border ${
-        collapsed ? "w-0 overflow-hidden border-r-0" : "w-56"
-      } transition-all duration-200`}
+      className="flex flex-col bg-sidebar border-r border-border w-56"
     >
       {/* Header */}
       <div className="flex items-center justify-between px-3 py-2 border-b border-border min-h-[35px]">

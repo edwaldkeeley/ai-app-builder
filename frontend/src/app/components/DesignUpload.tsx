@@ -5,7 +5,7 @@ import { api } from "../lib/api";
 import { useToast } from "./Toast";
 
 interface DesignUploadProps {
-  projectId: string;
+  projectId?: string;
   onUploadComplete?: (projectId: string) => void;
   variant?: "landing" | "toolbar";
 }
@@ -59,7 +59,13 @@ export default function DesignUpload({ projectId, onUploadComplete, variant = "l
     setErrorMsg(null);
 
     try {
-      const result = await api.uploadDesign(projectId, selectedFile, promptText.trim() || undefined);
+      // If no projectId, create a new project first
+      let targetId = projectId;
+      if (!targetId) {
+        const newProject = await api.createProject("Design Upload", "Generated from uploaded design image");
+        targetId = newProject.id;
+      }
+      const result = await api.uploadDesign(targetId, selectedFile, promptText.trim() || undefined);
       showToast("success", `Design uploaded — "${result.project_name}" updated`);
       onUploadComplete?.(result.project_id);
       setSelectedFile(null);
@@ -91,9 +97,19 @@ export default function DesignUpload({ projectId, onUploadComplete, variant = "l
         </button>
 
         {showModal && (
-          <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/50">
-            <div className="bg-panel border border-border rounded-xl p-4 w-full max-w-md mx-4 shadow-xl">
-              <h3 className="text-sm font-medium text-foreground mb-3">Upload Design Image</h3>
+          <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/50" onClick={() => { setShowModal(false); setErrorMsg(null); setSelectedFile(null); setPreviewUrl(null); }}>
+            <div className="bg-panel border border-border rounded-xl p-5 w-full max-w-md mx-4 shadow-xl" onClick={(e) => e.stopPropagation()}>
+              <div className="flex items-center gap-3 mb-4">
+                <div className="w-10 h-10 rounded-xl bg-accent/10 flex items-center justify-center">
+                  <svg className="w-5 h-5 text-accent" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2}>
+                    <path strokeLinecap="round" strokeLinejoin="round" d="M4 16l4.586-4.586a2 2 0 012.828 0L16 16m-2-2l1.586-1.586a2 2 0 012.828 0L20 14m-6-6h.01M6 20h12a2 2 0 002-2V6a2 2 0 00-2-2H6a2 2 0 00-2 2v12a2 2 0 002 2z" />
+                  </svg>
+                </div>
+                <div>
+                  <h3 className="text-sm font-semibold text-foreground">Upload Design Image</h3>
+                  <p className="text-xs text-text-secondary">Generate code from a screenshot or design mockup</p>
+                </div>
+              </div>
               <div className="space-y-3">
                 {/* File picker */}
                 <input
@@ -106,7 +122,7 @@ export default function DesignUpload({ projectId, onUploadComplete, variant = "l
 
                 {/* Preview */}
                 {previewUrl && (
-                  <div className="relative w-full h-40 rounded-lg overflow-hidden border border-border bg-surface">
+                  <div className="relative w-full h-40 rounded-lg overflow-hidden border border-border bg-background">
                     <img src={previewUrl} alt="Design preview" className="w-full h-full object-contain" />
                   </div>
                 )}
@@ -124,7 +140,7 @@ export default function DesignUpload({ projectId, onUploadComplete, variant = "l
                   <p className="text-xs text-danger">{errorMsg}</p>
                 )}
 
-                <div className="flex gap-2">
+                <div className="flex gap-2 pt-1">
                   <button
                     onClick={() => { setShowModal(false); setErrorMsg(null); setSelectedFile(null); setPreviewUrl(null); }}
                     className="flex-1 px-3 py-2 text-sm font-medium rounded-lg border border-border text-foreground hover:bg-surface transition-colors"
@@ -139,7 +155,7 @@ export default function DesignUpload({ projectId, onUploadComplete, variant = "l
                     {uploading ? (
                       <span className="flex items-center justify-center gap-2">
                         <div className="w-4 h-4 border-2 border-white border-t-transparent rounded-full animate-spin" />
-                        Uploading...
+                        Generating...
                       </span>
                     ) : (
                       "Generate from Image"
@@ -157,7 +173,18 @@ export default function DesignUpload({ projectId, onUploadComplete, variant = "l
   // ── Landing page variant ──────────────────────────────────
 
   return (
-    <div className="w-full space-y-3">
+    <div className="bg-surface border border-border rounded-xl p-4 space-y-3">
+      <div className="flex items-center gap-2">
+        <div className="w-8 h-8 rounded-lg bg-accent/10 flex items-center justify-center">
+          <svg className="w-4 h-4 text-accent" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2}>
+            <path strokeLinecap="round" strokeLinejoin="round" d="M4 16l4.586-4.586a2 2 0 012.828 0L16 16m-2-2l1.586-1.586a2 2 0 012.828 0L20 14m-6-6h.01M6 20h12a2 2 0 002-2V6a2 2 0 00-2-2H6a2 2 0 00-2 2v12a2 2 0 002 2z" />
+          </svg>
+        </div>
+        <div>
+          <h3 className="text-sm font-medium text-foreground">Design Upload</h3>
+          <p className="text-[11px] text-text-secondary">Upload an image to generate matching code</p>
+        </div>
+      </div>
       <div className="space-y-2">
         <input
           ref={fileInputRef}
@@ -167,7 +194,7 @@ export default function DesignUpload({ projectId, onUploadComplete, variant = "l
           className="w-full text-sm text-foreground file:mr-3 file:py-1.5 file:px-3 file:rounded-lg file:border-0 file:text-sm file:font-medium file:bg-accent file:text-white hover:file:bg-accent-hover file:cursor-pointer"
         />
         {previewUrl && (
-          <div className="relative w-full h-48 rounded-lg overflow-hidden border border-border bg-surface">
+          <div className="relative w-full h-32 rounded-lg overflow-hidden border border-border bg-background">
             <img src={previewUrl} alt="Design preview" className="w-full h-full object-contain" />
           </div>
         )}

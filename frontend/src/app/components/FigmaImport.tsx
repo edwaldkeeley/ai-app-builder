@@ -55,7 +55,18 @@ export default function FigmaImport({ onImportComplete, variant = "landing" }: F
 
   if (variant === "landing") {
     return (
-      <div className="w-full space-y-3">
+      <div className="bg-surface border border-border rounded-xl p-4 space-y-3">
+        <div className="flex items-center gap-2">
+          <div className="w-8 h-8 rounded-lg bg-accent/10 flex items-center justify-center">
+            <svg className="w-4 h-4 text-accent" viewBox="0 0 24 24" fill="currentColor">
+              <path d="M12 2C6.477 2 2 6.477 2 12s4.477 10 10 10 10-4.477 10-10S17.523 2 12 2zm0 18a8 8 0 110-16 8 8 0 010 16zm1-12h-2v4H7v2h4v4h2v-4h4v-2h-4V8z" />
+            </svg>
+          </div>
+          <div>
+            <h3 className="text-sm font-medium text-foreground">Figma Import</h3>
+            <p className="text-[11px] text-text-secondary">Paste a Figma URL to generate code</p>
+          </div>
+        </div>
         <div className="space-y-2">
           <input
             type="text"
@@ -118,10 +129,20 @@ export default function FigmaImport({ onImportComplete, variant = "landing" }: F
       </button>
 
       {showModal && (
-        <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/50">
-          <div className="bg-panel border border-border rounded-xl p-4 w-full max-w-md mx-4 shadow-xl">
-            <h3 className="text-sm font-medium text-foreground mb-3">Import from Figma URL</h3>
-            <div className="space-y-2">
+        <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/50" onClick={() => { setShowModal(false); setErrorMsg(null); }}>
+          <div className="bg-panel border border-border rounded-xl p-5 w-full max-w-md mx-4 shadow-xl" onClick={(e) => e.stopPropagation()}>
+            <div className="flex items-center gap-3 mb-4">
+              <div className="w-10 h-10 rounded-xl bg-accent/10 flex items-center justify-center">
+                <svg className="w-5 h-5 text-accent" viewBox="0 0 24 24" fill="currentColor">
+                  <path d="M12 2C6.477 2 2 6.477 2 12s4.477 10 10 10 10-4.477 10-10S17.523 2 12 2zm0 18a8 8 0 110-16 8 8 0 010 16zm1-12h-2v4H7v2h4v4h2v-4h4v-2h-4V8z" />
+                </svg>
+              </div>
+              <div>
+                <h3 className="text-sm font-semibold text-foreground">Import from Figma</h3>
+                <p className="text-xs text-text-secondary">Paste a Figma URL and your personal access token</p>
+              </div>
+            </div>
+            <div className="space-y-3">
               <input
                 type="text"
                 value={figmaUrl}
@@ -149,7 +170,7 @@ export default function FigmaImport({ onImportComplete, variant = "landing" }: F
               {errorMsg && (
                 <p className="text-xs text-danger">{errorMsg}</p>
               )}
-              <div className="flex gap-2">
+              <div className="flex gap-2 pt-1">
                 <button
                   onClick={() => { setShowModal(false); setErrorMsg(null); }}
                   className="flex-1 px-3 py-2 text-sm font-medium rounded-lg border border-border text-foreground hover:bg-surface transition-colors"
@@ -161,7 +182,14 @@ export default function FigmaImport({ onImportComplete, variant = "landing" }: F
                   disabled={!figmaUrl.trim() || !accessToken.trim() || importing}
                   className="flex-1 px-3 py-2 text-sm font-medium rounded-lg bg-accent text-white hover:bg-accent-hover disabled:opacity-40 disabled:cursor-not-allowed transition-colors"
                 >
-                  {importing ? "Importing..." : "Import"}
+                  {importing ? (
+                    <span className="flex items-center justify-center gap-2">
+                      <div className="w-4 h-4 border-2 border-white border-t-transparent rounded-full animate-spin" />
+                      Importing...
+                    </span>
+                  ) : (
+                    "Import"
+                  )}
                 </button>
               </div>
             </div>

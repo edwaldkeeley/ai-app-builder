@@ -329,9 +329,21 @@ export default function MainContent({
           AI-generated code may not always be perfect. Review and test before using.
         </p>
 
-        {/* Figma import */}
-        <div className="w-full max-w-sm">
+        {/* Divider */}
+        <div className="w-full flex items-center gap-3 text-xs text-text-secondary">
+          <div className="flex-1 h-px bg-border" />
+          <span>or import from</span>
+          <div className="flex-1 h-px bg-border" />
+        </div>
+
+        {/* Import options */}
+        <div className="w-full grid grid-cols-1 sm:grid-cols-2 gap-3">
           <FigmaImport variant="landing" onImportComplete={onFigmaImportComplete} />
+          <DesignUpload
+            projectId=""
+            variant="landing"
+            onUploadComplete={onDesignUploadComplete}
+          />
         </div>
       </div>
     </div>

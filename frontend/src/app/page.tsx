@@ -255,8 +255,8 @@ export default function Home() {
         onCloseMobileSidebar={() => setShowMobileSidebar(false)}
       />
 
-      {/* File Explorer (hidden on mobile by default, collapsible on desktop) */}
-      {activeProject && (
+      {/* File Explorer (hidden when collapsed or on mobile) */}
+      {activeProject && showExplorer && !isMobile && (
         <FileExplorer
           key={activeProjectId}
           files={files}
@@ -265,8 +265,6 @@ export default function Home() {
           onAddFile={handleAddFile}
           onDeleteFile={handleDeleteFile}
           onRenameFile={handleRenameFile}
-          collapsed={isMobile ? false : !showExplorer}
-          onToggleCollapse={() => setShowExplorer((prev) => !prev)}
           dirtyFiles={dirtyFiles}
           loading={loading}
           isMobile={isMobile}
