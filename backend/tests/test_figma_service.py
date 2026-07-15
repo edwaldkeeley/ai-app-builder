@@ -442,13 +442,15 @@ class TestBuildDesignPrompt:
 
 
 class TestCache:
-    def test_clear_cache_all(self, svc):
+    @pytest.mark.asyncio
+    async def test_clear_cache_all(self, svc):
         # Populate cache by calling clear_cache to set up state
-        FigmaService.clear_cache()
+        await FigmaService.clear_cache()
         assert FigmaService.get_cache_info()["entries"] == 0
 
-    def test_clear_cache_specific_key(self, svc):
-        FigmaService.clear_cache("test_key")
+    @pytest.mark.asyncio
+    async def test_clear_cache_specific_key(self, svc):
+        await FigmaService.clear_cache("test_key")
         assert FigmaService.get_cache_info()["entries"] == 0
 
     def test_get_cache_info_structure(self, svc):
@@ -456,4 +458,4 @@ class TestCache:
         assert "entries" in info
         assert "keys" in info
         assert "ttl_seconds" in info
-        assert info["ttl_seconds"] == 300
+        assert info["ttl_seconds"] == 43200

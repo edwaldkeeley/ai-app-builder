@@ -353,26 +353,123 @@ def _build_payload(
     return payload
 
 
+def _extract_code_blocks(content: str) -> list[tuple[str, str]]:
+    """Extract code blocks with their language from markdown.
+
+    Returns list of (language, code) tuples, e.g. ("html", "<!DOCTYPE...>").
+    """
+    pattern = re.compile(r"```(\w+)?\s*\n(.*?)```", re.DOTALL)
+    blocks = []
+    for match in pattern.finditer(content):
+        lang = (match.group(1) or "").lower()
+        code = match.group(2).strip()
+        if code:
+            blocks.append((lang, code))
+    return blocks
+
+
+def _code_blocks_to_files(
+    raw_content: str,
+    blocks: list[tuple[str, str]],
+    existing_files: list[ProjectFile] | None = None,
+) -> tuple[str, list[ProjectFile]]:
+    """Convert markdown code blocks into ProjectFiles.
+
+    Maps language tags to filenames: html→index.html, css→style.css,
+    js/javascript→script.js. Any text before the first code block is
+    treated as the conversational message.
+    """
+    # Text before the first code block is the message
+    message = raw_content.strip()
+    first_block = raw_content.find("```")
+    if first_block > 0:
+        message = raw_content[:first_block].strip()
+    elif first_block == 0:
+        message = ""
+
+    lang_to_path = {
+        "html": "index.html",
+        "css": "style.css",
+        "js": "script.js",
+        "javascript": "script.js",
+    }
+    lang_to_type = {
+        "html": FileType.html,
+        "css": FileType.css,
+        "js": FileType.js,
+        "javascript": FileType.js,
+    }
+
+    ai_files: list[ProjectFile] = []
+    for lang, code in blocks:
+        path = lang_to_path.get(lang)
+        file_type = lang_to_type.get(lang, FileType.other)
+        if path is None:
+            # Unknown language — skip or treat as other
+            path = f"file.{lang}" if lang else "file.txt"
+            file_type = FileType.other
+        ai_files.append(ProjectFile(path=path, content=code, file_type=file_type))
+
+    # Merge with existing files (AI files override)
+    merged_map: dict[str, ProjectFile] = {}
+    if existing_files:
+        for ef in existing_files:
+            merged_map[ef.path] = ef
+    for f in ai_files:
+        merged_map[f.path] = f
+
+    return message, list(merged_map.values())
+
+
 def _parse_final_json(
     content: str,
     existing_files: list[ProjectFile] | None = None,
 ) -> tuple[str, list[ProjectFile]]:
     """Parse the final JSON response into (message, files).
 
+    First attempts JSON parsing. If that fails (e.g. the model returned
+    markdown code blocks instead of JSON), falls back to extracting
+    HTML/CSS/JS from markdown code blocks.
+
     Merges AI output with existing files: only files the AI explicitly returns
     are updated; all other existing files are preserved unchanged.
     """
-    # Strip markdown code block if present
-    content = re.sub(r"^```(?:json)?\s*", "", content.strip())
-    content = re.sub(r"\s*```$", "", content)
+    # Strip markdown code block if present — only if the ENTIRE content
+    # is a single code block (starts and ends with ```). Otherwise the
+    # regex would strip the last ``` from multi-block content, breaking
+    # the last block's closing fence.
+    stripped = content.strip()
+    if stripped.startswith("```") and stripped.rstrip().endswith("```"):
+        content = re.sub(r"^```(?:json)?\s*", "", stripped)
+        content = re.sub(r"\s*```$", "", content)
+    else:
+        content = stripped
 
     # Find the first '{' and last '}' to extract JSON robustly
     first_brace = content.find("{")
     last_brace = content.rfind("}")
     if first_brace != -1 and last_brace != -1 and last_brace > first_brace:
-        content = content[first_brace : last_brace + 1]
+        json_candidate = content[first_brace : last_brace + 1]
+    else:
+        json_candidate = content
 
-    parsed = json.loads(content)
+    try:
+        parsed = json.loads(json_candidate)
+    except json.JSONDecodeError:
+        # Fallback: extract code blocks from markdown
+        logger.warning("JSON parsing failed, falling back to markdown code block extraction")
+        blocks = _extract_code_blocks(content)
+        if blocks:
+            return _code_blocks_to_files(content, blocks, existing_files)
+        raise
+    except json.JSONDecodeError:
+        # Fallback: extract code blocks from markdown
+        logger.warning("JSON parsing failed, falling back to markdown code block extraction")
+        blocks = _extract_code_blocks(content)
+        if blocks:
+            return _code_blocks_to_files(content, blocks, existing_files)
+        raise
+
     raw_files = parsed.get("files", [])
     message = parsed.get("message", "")
 

@@ -68,7 +68,7 @@ async def import_figma_url(body: FigmaUrlImportRequest, current_user: dict = Dep
 
     # Clear cache if force_refresh is requested
     if body.force_refresh:
-        FigmaService.clear_cache(file_key)
+        await FigmaService.clear_cache(file_key)
         logger.info("Cache bypassed for file key: %s", file_key)
 
     # Fetch the Figma file data
@@ -168,5 +168,5 @@ async def clear_cache(file_key: str | None = None, current_user: dict = Depends(
     """
     if _figma is None:
         raise HTTPException(status_code=503, detail="Figma service not initialized")
-    cleared = FigmaService.clear_cache(file_key)
+    cleared = await FigmaService.clear_cache(file_key)
     return {"cleared": cleared, "message": f"Cleared {cleared} cache entr{'y' if cleared == 1 else 'ies'}"}

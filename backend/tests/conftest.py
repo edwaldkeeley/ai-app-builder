@@ -84,6 +84,26 @@ class MockAIProvider(BaseAIProvider):
             "files": [f.model_dump() for f in self.default_files],
         }
 
+    async def analyze_design(
+        self,
+        image_data_uri: str,
+        filename: str = "design",
+        mime_type: str = "image/png",
+    ) -> str:
+        """Mock: return a simple design description."""
+        return (
+            "A clean design with a white background, dark text, "
+            "and a blue header section."
+        )
+
+    async def generate_from_spec(
+        self,
+        design_description: str,
+        user_prompt: str = "",
+    ) -> tuple[str, list[ProjectFile]]:
+        """Mock: return default files as the generated code."""
+        return self.default_message, self.default_files
+
 
 # ── Shared fixtures ───────────────────────────────────────────
 
