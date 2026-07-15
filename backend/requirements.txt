@@ -14,6 +14,7 @@ bcrypt==4.0.1
 python-jose[cryptography]==3.3.0
 
 # Image processing (design upload resize)
+# Only used due to limit of backend design upload (Removable at users choice)
 Pillow==11.0.0
 
 # Testing

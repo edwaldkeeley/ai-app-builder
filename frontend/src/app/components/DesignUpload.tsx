@@ -19,6 +19,7 @@ export default function DesignUpload({ projectId, onUploadComplete, variant = "l
   const [uploading, setUploading] = useState(false);
   const [errorMsg, setErrorMsg] = useState<string | null>(null);
   const [previewUrl, setPreviewUrl] = useState<string | null>(null);
+  const [showModal, setShowModal] = useState(false);
   const fileInputRef = useRef<HTMLInputElement>(null);
   const { showToast } = useToast();
 
@@ -77,8 +78,6 @@ export default function DesignUpload({ projectId, onUploadComplete, variant = "l
   // ── Toolbar variant (icon button opens modal) ─────
 
   if (variant === "toolbar") {
-    const [showModal, setShowModal] = useState(false);
-
     return (
       <>
         <button

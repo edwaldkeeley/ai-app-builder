@@ -159,7 +159,7 @@ export default function LiveCanvas({ files }: LiveCanvasProps) {
   }
 
   return (
-    <div className="flex-1 flex flex-col min-h-0 bg-white">
+    <div className="flex-1 flex flex-col min-h-0 bg-background">
       {/* Toolbar */}
       <div className="flex items-center justify-between px-3 py-1.5 bg-sidebar border-b border-border text-xs text-text-secondary">
         <span>Preview</span>

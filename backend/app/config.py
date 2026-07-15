@@ -35,7 +35,7 @@ class Settings(BaseSettings):
     max_upload_size_mb: int = 10  # Max design upload file size in MB
 
     # ── Auth ──────────────────────────────────────────────
-    secret_key: str = "change-me-in-production"
+    secret_key: str = ""  # Must be set in production — will raise on use if empty
     algorithm: str = "HS256"
     access_token_expire_minutes: int = 1440  # 24 hours
 

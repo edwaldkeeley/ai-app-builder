@@ -28,7 +28,14 @@ def create_access_token(data: dict, expires_delta: timedelta | None = None) -> s
     Args:
         data: Claims to include in the token (must include 'sub').
         expires_delta: Optional custom expiration. Defaults to settings value.
+
+    Raises:
+        RuntimeError: If ``secret_key`` is not configured.
     """
+    if not settings.secret_key:
+        raise RuntimeError(
+            "SECRET_KEY is not configured. Set it in your .env file or environment."
+        )
     to_encode = data.copy()
     expire = datetime.now(timezone.utc) + (
         expires_delta or timedelta(minutes=settings.access_token_expire_minutes)

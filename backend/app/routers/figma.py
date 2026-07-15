@@ -96,13 +96,13 @@ async def import_figma_url(body: FigmaUrlImportRequest, current_user: dict = Dep
         logger.exception("Figma API request failed")
         raise HTTPException(
             status_code=502,
-            detail=f"Figma API returned {e.status}: {e}",
+            detail={"message": f"Figma API returned {e.status}: {e}"},
         )
     except httpx.RequestError as e:
         logger.exception("Figma API request failed")
         raise HTTPException(
             status_code=502,
-            detail=f"Failed to reach Figma API: {e}",
+            detail={"message": f"Failed to reach Figma API: {e}"},
         )
 
     # Build a structured design prompt from the Figma data

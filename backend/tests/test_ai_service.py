@@ -18,9 +18,9 @@ from app.services.ai_service import (
     _SYSTEM_PROMPT,
     _build_payload,
     _parse_final_json,
-    _parse_retry_after,
     _validate_generated_files,
 )
+from app.services.utils import parse_retry_after as _parse_retry_after
 
 
 # ── _parse_final_json tests ───────────────────────────────────

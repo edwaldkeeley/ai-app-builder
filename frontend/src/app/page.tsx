@@ -62,6 +62,7 @@ export default function Home() {
   const [isMobile, setIsMobile] = useState(false);
   const [viewMode, setViewMode] = useState<"preview" | "code" | "split">("preview");
   const [showMobileSidebar, setShowMobileSidebar] = useState(false);
+  const [filesLoading, setFilesLoading] = useState(false);
   const filesRef = useRef(files);
   const activeProjectIdRef = useRef(activeProjectId);
 
@@ -97,8 +98,35 @@ export default function Home() {
     return () => window.removeEventListener("resize", checkWidth);
   }, []);
 
+  // Warn before leaving with unsaved changes
+  useEffect(() => {
+    if (dirtyFiles.size === 0) return;
+    const handler = (e: BeforeUnloadEvent) => {
+      e.preventDefault();
+    };
+    window.addEventListener("beforeunload", handler);
+    return () => window.removeEventListener("beforeunload", handler);
+  }, [dirtyFiles.size]);
+
+  // Ctrl+S — save all dirty files immediately
+  const handleSave = useCallback(async () => {
+    if (!activeProjectId || dirtyFiles.size === 0) return;
+    for (const path of dirtyFiles) {
+      const file = filesRef.current.find((f) => f.path === path);
+      if (file) {
+        try {
+          await api.upsertFile(activeProjectId, path, file.content);
+        } catch {
+          showToast("error", `Failed to save ${path}`);
+        }
+      }
+    }
+    showToast("success", "All files saved");
+  }, [activeProjectId, dirtyFiles, showToast]);
+
   // Global keyboard shortcuts
   useKeyboardShortcuts({
+    onSave: handleSave,
     onEscape: () => {
       setShowMobileSidebar(false);
     },
@@ -123,14 +151,19 @@ export default function Home() {
       setFiles([]);
       return;
     }
+    // eslint-disable-next-line react-hooks/set-state-in-effect
+    setFilesLoading(true);
     api.getProject(activeProjectId).then((detail) => {
       setFiles(detail.files);
     }).catch((err) => {
       console.error("Failed to fetch project files:", err);
       showToast("error", "Failed to load project files");
       setError("Failed to load project files. Please try again.");
+    }).finally(() => {
+      setFilesLoading(false);
     });
-  }, [activeProjectId]); // eslint-disable-line react-hooks/exhaustive-deps
+  // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [activeProjectId]);
 
   // ── Callbacks (also hooks — must be before early returns) ──
   const handleSelectProject = useCallback((id: string) => {
@@ -222,8 +255,8 @@ export default function Home() {
         onCloseMobileSidebar={() => setShowMobileSidebar(false)}
       />
 
-      {/* File Explorer (only when a project is active and not in preview mode) */}
-      {activeProject && viewMode !== "preview" && (
+      {/* File Explorer (hidden on mobile by default, collapsible on desktop) */}
+      {activeProject && (
         <FileExplorer
           key={activeProjectId}
           files={files}
@@ -255,7 +288,7 @@ export default function Home() {
 
       <main className="flex-1 flex flex-col min-w-0">
         <MainContent
-          loading={loading}
+          loading={loading || filesLoading}
           error={error}
           activeProject={activeProject}
           files={files}

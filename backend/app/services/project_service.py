@@ -124,7 +124,7 @@ class ProjectService:
             await pool.release(conn)
         return self._row_to_project(row, file_rows)
 
-    async def list_all(self, user_id: UUID | None = None) -> list[ProjectSummary]:
+    async def list_all(self, user_id: UUID | None = None, limit: int = 50, offset: int = 0) -> list[ProjectSummary]:
         pool = get_pool()
         conn = await acquire_with_retry(pool)
         try:
@@ -138,8 +138,9 @@ class ProjectService:
                 WHERE ($1::uuid IS NULL OR p.user_id = $1)
                 GROUP BY p.id
                 ORDER BY p.updated_at DESC
+                LIMIT $2 OFFSET $3
                 """,
-                user_id,
+                user_id, limit, offset,
             )
         finally:
             await pool.release(conn)
@@ -341,14 +342,15 @@ class ProjectService:
 
     # ── Chat messages ───────────────────────────────────────────
 
-    async def get_chat_messages(self, project_id: UUID) -> list[ChatMessageSchema]:
+    async def get_chat_messages(self, project_id: UUID, limit: int = 100, offset: int = 0) -> list[ChatMessageSchema]:
         pool = get_pool()
         conn = await acquire_with_retry(pool)
         try:
             rows = await conn.fetch(
                 "SELECT id, project_id, role, content, files, created_at "
-                "FROM chat_messages WHERE project_id = $1 ORDER BY created_at",
-                project_id,
+                "FROM chat_messages WHERE project_id = $1 "
+                "ORDER BY created_at LIMIT $2 OFFSET $3",
+                project_id, limit, offset,
             )
         finally:
             await pool.release(conn)

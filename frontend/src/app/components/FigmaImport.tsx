@@ -14,6 +14,7 @@ export default function FigmaImport({ onImportComplete, variant = "landing" }: F
   const [accessToken, setAccessToken] = useState("");
   const [importing, setImporting] = useState(false);
   const [errorMsg, setErrorMsg] = useState<string | null>(null);
+  const [showModal, setShowModal] = useState(false);
   const { showToast } = useToast();
 
   const handleUrlImport = async () => {
@@ -36,7 +37,7 @@ export default function FigmaImport({ onImportComplete, variant = "landing" }: F
       const msg = err instanceof Error ? err.message : "Import failed";
       setErrorMsg(msg);
       // Check if it's a rate limit error with retry info
-      const retryAfter = (err as any)?.retryAfter;
+      const retryAfter = (err as { retryAfter?: number })?.retryAfter;
       if (retryAfter && retryAfter > 0) {
         const mins = Math.floor(retryAfter / 60);
         const secs = retryAfter % 60;
@@ -103,8 +104,6 @@ export default function FigmaImport({ onImportComplete, variant = "landing" }: F
   }
 
   // ── Toolbar variant (icon button opens URL import modal) ─────
-
-  const [showModal, setShowModal] = useState(false);
 
   return (
     <>

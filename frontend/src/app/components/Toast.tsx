@@ -95,9 +95,15 @@ export function ToastProvider({ children }: { children: ReactNode }) {
             className={`
               pointer-events-auto flex items-center gap-2.5 px-3.5 py-2.5 rounded-lg shadow-lg border
               animate-slide-in-right max-w-sm
-              ${toast.type === "success" ? "bg-green-900/90 border-green-700 text-green-100" : ""}
-              ${toast.type === "error" ? "bg-red-900/90 border-red-700 text-red-100" : ""}
-              ${toast.type === "info" ? "bg-blue-900/90 border-blue-700 text-blue-100" : ""}
+              ${toast.type === "success"
+                ? "bg-green-500/10 border-green-500/30 text-green-700 dark:bg-green-900/90 dark:border-green-700 dark:text-green-100"
+                : ""}
+              ${toast.type === "error"
+                ? "bg-red-500/10 border-red-500/30 text-red-700 dark:bg-red-900/90 dark:border-red-700 dark:text-red-100"
+                : ""}
+              ${toast.type === "info"
+                ? "bg-blue-500/10 border-blue-500/30 text-blue-700 dark:bg-blue-900/90 dark:border-blue-700 dark:text-blue-100"
+                : ""}
             `}
           >
             {ICONS[toast.type]}

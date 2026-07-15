@@ -34,7 +34,7 @@ class ProjectFile(BaseModel):
     """A single file within a sandbox project."""
 
     path: str = Field(..., max_length=512, description="Relative path, e.g. 'index.html' or 'src/app.js'")
-    content: str = ""
+    content: str = Field("", max_length=1_000_000, description="File content (max 1MB)")
     file_type: FileType = FileType.other
 
 
@@ -79,7 +79,7 @@ class SandboxFileUpdate(BaseModel):
     """Payload to upsert a file in the sandbox."""
 
     path: str = Field(..., max_length=512)
-    content: str
+    content: str = Field(..., max_length=1_000_000)
 
 
 class SandboxState(BaseModel):
@@ -115,60 +115,6 @@ class DesignUploadResponse(BaseModel):
     project_id: UUID
     message: str
     files: list[ProjectFile] = []
-
-
-# ── Design Upload (Two-Stage Pipeline) ──────────────────────
-
-
-class DesignElement(BaseModel):
-    """A single visual element in a design spec."""
-
-    type: str = Field(..., description="Element type: heading, paragraph, button, image, icon, card, input, nav, container, divider, list, video, map, form, badge, avatar, progress, chart, table, modal, tooltip, accordion, carousel, tabs, breadcrumb, pagination, sidebar, header, footer, hero, section, wrapper")
-    text: str = ""
-    x: int = 0
-    y: int = 0
-    w: int = 0
-    h: int = 0
-    color: str = ""
-    bg: str = ""
-    font_family: str = ""
-    font_size: int = 0
-    font_weight: int = 0
-    text_align: str = "left"
-    border_radius: int = 0
-    opacity: float = 1.0
-    children: list[DesignElement] = []
-
-
-# Rebuild DesignElement to resolve the self-referencing forward reference
-DesignElement.model_rebuild()
-
-
-class DesignSection(BaseModel):
-    """A section of the design (hero, features, footer, etc.)."""
-
-    type: str = Field(..., description="Section type: hero, features, pricing, testimonials, footer, header, sidebar, content, form, gallery, stats, cta, faq, contact, team, blog, portfolio, logo-cloud, comparison, timeline, steps, banner, popup, splash, dashboard, settings, profile, search, cart, checkout, product, listing, detail, landing")
-    x: int = 0
-    y: int = 0
-    w: int = 0
-    h: int = 0
-    bg: str = ""
-    columns: int = 1
-    elements: list[DesignElement] = []
-
-
-class DesignSpec(BaseModel):
-    """Structured design specification produced by the vision model.
-
-    This is the intermediate output of Stage 1 (vision model analysis).
-    Stage 2 (main code generation model) consumes this to produce full HTML/CSS/JS.
-    """
-
-    layout: str = Field("", description="Overall layout type: centered single column, full-width, sidebar left, sidebar right, grid, dashboard, landing page, application, marketing page, blog, e-commerce, portfolio, documentation, landing, splash, coming-soon, error-page, minimal, magazine, card-based, split-screen, overlapping, asymmetric, experimental")
-    width: int = 0
-    colors: dict[str, str] = Field(default_factory=dict, description="Color palette: keys like bg, primary, secondary, text, accent, muted, success, warning, error, info, border, surface")
-    fonts: list[dict[str, Any]] = Field(default_factory=list, description="Font families and sizes used")
-    sections: list[DesignSection] = []
 
 
 # ── Figma ──────────────────────────────────────────────────

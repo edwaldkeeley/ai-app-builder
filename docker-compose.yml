@@ -46,6 +46,7 @@ services:
       DESIGN_UPLOAD_MODEL: "${DESIGN_UPLOAD_MODEL}"
       FIGMA_CLIENT_ID: "${FIGMA_CLIENT_ID}"
       FIGMA_CLIENT_SECRET: "${FIGMA_CLIENT_SECRET}"
+      SECRET_KEY: "${SECRET_KEY}"
 
   frontend:
     build:

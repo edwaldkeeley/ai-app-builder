@@ -22,7 +22,8 @@ from typing import Any, AsyncIterator
 import httpx
 
 from app.config import settings
-from app.models.schemas import DesignSpec, FileType, ProjectFile
+from app.models.schemas import FileType, ProjectFile
+from app.services.utils import parse_retry_after
 
 logger = logging.getLogger(__name__)
 # Ensure logger output is visible — uvicorn's log config may not capture app.* loggers
@@ -242,40 +243,6 @@ _FIGMA_SYSTEM_PROMPT = (
 )
 
 
-def _parse_retry_after(response: httpx.Response, default: int = 10) -> int:
-    """Parse the Retry-After header from a 429 response.
-
-    Handles both integer seconds (``Retry-After: 120``) and HTTP-date
-    (``Retry-After: Fri, 31 Dec 2021 23:59:59 GMT``) formats per RFC 7231.
-
-    Falls back to the response body's ``retry_after`` / ``Retry-After`` fields,
-    then to the provided ``default``.
-    Capped at 120 seconds to avoid bogus values.
-    """
-    header = response.headers.get("Retry-After")
-    if header:
-        # Try integer seconds first
-        try:
-            return min(int(header), 120)
-        except ValueError:
-            pass
-        # Try HTTP-date format
-        try:
-            parsed = datetime.strptime(header, "%a, %d %b %Y %H:%M:%S %Z")
-            now = datetime.now(timezone.utc)
-            wait = (parsed.replace(tzinfo=timezone.utc) - now).total_seconds()
-            if wait > 0:
-                return min(int(wait), 120)
-        except ValueError:
-            pass
-    # Try to parse from response body
-    try:
-        body = response.json()
-        val = body.get("retry_after", body.get("Retry-After", default))
-        return min(int(val), 120)
-    except Exception:
-        return default
-
 
 def _build_payload(
     prompt: str,
@@ -455,13 +422,6 @@ def _parse_final_json(
 
     try:
         parsed = json.loads(json_candidate)
-    except json.JSONDecodeError:
-        # Fallback: extract code blocks from markdown
-        logger.warning("JSON parsing failed, falling back to markdown code block extraction")
-        blocks = _extract_code_blocks(content)
-        if blocks:
-            return _code_blocks_to_files(content, blocks, existing_files)
-        raise
     except json.JSONDecodeError:
         # Fallback: extract code blocks from markdown
         logger.warning("JSON parsing failed, falling back to markdown code block extraction")
@@ -649,86 +609,6 @@ def _try_parse_json(content: str) -> dict | None:
     return None
 
 
-def _coerce_design_spec_types(obj: Any) -> Any:
-    """Coerce string values to their expected numeric types in a DesignSpec dict.
-
-    The vision model often outputs string values like ``"24px"``, ``"700"``,
-    ``"bold"``, ``"1"`` for fields that should be ``int`` or ``float``.
-    This walks the parsed dict and converts values to appropriate types.
-    """
-    if isinstance(obj, dict):
-        numeric_int_fields = {"x", "y", "w", "h", "font_size", "font_weight",
-                              "border_radius", "columns", "width"}
-        numeric_float_fields = {"opacity"}
-
-        for key, value in obj.items():
-            if isinstance(value, str):
-                # Strip px, %, em, rem suffixes for size/dimension fields
-                if key in numeric_int_fields:
-                    cleaned = value.lower().replace("px", "").replace("%", "").replace("em", "").replace("rem", "")
-                    try:
-                        obj[key] = int(float(cleaned))
-                    except (ValueError, TypeError):
-                        pass  # Keep original string if conversion fails
-                elif key in numeric_float_fields:
-                    try:
-                        obj[key] = float(value)
-                    except (ValueError, TypeError):
-                        pass
-                elif key == "font_weight":
-                    # Map common font-weight keywords to numeric values
-                    weight_map = {
-                        "thin": 100, "extralight": 200, "light": 300,
-                        "normal": 400, "regular": 400,
-                        "medium": 500, "semibold": 600, "bold": 700,
-                        "extrabold": 800, "black": 900,
-                    }
-                    lower = value.lower().strip()
-                    if lower in weight_map:
-                        obj[key] = weight_map[lower]
-            elif isinstance(value, list):
-                obj[key] = [_coerce_design_spec_types(item) for item in value]
-            elif isinstance(value, dict):
-                obj[key] = _coerce_design_spec_types(value)
-
-    elif isinstance(obj, list):
-        return [_coerce_design_spec_types(item) for item in obj]
-
-    return obj
-
-
-def _parse_design_spec_response(content: str) -> DesignSpec:
-    """Parse the vision model's JSON response into a DesignSpec.
-
-    Handles markdown-wrapped JSON, trailing commas, missing commas, and other
-    common LLM JSON issues. Extracts the first JSON object robustly.
-    """
-    # Strip markdown code block if present
-    content = re.sub(r"^```(?:json)?\s*", "", content.strip())
-    content = re.sub(r"\s*```$", "", content)
-
-    # Find the first '{' and last '}' to extract JSON robustly
-    first_brace = content.find("{")
-    last_brace = content.rfind("}")
-    if first_brace != -1 and last_brace != -1 and last_brace > first_brace:
-        content = content[first_brace : last_brace + 1]
-
-    parsed = _try_parse_json(content)
-    if parsed is None:
-        logger.error(
-            "All JSON parsing strategies failed for design spec. "
-            "Full content: %s", content,
-        )
-        raise ValueError("Failed to parse design spec JSON after all repair attempts")
-
-    # Coerce string values to expected numeric types (vision model often
-    # outputs "24px", "700", "bold" instead of 24, 700, etc.)
-    parsed = _coerce_design_spec_types(parsed)
-
-    # Convert raw dicts to DesignSpec (handles nested DesignElement/DesignSection)
-    return DesignSpec.model_validate(parsed)
-
-
 def _build_design_code_prompt(design_description: str, user_prompt: str = "") -> str:
     """Build a prompt for the main code generation model from a design description.
 
@@ -765,45 +645,6 @@ def _build_design_code_prompt(design_description: str, user_prompt: str = "") ->
     lines.append("- Include hover effects on buttons and links where described")
 
     return "\n".join(lines)
-
-    return "\n".join(lines)
-
-
-def _format_element_for_prompt(lines: list[str], elem: DesignSpec | None = None, indent: int = 0, **kwargs) -> None:
-    """Format a design element for the prompt."""
-    # Handle both DesignElement objects and raw dicts
-    if elem is not None:
-        pass  # use elem
-    elif "element" in kwargs:
-        elem = kwargs["element"]
-    else:
-        return
-
-    prefix = "  " * indent
-    parts = [f"{prefix}[{elem.type}]"]
-    if elem.text:
-        parts.append(f'"{elem.text[:60]}"')
-    parts.append(f"@({elem.x},{elem.y}) {elem.w}x{elem.h}")
-    if elem.color:
-        parts.append(f"color:{elem.color}")
-    if elem.bg:
-        parts.append(f"bg:{elem.bg}")
-    if elem.font_family:
-        parts.append(f"font:{elem.font_family}")
-    if elem.font_size:
-        parts.append(f"size:{elem.font_size}")
-    if elem.font_weight:
-        parts.append(f"weight:{elem.font_weight}")
-    if elem.text_align and elem.text_align != "left":
-        parts.append(f"align:{elem.text_align}")
-    if elem.border_radius:
-        parts.append(f"radius:{elem.border_radius}")
-    if elem.opacity < 1.0:
-        parts.append(f"opacity:{elem.opacity}")
-    lines.append(" ".join(parts))
-
-    for child in elem.children:
-        _format_element_for_prompt(lines, child, indent + 1)
 
 
 class HttpAIProvider(BaseAIProvider):
@@ -876,7 +717,7 @@ class HttpAIProvider(BaseAIProvider):
             if response.status_code == 404:
                 raise RuntimeError(f"AI provider endpoint not found (404). Check your TARGET_URL.")
             if response.status_code == 429:
-                wait = _parse_retry_after(response)
+                wait = parse_retry_after(response)
                 if attempt >= max_retries:
                     raise RateLimitError(
                         retry_after=wait,
@@ -991,7 +832,7 @@ class HttpAIProvider(BaseAIProvider):
                 async with client.stream("POST", self._target_url, json=payload, headers=headers) as response:
 
                     if response.status_code == 429:
-                        wait = _parse_retry_after(response)
+                        wait = parse_retry_after(response)
                         if attempt >= max_retries:
                             raise RateLimitError(
                                 retry_after=wait,
@@ -1132,7 +973,7 @@ class StreamingHttpAIProvider(BaseAIProvider):
                     if response.status_code == 404:
                         raise RuntimeError(f"AI provider endpoint not found (404). Check your TARGET_URL.")
                     if response.status_code == 429:
-                        wait = _parse_retry_after(response)
+                        wait = parse_retry_after(response)
                         if attempt >= max_retries:
                             raise RateLimitError(
                                 retry_after=wait,

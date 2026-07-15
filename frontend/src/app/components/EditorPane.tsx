@@ -6,6 +6,7 @@ import type { editor } from "monaco-editor";
 import type { ProjectFile } from "../lib/types";
 import { SkeletonEditor } from "./Skeleton";
 import { useToast } from "./Toast";
+import { useTheme } from "../contexts/ThemeContext";
 
 interface EditorPaneProps {
   files: ProjectFile[];
@@ -42,6 +43,7 @@ export default function EditorPane({
   const [editorReady, setEditorReady] = useState(false);
   const newFileInputRef = useRef<HTMLInputElement>(null);
   const { showToast } = useToast();
+  const { theme } = useTheme();
 
   // Keep refs in sync with props
   useEffect(() => {
@@ -238,7 +240,7 @@ export default function EditorPane({
             value={activeFile?.content ?? ""}
             onChange={handleChange}
             onMount={handleEditorDidMount}
-            theme="vs-dark"
+            theme={theme === "dark" ? "vs-dark" : "vs"}
             options={{
               fontSize: 13,
               fontFamily: "var(--font-geist-mono), monospace",

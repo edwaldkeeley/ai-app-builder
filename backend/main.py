@@ -11,9 +11,12 @@ or from the project root::
 
 from __future__ import annotations
 
+import logging
 import sys
 from contextlib import asynccontextmanager
 from pathlib import Path
+
+logger = logging.getLogger(__name__)
 
 from fastapi import FastAPI
 from fastapi.middleware.cors import CORSMiddleware
@@ -53,16 +56,16 @@ async def lifespan(app: FastAPI):
         provider = create_provider()
         ai.set_dependencies(provider, svc)
         app.state.ai_provider = provider
-        print(f"  [AI] Provider configured: {settings.model}")
+        logger.info(f"  [AI] Provider configured: {settings.model}")
     except ValueError as e:
-        print(f"  [AI] {e}")
-        print(f"  [AI] AI generation endpoint will return 503 until configured.")
+        logger.info(f"  [AI] {e}")
+        logger.info(f"  [AI] AI generation endpoint will return 503 until configured.")
 
     # Initialise Figma service (stateless — no OAuth tokens)
     figma_svc = FigmaService()
     figma.set_dependencies(figma_svc, provider, svc)
     app.state.figma_service = figma_svc
-    print(f"  [Figma] URL import available (requires personal access token)")
+    logger.info(f"  [Figma] URL import available (requires personal access token)")
 
     # Initialise upload service
     upload.set_dependencies(provider, svc)
@@ -70,22 +73,22 @@ async def lifespan(app: FastAPI):
     if settings.design_upload_target_url or settings.design_upload_jwt_token or settings.design_upload_model:
         vision_provider = create_design_upload_provider()
         upload.set_vision_provider(vision_provider)
-        print(f"  [Upload] Design upload using separate vision provider")
+        logger.info(f"  [Upload] Design upload using separate vision provider")
         if not settings.design_upload_target_url:
-            print(f"    DESIGN_UPLOAD_TARGET_URL not set — falling back to TARGET_URL")
+            logger.info(f"    DESIGN_UPLOAD_TARGET_URL not set — falling back to TARGET_URL")
         if not settings.design_upload_jwt_token:
-            print(f"    DESIGN_UPLOAD_JWT_TOKEN not set — falling back to JWT_TOKEN")
+            logger.info(f"    DESIGN_UPLOAD_JWT_TOKEN not set — falling back to JWT_TOKEN")
         if not settings.design_upload_model:
-            print(f"    DESIGN_UPLOAD_MODEL not set — falling back to MODEL")
+            logger.info(f"    DESIGN_UPLOAD_MODEL not set — falling back to MODEL")
     else:
-        print(f"  [Upload] Design upload available (max {settings.max_upload_size_mb} MB) (using main AI provider)")
+        logger.info(f"  [Upload] Design upload available (max {settings.max_upload_size_mb} MB) (using main AI provider)")
 
-    print(f"  [START] {settings.app_name} running at http://{settings.host}:{settings.port}")
-    print(f"  [DB] Connected to PostgreSQL")
+    logger.info(f"  [START] {settings.app_name} running at http://{settings.host}:{settings.port}")
+    logger.info(f"  [DB] Connected to PostgreSQL")
     yield
     # ── Shutdown ───────────────────────────────────────────
     await close_pool()
-    print("  [DB] Connection pool closed.")
+    logger.info("  [DB] Connection pool closed.")
 
 
 app = FastAPI(

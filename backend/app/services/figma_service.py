@@ -23,6 +23,7 @@ import asyncpg
 import httpx
 
 from app.db.database import acquire_with_retry, get_pool
+from app.services.utils import parse_retry_after
 
 logger = logging.getLogger(__name__)
 
@@ -40,34 +41,6 @@ _FIGMA_CACHE_TTL = 43200  # 12 hours
 _last_request_time: float = 0
 _MIN_REQUEST_INTERVAL = 2.0  # minimum 2 seconds between requests
 
-
-def _parse_retry_after(response: httpx.Response, default: int = 10) -> int:
-    """Parse the Retry-After header from a 429 response.
-
-    Handles both integer seconds and HTTP-date formats per RFC 7231.
-    Falls back to the response body, then to ``default``.
-    Capped at 120 seconds to avoid bogus values.
-    """
-    header = response.headers.get("Retry-After")
-    if header:
-        try:
-            return min(int(header), 120)
-        except ValueError:
-            pass
-        try:
-            parsed = datetime.strptime(header, "%a, %d %b %Y %H:%M:%S %Z")
-            now = datetime.now(timezone.utc)
-            wait = (parsed.replace(tzinfo=timezone.utc) - now).total_seconds()
-            if wait > 0:
-                return min(int(wait), 120)
-        except ValueError:
-            pass
-    try:
-        body = response.json()
-        val = body.get("retry_after", body.get("Retry-After", default))
-        return min(int(val), 120)
-    except Exception:
-        return default
 
 
 class FigmaApiError(RuntimeError):
@@ -244,7 +217,7 @@ class FigmaService:
                 response = await client.request(method, url, headers=headers)
 
             if response.status_code == 429:
-                wait = _parse_retry_after(response)
+                wait = parse_retry_after(response)
                 # Fail fast — don't retry, just tell the user to wait
                 raise FigmaRateLimitError(
                     retry_after=wait,

@@ -51,7 +51,7 @@ def _set_auth_cookie(response: Response, token: str) -> None:
         key=COOKIE_KEY,
         value=token,
         httponly=True,
-        secure=False,  # True in production
+        secure=not settings.debug,  # True in production (when DEBUG=False)
         samesite="lax",
         path="/",
         max_age=settings.access_token_expire_minutes * 60,

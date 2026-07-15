@@ -90,10 +90,20 @@ export default function ChatPanel({
   const [value, setValue] = useState("");
   const textareaRef = useRef<HTMLTextAreaElement>(null);
   const bottomRef = useRef<HTMLDivElement>(null);
+  const userScrolledUp = useRef(false);
 
-  // Auto-scroll to bottom on new messages
+  // Track whether user has scrolled up
+  const handleScroll = (e: React.UIEvent<HTMLDivElement>) => {
+    const el = e.currentTarget;
+    const isAtBottom = el.scrollHeight - el.scrollTop - el.clientHeight < 100;
+    userScrolledUp.current = !isAtBottom;
+  };
+
+  // Auto-scroll to bottom on new messages (only if user hasn't scrolled up)
   useEffect(() => {
-    bottomRef.current?.scrollIntoView({ behavior: "smooth" });
+    if (!userScrolledUp.current) {
+      bottomRef.current?.scrollIntoView({ behavior: "smooth" });
+    }
   }, [messages]);
 
   // Auto-resize textarea
@@ -132,7 +142,7 @@ export default function ChatPanel({
       </div>
 
       {/* Messages */}
-      <div className="flex-1 overflow-y-auto px-3 py-4 space-y-4" role="log" aria-live="polite" aria-label="Chat messages">
+      <div className="flex-1 overflow-y-auto px-3 py-4 space-y-4" role="log" aria-live="polite" aria-label="Chat messages" onScroll={handleScroll}>
         {messages.length === 0 ? (
           <div className="flex flex-col items-center justify-center h-full text-center px-4">
             <div className="w-10 h-10 rounded-full bg-accent/10 flex items-center justify-center mb-3">
