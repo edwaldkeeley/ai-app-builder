@@ -27,6 +27,8 @@ interface SidebarProps {
   isMobile?: boolean;
   showMobileSidebar?: boolean;
   onCloseMobileSidebar?: () => void;
+  onFigmaImportComplete?: (projectId: string) => void;
+  onDesignUploadComplete?: (projectId: string) => void;
 }
 
 export default function Sidebar({
@@ -47,6 +49,8 @@ export default function Sidebar({
   isMobile,
   showMobileSidebar,
   onCloseMobileSidebar,
+  onFigmaImportComplete,
+  onDesignUploadComplete,
 }: SidebarProps) {
   const [collapsed, setCollapsed] = useState(false);
   const [confirmDelete, setConfirmDelete] = useState<string | null>(null);
@@ -197,15 +201,16 @@ export default function Sidebar({
           </button>
         </div>
         {/* Chat panel fills the rest */}
-        <div className="flex-1 flex flex-col min-h-0">
-          <ChatPanel
-            messages={chatMessages}
-            onSend={onSendPrompt}
-            disabled={false}
-            generating={generating}
-            writingStatus={writingStatus}
-          />
-        </div>
+        <ChatPanel
+          messages={chatMessages}
+          onSend={onSendPrompt}
+          disabled={false}
+          generating={generating}
+          writingStatus={writingStatus}
+          projectId={activeProjectId}
+          onFigmaImportComplete={onFigmaImportComplete}
+          onDesignUploadComplete={onDesignUploadComplete}
+        />
         {/* Theme toggle */}
         <div className="border-t border-border p-2">
           <button

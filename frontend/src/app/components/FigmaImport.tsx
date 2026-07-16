@@ -6,7 +6,7 @@ import { useToast } from "./Toast";
 
 interface FigmaImportProps {
   onImportComplete?: (projectId: string) => void;
-  variant?: "landing" | "toolbar";
+  variant?: "landing" | "toolbar" | "inline";
 }
 
 export default function FigmaImport({ onImportComplete, variant = "landing" }: FigmaImportProps) {
@@ -110,6 +110,62 @@ export default function FigmaImport({ onImportComplete, variant = "landing" }: F
             )}
           </button>
         </div>
+      </div>
+    );
+  }
+
+  // ── Inline variant (compact, for popup menu) ──────────────
+
+  if (variant === "inline") {
+    return (
+      <div className="p-3 space-y-2">
+        <div className="flex items-center gap-2">
+          <svg className="w-4 h-4 text-accent flex-shrink-0" viewBox="0 0 24 24" fill="currentColor">
+            <path d="M12 2C6.477 2 2 6.477 2 12s4.477 10 10 10 10-4.477 10-10S17.523 2 12 2zm0 18a8 8 0 110-16 8 8 0 010 16zm1-12h-2v4H7v2h4v4h2v-4h4v-2h-4V8z" />
+          </svg>
+          <span className="text-xs font-semibold text-foreground">Figma Import</span>
+        </div>
+        <input
+          type="text"
+          value={figmaUrl}
+          onChange={(e) => setFigmaUrl(e.target.value)}
+          placeholder="Figma URL"
+          className="w-full bg-input border border-border rounded-lg px-2.5 py-1.5 text-xs text-foreground placeholder-text-secondary outline-none focus:border-accent/50"
+        />
+        <div className="relative">
+          <input
+            type="password"
+            value={accessToken}
+            onChange={(e) => setAccessToken(e.target.value)}
+            placeholder="Personal access token"
+            className="w-full bg-input border border-border rounded-lg px-2.5 py-1.5 text-xs text-foreground placeholder-text-secondary outline-none focus:border-accent/50 pr-16"
+          />
+          <a
+            href="https://www.figma.com/settings"
+            target="_blank"
+            rel="noopener noreferrer"
+            className="absolute right-2 top-1/2 -translate-y-1/2 text-[10px] text-accent hover:text-accent-hover underline"
+          >
+            Get token
+          </a>
+        </div>
+        {errorMsg && (
+          <p className="text-[10px] text-danger">{errorMsg}</p>
+        )}
+        <button
+          onClick={handleUrlImport}
+          disabled={!figmaUrl.trim() || !accessToken.trim() || importing}
+          className="w-full px-2.5 py-1.5 text-xs font-medium rounded-lg bg-accent text-white hover:bg-accent-hover disabled:opacity-40 disabled:cursor-not-allowed transition-colors"
+        >
+          {importing ? (
+            <span className="flex items-center justify-center gap-1.5">
+              <div className="w-3 h-3 border-2 border-white border-t-transparent rounded-full animate-spin" />
+              Importing...
+            </span>
+          ) : (
+            "Import from Figma"
+          )}
+        </button>
       </div>
     );
   }

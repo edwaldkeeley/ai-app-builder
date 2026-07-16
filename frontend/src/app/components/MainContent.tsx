@@ -4,9 +4,9 @@ import { useState, useCallback, useRef, useEffect, useMemo } from "react";
 import type { Project, ProjectFile } from "../lib/types";
 import type { SaveStatus } from "../hooks/useFileSave";
 import EditorPane from "./EditorPane";
-import DesignUpload from "./DesignUpload";
-import FigmaImport from "./FigmaImport";
 import LiveCanvas from "./LiveCanvas";
+import FigmaImport from "./FigmaImport";
+import DesignUpload from "./DesignUpload";
 
 type ViewMode = "preview" | "code" | "split";
 
@@ -25,10 +25,10 @@ interface MainContentProps {
   showExplorer: boolean;
   onToggleExplorer: () => void;
   saveStatus?: SaveStatus;
-  onFigmaImportComplete?: (projectId: string) => void;
-  onDesignUploadComplete?: (projectId: string) => void;
   viewMode: ViewMode;
   onViewModeChange: (mode: ViewMode) => void;
+  onFigmaImportComplete?: (projectId: string) => void;
+  onDesignUploadComplete?: (projectId: string) => void;
 }
 
 const VIEW_BUTTONS: { mode: ViewMode; label: string }[] = [
@@ -52,13 +52,17 @@ export default function MainContent({
   showExplorer,
   onToggleExplorer,
   saveStatus,
-  onFigmaImportComplete,
-  onDesignUploadComplete,
   viewMode,
   onViewModeChange,
+  onFigmaImportComplete,
+  onDesignUploadComplete,
 }: MainContentProps) {
   const [promptValue, setPromptValue] = useState("");
   const promptTextareaRef = useRef<HTMLTextAreaElement>(null);
+  const [showLandingMenu, setShowLandingMenu] = useState(false);
+  const landingMenuRef = useRef<HTMLDivElement>(null);
+  const landingFigmaRef = useRef<HTMLDivElement>(null);
+  const landingDesignRef = useRef<HTMLDivElement>(null);
   const filesRef = useRef(files);
   useEffect(() => {
     filesRef.current = files;
@@ -98,6 +102,18 @@ export default function MainContent({
       el.style.height = Math.min(el.scrollHeight, 200) + "px";
     }
   }, [promptValue]);
+
+  // Close landing add menu on outside click
+  useEffect(() => {
+    if (!showLandingMenu) return;
+    const handleClick = (e: MouseEvent) => {
+      if (landingMenuRef.current && !landingMenuRef.current.contains(e.target as Node)) {
+        setShowLandingMenu(false);
+      }
+    };
+    document.addEventListener("mousedown", handleClick);
+    return () => document.removeEventListener("mousedown", handleClick);
+  }, [showLandingMenu]);
 
   const handleLandingSend = () => {
     const trimmed = promptValue.trim();
@@ -201,16 +217,6 @@ export default function MainContent({
           {/* Spacer */}
           <div className="flex-1" />
 
-          {/* Figma import (toolbar variant) */}
-          <FigmaImport variant="toolbar" onImportComplete={onFigmaImportComplete} />
-
-          {/* Design upload (toolbar variant) */}
-          <DesignUpload
-            projectId={activeProject.id}
-            variant="toolbar"
-            onUploadComplete={onDesignUploadComplete}
-          />
-
           {/* Export / Download ZIP */}
           <a
             href={`${process.env.NEXT_PUBLIC_API_URL || "http://localhost:8000"}/api/projects/${activeProject.id}/export`}
@@ -300,6 +306,51 @@ export default function MainContent({
 
         {/* Prompt input */}
         <div className="w-full flex items-end gap-2 bg-input border border-border rounded-2xl px-4 py-3 focus-within:border-accent/50 focus-within:ring-1 focus-within:ring-accent/20 transition-all">
+          <div className="relative" ref={landingMenuRef}>
+            <button
+              onClick={() => setShowLandingMenu((prev) => !prev)}
+              className="flex-shrink-0 w-8 h-8 rounded-full bg-accent/10 hover:bg-accent/20 text-accent hover:text-accent-hover flex items-center justify-center transition-colors"
+              title="Import or upload"
+              aria-label="Import or upload"
+            >
+              <svg className="w-4 h-4" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2.5}>
+                <path strokeLinecap="round" strokeLinejoin="round" d="M12 4v16m8-8H4" />
+              </svg>
+            </button>
+
+            {showLandingMenu && (
+              <div className="absolute bottom-full left-0 mb-2 w-56 bg-panel border border-border rounded-xl shadow-xl overflow-hidden z-50">
+                <div className="p-3 space-y-1">
+                  <p className="text-[11px] font-semibold text-text-secondary uppercase tracking-wider px-1 pb-1">Import</p>
+                  <button
+                    onClick={() => { setShowLandingMenu(false); landingFigmaRef.current?.querySelector("button")?.click(); }}
+                    className="w-full flex items-center gap-2.5 px-3 py-2 rounded-lg hover:bg-surface transition-colors text-left"
+                  >
+                    <svg className="w-4 h-4 text-accent flex-shrink-0" viewBox="0 0 24 24" fill="currentColor">
+                      <path d="M12 2C6.477 2 2 6.477 2 12s4.477 10 10 10 10-4.477 10-10S17.523 2 12 2zm0 18a8 8 0 110-16 8 8 0 010 16zm1-12h-2v4H7v2h4v4h2v-4h4v-2h-4V8z" />
+                    </svg>
+                    <div className="min-w-0">
+                      <div className="text-xs font-medium text-foreground">Figma Import</div>
+                      <div className="text-[10px] text-text-secondary truncate">Paste a Figma URL to generate code</div>
+                    </div>
+                  </button>
+                  <button
+                    onClick={() => { setShowLandingMenu(false); landingDesignRef.current?.querySelector("button")?.click(); }}
+                    className="w-full flex items-center gap-2.5 px-3 py-2 rounded-lg hover:bg-surface transition-colors text-left"
+                  >
+                    <svg className="w-4 h-4 text-accent flex-shrink-0" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2}>
+                      <path strokeLinecap="round" strokeLinejoin="round" d="M4 16l4.586-4.586a2 2 0 012.828 0L16 16m-2-2l1.586-1.586a2 2 0 012.828 0L20 14m-6-6h.01M6 20h12a2 2 0 002-2V6a2 2 0 00-2-2H6a2 2 0 00-2 2v12a2 2 0 002 2z" />
+                    </svg>
+                    <div className="min-w-0">
+                      <div className="text-xs font-medium text-foreground">Design Upload</div>
+                      <div className="text-[10px] text-text-secondary truncate">Upload an image to generate matching code</div>
+                    </div>
+                  </button>
+                </div>
+              </div>
+            )}
+          </div>
+
           <textarea
             ref={promptTextareaRef}
             value={promptValue}
@@ -328,23 +379,14 @@ export default function MainContent({
         <p className="text-xs text-text-secondary text-center">
           AI-generated code may not always be perfect. Review and test before using.
         </p>
+      </div>
 
-        {/* Divider */}
-        <div className="w-full flex items-center gap-3 text-xs text-text-secondary">
-          <div className="flex-1 h-px bg-border" />
-          <span>or import from</span>
-          <div className="flex-1 h-px bg-border" />
-        </div>
-
-        {/* Import options */}
-        <div className="w-full grid grid-cols-1 sm:grid-cols-2 gap-3">
-          <FigmaImport variant="landing" onImportComplete={onFigmaImportComplete} />
-          <DesignUpload
-            projectId=""
-            variant="landing"
-            onUploadComplete={onDesignUploadComplete}
-          />
-        </div>
+      {/* Hidden toolbar buttons for landing page modals */}
+      <div ref={landingFigmaRef} className="absolute -left-[9999px]" aria-hidden="true">
+        <FigmaImport variant="toolbar" onImportComplete={onFigmaImportComplete} />
+      </div>
+      <div ref={landingDesignRef} className="absolute -left-[9999px]" aria-hidden="true">
+        <DesignUpload projectId="" variant="toolbar" onUploadComplete={onDesignUploadComplete} />
       </div>
     </div>
   );

@@ -253,6 +253,8 @@ export default function Home() {
         isMobile={isMobile}
         showMobileSidebar={showMobileSidebar}
         onCloseMobileSidebar={() => setShowMobileSidebar(false)}
+        onFigmaImportComplete={handleFigmaImportComplete}
+        onDesignUploadComplete={handleDesignUploadComplete}
       />
 
       {/* File Explorer (hidden when collapsed or on mobile) */}
@@ -300,10 +302,10 @@ export default function Home() {
           showExplorer={showExplorer}
           onToggleExplorer={() => setShowExplorer((prev) => !prev)}
           saveStatus={saveStatus}
-          onFigmaImportComplete={handleFigmaImportComplete}
-          onDesignUploadComplete={handleDesignUploadComplete}
           viewMode={viewMode}
           onViewModeChange={setViewMode}
+          onFigmaImportComplete={handleFigmaImportComplete}
+          onDesignUploadComplete={handleDesignUploadComplete}
         />
       </main>
     </div>

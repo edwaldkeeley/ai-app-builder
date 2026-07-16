@@ -947,6 +947,8 @@ class StreamingHttpAIProvider(BaseAIProvider):
 
         accumulated_content = ""
         prev_message = ""
+        # Track whether we used the REST-to-SSE bridge (avoids double-emitting)
+        _bridged = False
         # Track files we've already announced so we don't repeat
         announced_files: set[str] = set()
         # Track file content we've already streamed
@@ -993,8 +995,9 @@ class StreamingHttpAIProvider(BaseAIProvider):
                     is_sse = "text/event-stream" in content_type
 
                     if not is_sse:
-                        # Regular JSON response (e.g. deepseek-v4-flash) — parse
-                        # the full response and yield as a single event
+                        # Regular JSON response (e.g. deepseek-v4-flash) —
+                        # bridge it into a simulated SSE stream by chunking
+                        # the response text word-by-word for a progressive UX.
                         body = await response.aread()
                         try:
                             data = json.loads(body)
@@ -1004,8 +1007,63 @@ class StreamingHttpAIProvider(BaseAIProvider):
 
                         if content:
                             accumulated_content = content
-                            # Stream the full message
-                            yield {"type": "message_chunk", "delta": content}
+
+                            # Parse the full JSON to extract message and files
+                            try:
+                                bridge_message, bridge_files = _parse_final_json(content, existing_files)
+                            except (json.JSONDecodeError, RuntimeError):
+                                bridge_message = content
+                                bridge_files = existing_files or []
+
+                            # Yield message text in word-by-word chunks to simulate streaming
+                            words = bridge_message.split(" ")
+                            buffer = ""
+                            for i, word in enumerate(words):
+                                if buffer:
+                                    buffer += " " + word
+                                else:
+                                    buffer = word
+                                # Yield every 3-5 words for a natural streaming feel
+                                if (i + 1) % 4 == 0 or i == len(words) - 1:
+                                    yield {"type": "message_chunk", "delta": buffer}
+                                    buffer = ""
+                                    await asyncio.sleep(0.015)
+
+                            # Yield any remaining buffered words
+                            if buffer:
+                                yield {"type": "message_chunk", "delta": buffer}
+
+                            # Yield file events
+                            for f in bridge_files:
+                                yield {
+                                    "type": "file_start",
+                                    "path": f.path,
+                                    "file_type": f.file_type.value,
+                                }
+                                # Chunk file content too if it's large
+                                file_content = f.content
+                                if len(file_content) > 500:
+                                    chunk_size = 200
+                                    for i in range(0, len(file_content), chunk_size):
+                                        yield {
+                                            "type": "file_chunk",
+                                            "path": f.path,
+                                            "delta": file_content[i:i + chunk_size],
+                                        }
+                                        await asyncio.sleep(0.01)
+                                else:
+                                    yield {
+                                        "type": "file_chunk",
+                                        "path": f.path,
+                                        "delta": file_content,
+                                    }
+                                yield {"type": "file_done", "path": f.path}
+
+                            # Set prev_message so the post-stream parsing doesn't
+                            # re-emit the message as a corrective delta
+                            prev_message = bridge_message
+                            _bridged = True
+
                         break  # Exit the streaming loop — we have the full response
 
                     # Read SSE stream
@@ -1115,6 +1173,10 @@ class StreamingHttpAIProvider(BaseAIProvider):
                 raise
             finally:
                 await client.aclose()
+
+        # If we used the REST-to-SSE bridge, all events were already yielded
+        if _bridged:
+            return
 
         # After the stream ends, parse the full accumulated content
         try:

@@ -7,7 +7,7 @@ import { useToast } from "./Toast";
 interface DesignUploadProps {
   projectId?: string;
   onUploadComplete?: (projectId: string) => void;
-  variant?: "landing" | "toolbar";
+  variant?: "landing" | "toolbar" | "inline";
 }
 
 const ALLOWED_TYPES = ["image/png", "image/jpeg", "image/jpg", "image/webp", "image/gif", "image/bmp"];
@@ -80,6 +80,57 @@ export default function DesignUpload({ projectId, onUploadComplete, variant = "l
       setUploading(false);
     }
   };
+
+  // ── Inline variant (compact, for popup menu) ──────────────
+
+  if (variant === "inline") {
+    return (
+      <div className="p-3 space-y-2">
+        <div className="flex items-center gap-2">
+          <svg className="w-4 h-4 text-accent flex-shrink-0" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2}>
+            <path strokeLinecap="round" strokeLinejoin="round" d="M4 16l4.586-4.586a2 2 0 012.828 0L16 16m-2-2l1.586-1.586a2 2 0 012.828 0L20 14m-6-6h.01M6 20h12a2 2 0 002-2V6a2 2 0 00-2-2H6a2 2 0 00-2 2v12a2 2 0 002 2z" />
+          </svg>
+          <span className="text-xs font-semibold text-foreground">Design Upload</span>
+        </div>
+        <input
+          ref={fileInputRef}
+          type="file"
+          accept="image/png,image/jpeg,image/jpg,image/webp,image/gif,image/bmp"
+          onChange={handleFileSelect}
+          className="w-full text-xs text-foreground file:mr-2 file:py-1 file:px-2.5 file:rounded-lg file:border-0 file:text-xs file:font-medium file:bg-accent file:text-white hover:file:bg-accent-hover file:cursor-pointer"
+        />
+        {previewUrl && (
+          <div className="relative w-full h-24 rounded-lg overflow-hidden border border-border bg-background">
+            <img src={previewUrl} alt="Design preview" className="w-full h-full object-contain" />
+          </div>
+        )}
+        <input
+          type="text"
+          value={promptText}
+          onChange={(e) => setPromptText(e.target.value)}
+          placeholder="Optional prompt..."
+          className="w-full bg-input border border-border rounded-lg px-2.5 py-1.5 text-xs text-foreground placeholder-text-secondary outline-none focus:border-accent/50"
+        />
+        {errorMsg && (
+          <p className="text-[10px] text-danger">{errorMsg}</p>
+        )}
+        <button
+          onClick={handleUpload}
+          disabled={!selectedFile || uploading}
+          className="w-full px-2.5 py-1.5 text-xs font-medium rounded-lg bg-accent text-white hover:bg-accent-hover disabled:opacity-40 disabled:cursor-not-allowed transition-colors"
+        >
+          {uploading ? (
+            <span className="flex items-center justify-center gap-1.5">
+              <div className="w-3 h-3 border-2 border-white border-t-transparent rounded-full animate-spin" />
+              Generating...
+            </span>
+          ) : (
+            "Generate from Image"
+          )}
+        </button>
+      </div>
+    );
+  }
 
   // ── Toolbar variant (icon button opens modal) ─────
 

@@ -12,6 +12,8 @@ const eslintConfig = defineConfig([
     "out/**",
     "build/**",
     "next-env.d.ts",
+    // Test files — linted separately via ts-jest
+    "src/__tests__/**",
   ]),
 ]);
 
