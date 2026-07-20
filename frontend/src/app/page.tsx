@@ -91,6 +91,7 @@ export default function Home() {
       setIsMobile(mobile);
       if (mobile) {
         setShowExplorer(false);
+        setShowMobileSidebar(false);
       }
     };
     checkWidth();
@@ -132,13 +133,17 @@ export default function Home() {
     },
     onToggleSidebar: () => {
       if (isMobile) {
-        setShowMobileSidebar((prev) => !prev);
+        setShowMobileSidebar((prev) => {
+          if (!prev) setShowExplorer(false); // opening sidebar → close explorer
+          return !prev;
+        });
       }
     },
     onToggleExplorer: () => {
-      if (!isMobile) {
-        setShowExplorer((prev) => !prev);
-      }
+      setShowExplorer((prev) => {
+        if (!prev && isMobile) setShowMobileSidebar(false); // opening explorer → close sidebar
+        return !prev;
+      });
     },
     onNewProject: () => {
       handleCreateProject();
@@ -257,8 +262,8 @@ export default function Home() {
         onDesignUploadComplete={handleDesignUploadComplete}
       />
 
-      {/* File Explorer (hidden when collapsed or on mobile) */}
-      {activeProject && showExplorer && !isMobile && (
+      {/* File Explorer (hidden when collapsed) */}
+      {activeProject && showExplorer && (
         <FileExplorer
           key={activeProjectId}
           files={files}
@@ -270,14 +275,19 @@ export default function Home() {
           dirtyFiles={dirtyFiles}
           loading={loading}
           isMobile={isMobile}
+          onToggleCollapse={() => setShowExplorer(false)}
         />
       )}
 
       {/* Mobile hamburger button */}
       {isMobile && !showMobileSidebar && (
         <button
-          onClick={() => setShowMobileSidebar(true)}
-          className="fixed top-3 left-3 z-30 p-2 rounded-lg bg-surface border border-border shadow-lg text-foreground hover:bg-sidebar transition-colors"
+          onClick={() => {
+            setShowMobileSidebar(true);
+            setShowExplorer(false);
+          }}
+          className="fixed top-3 left-3 z-30 p-2 rounded-lg bg-surface border border-border shadow-lg text-foreground hover:bg-sidebar transition-colors touch-target"
+          style={{ top: "calc(12px + env(safe-area-inset-top, 0px))" }}
           aria-label="Open sidebar"
         >
           <svg className="w-5 h-5" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2}>
@@ -306,6 +316,7 @@ export default function Home() {
           onViewModeChange={setViewMode}
           onFigmaImportComplete={handleFigmaImportComplete}
           onDesignUploadComplete={handleDesignUploadComplete}
+          isMobile={isMobile}
         />
       </main>
     </div>

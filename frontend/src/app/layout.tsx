@@ -20,6 +20,11 @@ export const metadata: Metadata = {
   description: "AI-powered design-to-code platform. Generate, edit, and preview web projects.",
 };
 
+export const viewport = {
+  width: "device-width",
+  initialScale: 1,
+};
+
 export default function RootLayout({
   children,
 }: Readonly<{

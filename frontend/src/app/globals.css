@@ -50,8 +50,13 @@ body {
   font-family: var(--font-sans, Arial, Helvetica, sans-serif);
 }
 
-/* Smooth theme transitions */
+/* Match html background to body to prevent dark flash on mobile */
 html {
+  background-color: var(--background);
+}
+
+/* Smooth theme transitions */
+html.theme-transitioning {
   transition: background-color 0.2s ease, color 0.2s ease;
 }
 
@@ -105,4 +110,47 @@ html {
 /* Remove default focus outlines — components handle their own focus styling */
 *:focus {
   outline: none;
+}
+
+/* Mobile touch improvements */
+html {
+  -webkit-tap-highlight-color: transparent;
+  -webkit-text-size-adjust: 100%;
+}
+
+/* Prevent overscroll/bounce on scrollable containers */
+.overscroll-contain {
+  overscroll-behavior: contain;
+}
+
+/* Optimize touch targets for interactive elements */
+button,
+a,
+input,
+select,
+textarea,
+[role="button"] {
+  touch-action: manipulation;
+}
+
+/* Thicker scrollbar for touch devices */
+@media (pointer: coarse) {
+  ::-webkit-scrollbar {
+    width: 10px;
+    height: 10px;
+  }
+}
+
+/* Minimum 44px touch targets on mobile — applied via className */
+@media (max-width: 767px) {
+  .touch-target {
+    min-width: 44px;
+    min-height: 44px;
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+  }
+  .touch-target-row {
+    min-height: 44px;
+  }
 }

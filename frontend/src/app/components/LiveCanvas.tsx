@@ -96,6 +96,12 @@ export default function LiveCanvas({ files }: LiveCanvasProps) {
       );
     }
 
+    // Inject viewport meta tag for mobile-friendly iframe rendering
+    if (!html.includes('name="viewport"') && !html.includes("name='viewport'")) {
+      const viewportMeta = '<meta name="viewport" content="width=device-width, initial-scale=1">\n';
+      html = html.replace("<head>", `<head>\n${viewportMeta}`);
+    }
+
     // Inject navigation guard: allow hash/anchor links (href="#section")
     // but block external navigation that would redirect the iframe away.
     const navGuard = `

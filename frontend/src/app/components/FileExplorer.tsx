@@ -233,7 +233,7 @@ function FileRow({
         role="treeitem"
         aria-expanded={isDirectory ? expanded : undefined}
         aria-selected={isActive}
-        className={`group flex items-center gap-1 pr-2 py-0.5 text-xs cursor-pointer select-none ${
+        className={`group flex items-center gap-1 pr-2 py-0.5 text-xs cursor-pointer select-none touch-target-row ${
           isActive
             ? "bg-accent/10 text-accent"
             : "text-text-secondary hover:bg-surface hover:text-foreground"
@@ -529,7 +529,7 @@ export default function FileExplorer({
       </div>
 
       {/* Tree */}
-      <div className="flex-1 overflow-y-auto py-1" role="tree" aria-label="File explorer">
+      <div className="flex-1 overflow-y-auto py-1 overscroll-contain" role="tree" aria-label="File explorer">
         {loading && tree.length === 0 ? (
           <SkeletonExplorer />
         ) : tree.length === 0 ? (
@@ -593,10 +593,10 @@ export default function FileExplorer({
     return (
       <>
         <div
-          className="fixed inset-0 bg-black/50 z-40"
+          className="fixed inset-0 bg-black/30 z-40"
           onClick={() => onToggleCollapse?.()}
         />
-        <div className="fixed inset-y-0 left-0 z-50 shadow-xl">
+        <div className="fixed inset-y-0 left-0 z-50 shadow-xl" style={{ paddingTop: "env(safe-area-inset-top, 0px)", paddingBottom: "env(safe-area-inset-bottom, 0px)" }}>
           {explorerPanel}
         </div>
       </>

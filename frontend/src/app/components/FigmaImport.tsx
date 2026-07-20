@@ -176,7 +176,7 @@ export default function FigmaImport({ onImportComplete, variant = "landing" }: F
     <>
       <button
         onClick={() => setShowModal(true)}
-        className="p-1.5 rounded-md hover:bg-surface text-text-secondary hover:text-foreground transition-colors"
+        className="p-1.5 rounded-md hover:bg-surface text-text-secondary hover:text-foreground transition-colors touch-target"
         title="Import from Figma URL"
       >
         <svg className="w-4 h-4" viewBox="0 0 24 24" fill="currentColor">
@@ -186,7 +186,7 @@ export default function FigmaImport({ onImportComplete, variant = "landing" }: F
 
       {showModal && (
         <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/50" onClick={() => { setShowModal(false); setErrorMsg(null); }}>
-          <div className="bg-panel border border-border rounded-xl p-5 w-full max-w-md mx-4 shadow-xl" onClick={(e) => e.stopPropagation()}>
+          <div className="bg-panel border border-border rounded-xl p-5 w-full max-w-md mx-4 shadow-xl max-h-[90dvh] overflow-y-auto" onClick={(e) => e.stopPropagation()} style={{ paddingTop: "env(safe-area-inset-top, 0px)", paddingBottom: "env(safe-area-inset-bottom, 0px)" }}>
             <div className="flex items-center gap-3 mb-4">
               <div className="w-10 h-10 rounded-xl bg-accent/10 flex items-center justify-center">
                 <svg className="w-5 h-5 text-accent" viewBox="0 0 24 24" fill="currentColor">

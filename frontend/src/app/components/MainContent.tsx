@@ -29,6 +29,7 @@ interface MainContentProps {
   onViewModeChange: (mode: ViewMode) => void;
   onFigmaImportComplete?: (projectId: string) => void;
   onDesignUploadComplete?: (projectId: string) => void;
+  isMobile?: boolean;
 }
 
 const VIEW_BUTTONS: { mode: ViewMode; label: string }[] = [
@@ -56,6 +57,7 @@ export default function MainContent({
   onViewModeChange,
   onFigmaImportComplete,
   onDesignUploadComplete,
+  isMobile,
 }: MainContentProps) {
   const [promptValue, setPromptValue] = useState("");
   const promptTextareaRef = useRef<HTMLTextAreaElement>(null);
@@ -70,6 +72,9 @@ export default function MainContent({
 
   // Build a Map for O(1) file lookups instead of O(n) scans
   const filesMap = useMemo(() => new Map(files.map((f) => [f.path, f])), [files]);
+
+  // On mobile, force single-pane view (split is unusable at <768px)
+  const effectiveViewMode: ViewMode = isMobile && viewMode === "split" ? "preview" : viewMode;
 
   // When files change, auto-select the first file
   const effectiveActiveFile = activeFilePath && filesMap.has(activeFilePath)
@@ -167,13 +172,13 @@ export default function MainContent({
   // Active project — show editor + canvas with view mode toggle
   if (activeProject) {
     return (
-      <div className="flex-1 flex flex-col min-h-0">
+      <div className="flex-1 flex flex-col min-h-0 overscroll-contain">
         {/* Project name bar with view mode toggle */}
         <div className="flex items-center gap-2 px-4 py-2 border-b border-border bg-sidebar/50">
           {/* Explorer toggle */}
           <button
             onClick={onToggleExplorer}
-            className={`p-1 rounded-md transition-colors ${
+            className={`p-1 rounded-md transition-colors touch-target ${
               showExplorer
                 ? "bg-surface text-foreground"
                 : "text-text-secondary hover:text-foreground hover:bg-surface"
@@ -186,9 +191,11 @@ export default function MainContent({
           </button>
 
           <span className="text-sm font-medium truncate">{activeProject.name}</span>
-          <span className="text-xs text-text-secondary">
-            {files.length} file{files.length !== 1 ? "s" : ""}
-          </span>
+          {!isMobile && (
+            <span className="text-xs text-text-secondary hidden sm:inline">
+              {files.length} file{files.length !== 1 ? "s" : ""}
+            </span>
+          )}
 
           {/* Save status indicator */}
           {saveStatus && saveStatus !== "idle" && (
@@ -196,19 +203,19 @@ export default function MainContent({
               {saveStatus === "saving" && (
                 <>
                   <span className="w-3 h-3 border-2 border-accent border-t-transparent rounded-full animate-spin" />
-                  <span className="text-accent">Saving...</span>
+                  {!isMobile && <span className="text-accent hidden sm:inline">Saving...</span>}
                 </>
               )}
               {saveStatus === "saved" && (
                 <>
                   <span className="text-green-500">✓</span>
-                  <span className="text-green-500">Saved</span>
+                  {!isMobile && <span className="text-green-500 hidden sm:inline">Saved</span>}
                 </>
               )}
               {saveStatus === "error" && (
                 <>
                   <span className="text-danger">✕</span>
-                  <span className="text-danger">Save failed</span>
+                  {!isMobile && <span className="text-danger hidden sm:inline">Save failed</span>}
                 </>
               )}
             </span>
@@ -221,7 +228,7 @@ export default function MainContent({
           <a
             href={`${process.env.NEXT_PUBLIC_API_URL || "http://localhost:8000"}/api/projects/${activeProject.id}/export`}
             download
-            className="p-1.5 rounded-md hover:bg-surface text-text-secondary hover:text-foreground transition-colors"
+            className="p-1.5 rounded-md hover:bg-surface text-text-secondary hover:text-foreground transition-colors touch-target"
             title="Download project as ZIP"
           >
             <svg className="w-4 h-4" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2}>
@@ -231,24 +238,31 @@ export default function MainContent({
 
           {/* View mode toggle */}
           <div className="flex items-center gap-0.5 bg-surface rounded-lg p-0.5">
-            {VIEW_BUTTONS.map(({ mode, label }) => (
-              <button
-                key={mode}
-                onClick={() => onViewModeChange(mode)}
-                className={`px-2.5 py-1 text-xs font-medium rounded-md transition-colors ${
-                  viewMode === mode
-                    ? "bg-accent text-white shadow-sm"
-                    : "text-text-secondary hover:text-foreground"
-                }`}
-              >
-                {label}
-              </button>
-            ))}
+            {VIEW_BUTTONS.map(({ mode, label }) => {
+              const isDisabled = isMobile && mode === "split";
+              return (
+                <button
+                  key={mode}
+                  onClick={() => onViewModeChange(mode)}
+                  disabled={isDisabled}
+                  className={`px-2.5 py-1 text-xs font-medium rounded-md transition-colors touch-target ${
+                    effectiveViewMode === mode
+                      ? "bg-accent text-white shadow-sm"
+                      : isDisabled
+                        ? "text-text-secondary/40 cursor-not-allowed"
+                        : "text-text-secondary hover:text-foreground"
+                  }`}
+                  title={isDisabled ? "Split view is not available on mobile" : label}
+                >
+                  {label}
+                </button>
+              );
+            })}
           </div>
         </div>
 
         {/* Content area based on view mode */}
-        {viewMode === "split" ? (
+        {effectiveViewMode === "split" ? (
           /* Split: editor left, canvas right */
           <div className="flex-1 flex min-h-0">
             <div className="flex-1 flex flex-col min-w-0 border-r border-border">
@@ -264,7 +278,7 @@ export default function MainContent({
               <LiveCanvas files={files} />
             </div>
           </div>
-        ) : viewMode === "code" ? (
+        ) : effectiveViewMode === "code" ? (
           /* Code only: editor fills the area */
           <div className="flex-1 flex min-h-0">
             <EditorPane

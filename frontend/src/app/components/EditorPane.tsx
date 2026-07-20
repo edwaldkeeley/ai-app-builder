@@ -179,7 +179,7 @@ export default function EditorPane({
         {files.map((file) => (
           <div
             key={file.path}
-            className={`flex items-center gap-1 px-3 py-1.5 text-xs font-medium rounded-t-md border border-border border-b-0 transition-colors whitespace-nowrap cursor-pointer ${
+            className={`flex items-center gap-1 px-3 py-1.5 text-xs font-medium rounded-t-md border border-border border-b-0 transition-colors whitespace-nowrap cursor-pointer touch-target ${
               (activeFile?.path === file.path)
                 ? "bg-background text-foreground border-b-background"
                 : "bg-sidebar text-text-secondary hover:text-foreground"
