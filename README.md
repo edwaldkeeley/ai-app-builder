@@ -9,7 +9,7 @@ An AI-powered design-to-code platform. Describe what you want in natural languag
 - [x] **AI Code Generation** — Natural language → full HTML/CSS/JS projects with streaming WebSocket output
 - [x] **Chat Interface** — ChatGPT-style conversation with markdown-rendered AI responses
 - [x] **Monaco Editor** — Full-featured code editor with syntax highlighting, undo history, model-based tab switching
-- [x] **Live Preview** — Sandboxed iframe that renders generated HTML/CSS/JS in real-time
+- [x] **Live Preview** — Sandboxed iframe that renders generated HTML/CSS/JS in real-time with viewport presets (Fluid/Desktop/Tablet/Mobile)
 - [x] **File Explorer** — VS Code-style tree view with directory structure, file icons, rename/delete/new file
 - [x] **View Modes** — Toggle between Preview, Code, and Split (50/50) layouts
 - [x] **Chat Persistence** — Messages survive page refresh via PostgreSQL

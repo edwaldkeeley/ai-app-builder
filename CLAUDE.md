@@ -71,7 +71,7 @@ API docs: `http://localhost:8000/docs`
 | `frontend/src/app/components/ChatPanel.tsx` | Chat message list with markdown rendering + integrated prompt input |
 | `frontend/src/app/components/EditorPane.tsx` | Monaco editor with model-based tab switching (preserves undo history) |
 | `frontend/src/app/components/FileExplorer.tsx` | VS Code-style file tree with directory structure, icons, rename/delete/new file |
-| `frontend/src/app/components/LiveCanvas.tsx` | Sandboxed iframe preview with per-file CSS/JS inlining |
+| `frontend/src/app/components/LiveCanvas.tsx` | Sandboxed iframe preview with per-file CSS/JS inlining, viewport presets (Fluid/Desktop/Tablet/Mobile), and debounced srcDoc updates |
 | `frontend/src/app/components/FigmaImport.tsx` | Figma URL import UI (landing page form + toolbar modal) |
 | `frontend/src/app/lib/api.ts` | Typed API client |
 | `frontend/src/app/lib/types.ts` | Shared TypeScript interfaces |
@@ -183,6 +183,7 @@ The `.env` file lives at the **project root** (`./.env`) — not in `backend/`. 
 7. **File saving to backend** — Edits in Monaco are auto-saved to the backend via debounced `PUT /api/sandbox/{id}/files` (800ms debounce). File changes persist across page refresh.
 8. **Add/delete files from UI** — "+" button in file tab bar with inline input for naming new files. "×" button on each tab with confirmation bar before deleting. Auto-appends `.html` if no extension given. Duplicate paths rejected. Empty state with "Add File" button when no files exist.
 9. **View mode toggle** — Three-way toggle (Preview / Code / Split) in the project name bar. Defaults to Preview mode. Preview shows full-screen LiveCanvas, Code shows full-screen EditorPane, Split shows 50/50 layout.
+10. **Viewport presets** — LiveCanvas toolbar has Fluid, Desktop (1280px), Tablet (768px), and Mobile (375px) presets. Constrained viewports are centered on a dark background with a white card. Debounced srcDoc (400ms) prevents iframe glitching on rapid keystrokes.
 10. **WebSocket streaming for AI generation** — AI generation now streams results over WebSocket (`/api/ai/ws/generate`). Message text appears character-by-character in chat (extracted from streaming JSON via regex, no raw JSON shown). File tabs appear and content streams into the Monaco editor in real-time during generation. Falls back to REST endpoint if WebSocket fails. Uses `StreamingHttpAIProvider` with OpenAI-compatible SSE streaming. Timeout increased to 300s.
 11. **VS Code-style file explorer** — New `FileExplorer.tsx` component with tree view organized by directory structure, file-type icons (HTML, CSS, JS, JSON, Python, TypeScript, Markdown, SVG), collapsible directories, inline rename/delete/new file actions, active file highlighting, and unsaved changes indicator (blue dot). Replaces the flat tab bar as the primary file navigation.
 12. **Monaco model-based tab switching** — Editor now uses Monaco's model API to preserve undo history, cursor position, and scroll position when switching between files. Models are cached by URI so switching back restores full editor state.
