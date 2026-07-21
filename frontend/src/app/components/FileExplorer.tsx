@@ -12,7 +12,6 @@ interface FileExplorerProps {
   onAddFile: (path: string) => void;
   onDeleteFile: (path: string) => void;
   onRenameFile: (oldPath: string, newPath: string) => void;
-  collapsed?: boolean;
   onToggleCollapse?: () => void;
   dirtyFiles?: Set<string>;
   loading?: boolean;
@@ -430,7 +429,6 @@ export default function FileExplorer({
   onAddFile,
   onDeleteFile,
   onRenameFile,
-  collapsed,
   onToggleCollapse,
   dirtyFiles,
   loading,

@@ -7,9 +7,21 @@ interface LiveCanvasProps {
   files: ProjectFile[];
 }
 
+type ViewportPreset = "fluid" | "desktop" | "tablet" | "mobile";
+
+const VIEWPORT_PRESETS: { key: ViewportPreset; label: string; width: number | null }[] = [
+  { key: "fluid", label: "Fluid", width: null },
+  { key: "desktop", label: "Desktop", width: 1280 },
+  { key: "tablet", label: "Tablet", width: 768 },
+  { key: "mobile", label: "Mobile", width: 375 },
+];
+
 export default function LiveCanvas({ files }: LiveCanvasProps) {
   const [iframeError, setIframeError] = useState(false);
+  const [viewport, setViewport] = useState<ViewportPreset>("fluid");
+  const [displayContent, setDisplayContent] = useState<string | null>(null);
   const iframeRef = useRef<HTMLIFrameElement>(null);
+  const debounceRef = useRef<ReturnType<typeof setTimeout> | null>(null);
 
   const htmlContent = useMemo(() => {
     const htmlFile = files.find((f) => f.path === "index.html" || f.path.endsWith(".html"));
@@ -128,24 +140,35 @@ export default function LiveCanvas({ files }: LiveCanvasProps) {
     return html;
   }, [files]);
 
+  // Debounce srcDoc updates to avoid iframe glitching on rapid keystrokes
+  useEffect(() => {
+    if (debounceRef.current) clearTimeout(debounceRef.current);
+    debounceRef.current = setTimeout(() => {
+      setDisplayContent(htmlContent);
+    }, 400);
+    return () => {
+      if (debounceRef.current) clearTimeout(debounceRef.current);
+    };
+  }, [htmlContent]);
+
   // Reset iframe error when content changes
   useEffect(() => {
     if (iframeError) {
       const timer = setTimeout(() => setIframeError(false), 0);
       return () => clearTimeout(timer);
     }
-  }, [htmlContent]); // eslint-disable-line react-hooks/exhaustive-deps
+  }, [displayContent]); // eslint-disable-line react-hooks/exhaustive-deps
 
   // Detect iframe load failure: if srcdoc is set but iframe has no content
   // after a short delay, assume rendering failed
   useEffect(() => {
-    if (!htmlContent) return;
+    if (!displayContent) return;
     const timer = setTimeout(() => {
       try {
         const iframe = iframeRef.current;
         if (iframe && iframe.contentDocument) {
           const body = iframe.contentDocument.body;
-          if (body && body.innerHTML === "" && htmlContent.includes("<body")) {
+          if (body && body.innerHTML === "" && displayContent.includes("<body")) {
             setIframeError(true);
           }
         }
@@ -154,9 +177,9 @@ export default function LiveCanvas({ files }: LiveCanvasProps) {
       }
     }, 2000);
     return () => clearTimeout(timer);
-  }, [htmlContent]);
+  }, [displayContent]);
 
-  if (!htmlContent) {
+  if (!displayContent) {
     return (
       <div className="flex-1 flex items-center justify-center text-sm text-text-secondary">
         <p>No HTML file found. Create an index.html to see a preview.</p>
@@ -164,24 +187,58 @@ export default function LiveCanvas({ files }: LiveCanvasProps) {
     );
   }
 
+  const preset = VIEWPORT_PRESETS.find((p) => p.key === viewport)!;
+  const isConstrained = preset.width !== null;
+
   return (
     <div className="flex-1 flex flex-col min-h-0 bg-background">
       {/* Toolbar */}
       <div className="flex items-center justify-between px-3 py-1.5 bg-sidebar border-b border-border text-xs text-text-secondary">
-        <span>Preview</span>
+        <div className="flex items-center gap-1">
+          {VIEWPORT_PRESETS.map((p) => (
+            <button
+              key={p.key}
+              onClick={() => setViewport(p.key)}
+              className={`px-2 py-1 rounded-md text-xs font-medium transition-colors ${
+                viewport === p.key
+                  ? "bg-accent text-white shadow-sm"
+                  : "text-text-secondary hover:text-foreground hover:bg-surface"
+              }`}
+              title={`${p.label}${p.width ? ` — ${p.width}px` : ""}`}
+            >
+              {p.label}
+            </button>
+          ))}
+        </div>
         {iframeError && (
           <span className="text-danger">Failed to render preview</span>
         )}
+        {isConstrained && (
+          <span className="text-text-secondary hidden sm:inline">{preset.width}px</span>
+        )}
       </div>
-      {/* Iframe */}
-      <div className="flex-1 min-h-0">
-        <iframe
-          ref={iframeRef}
-          srcDoc={htmlContent}
-          sandbox="allow-scripts allow-same-origin"
-          title="Live Preview"
-          className="w-full h-full border-0"
-        />
+      {/* Iframe container — constrained width when a device preset is active */}
+      <div className="flex-1 flex items-start justify-center min-h-0 overflow-auto bg-[#1a1a1a]">
+        <div
+          className={`h-full transition-all duration-200 ${
+            isConstrained
+              ? "bg-white shadow-2xl my-0 flex-shrink-0"
+              : "w-full"
+          }`}
+          style={
+            isConstrained
+              ? { width: `${preset.width}px`, maxWidth: "100%" }
+              : undefined
+          }
+        >
+          <iframe
+            ref={iframeRef}
+            srcDoc={displayContent}
+            sandbox="allow-scripts allow-same-origin"
+            title="Live Preview"
+            className="w-full h-full border-0"
+          />
+        </div>
       </div>
     </div>
   );

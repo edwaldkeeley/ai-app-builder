@@ -53,16 +53,12 @@ export default function Sidebar({
   onDesignUploadComplete,
 }: SidebarProps) {
   const [collapsed, setCollapsed] = useState(isMobile);
+  // On mobile, collapsed state is derived from showMobileSidebar
+  const effectiveCollapsed = isMobile ? !showMobileSidebar : collapsed;
   const [confirmDelete, setConfirmDelete] = useState<string | null>(null);
   const [showUserMenu, setShowUserMenu] = useState(false);
   const sidebarRef = useRef<HTMLDivElement>(null);
   const { user, logout } = useAuth();
-
-  // Sync collapsed state with showMobileSidebar — hamburger opens, backdrop closes
-  useEffect(() => {
-    if (!isMobile) return;
-    setCollapsed(!showMobileSidebar);
-  }, [isMobile, showMobileSidebar]);
   const { theme, toggleTheme } = useTheme();
   const router = useRouter();
 
@@ -114,7 +110,7 @@ export default function Sidebar({
   const sidebarPanel = (content: React.ReactNode) => {
     if (!isMobile) return content;
     // Only show backdrop when sidebar is expanded (not collapsed icon state)
-    if (collapsed) return content;
+    if (effectiveCollapsed) return content;
     return (
       <>
         {/* Backdrop */}
@@ -132,7 +128,7 @@ export default function Sidebar({
   };
 
   // Collapsed state — icon button (hidden on mobile, hamburger button handles it)
-  if (collapsed) {
+  if (effectiveCollapsed) {
     if (isMobile) return null;
     return sidebarPanel(
       <aside id="sidebar-panel" className="flex flex-col items-center py-3 px-1 bg-sidebar border-r border-border">
@@ -216,7 +212,7 @@ export default function Sidebar({
               onClick={() => setCollapsed(true)}
               className="p-1.5 rounded-md hover:bg-surface text-text-secondary hover:text-foreground transition-colors"
               title="Collapse sidebar"
-              aria-expanded={!collapsed}
+              aria-expanded={!effectiveCollapsed}
               aria-controls="sidebar-panel"
             >
               <svg className="w-4 h-4" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2}>

@@ -1,6 +1,7 @@
 "use client";
 
 import { useState, useRef } from "react";
+import Image from "next/image";
 import { api } from "../lib/api";
 import { useToast } from "./Toast";
 
@@ -101,7 +102,7 @@ export default function DesignUpload({ projectId, onUploadComplete, variant = "l
         />
         {previewUrl && (
           <div className="relative w-full h-24 rounded-lg overflow-hidden border border-border bg-background">
-            <img src={previewUrl} alt="Design preview" className="w-full h-full object-contain" />
+            <Image src={previewUrl} alt="Design preview" fill className="object-contain" unoptimized />
           </div>
         )}
         <input
@@ -174,7 +175,7 @@ export default function DesignUpload({ projectId, onUploadComplete, variant = "l
                 {/* Preview */}
                 {previewUrl && (
                   <div className="relative w-full h-40 rounded-lg overflow-hidden border border-border bg-background">
-                    <img src={previewUrl} alt="Design preview" className="w-full h-full object-contain" />
+                    <Image src={previewUrl} alt="Design preview" fill className="object-contain" unoptimized />
                   </div>
                 )}
 
@@ -246,7 +247,7 @@ export default function DesignUpload({ projectId, onUploadComplete, variant = "l
         />
         {previewUrl && (
           <div className="relative w-full h-32 rounded-lg overflow-hidden border border-border bg-background">
-            <img src={previewUrl} alt="Design preview" className="w-full h-full object-contain" />
+            <Image src={previewUrl} alt="Design preview" fill className="object-contain" unoptimized />
           </div>
         )}
         <input
