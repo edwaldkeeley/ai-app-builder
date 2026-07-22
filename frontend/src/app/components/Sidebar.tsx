@@ -134,7 +134,7 @@ export default function Sidebar({
       <aside id="sidebar-panel" className="flex flex-col items-center py-3 px-1 bg-sidebar border-r border-border">
         <button
           onClick={() => setCollapsed(false)}
-          className="p-2 rounded-lg hover:bg-surface text-text-secondary hover:text-foreground transition-colors"
+          className="p-2 rounded-lg hover:bg-surface text-text-secondary hover:text-foreground transition-colors touch-target"
           title={chatMode ? "Show chat" : "Show projects"}
         >
           <svg className="w-5 h-5" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2}>
@@ -146,7 +146,7 @@ export default function Sidebar({
           <button
             onClick={onNewProject}
             disabled={creating}
-            className="p-2 rounded-lg hover:bg-surface text-text-secondary hover:text-foreground disabled:opacity-40 transition-colors"
+            className="p-2 rounded-lg hover:bg-surface text-text-secondary hover:text-foreground disabled:opacity-40 transition-colors touch-target"
             title="New project"
           >
             <svg className="w-5 h-5" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2}>
@@ -157,7 +157,7 @@ export default function Sidebar({
         {/* Theme toggle */}
         <button
           onClick={toggleTheme}
-          className="p-2 rounded-lg hover:bg-surface text-text-secondary hover:text-foreground transition-colors"
+          className="p-2 rounded-lg hover:bg-surface text-text-secondary hover:text-foreground transition-colors touch-target"
           title={theme === "dark" ? "Switch to light mode" : "Switch to dark mode"}
           aria-label={theme === "dark" ? "Switch to light mode" : "Switch to dark mode"}
         >
@@ -183,7 +183,7 @@ export default function Sidebar({
         <div className="flex items-center gap-2 px-3 py-3 border-b border-border">
           <button
             onClick={onBackToProjects}
-            className="p-1.5 rounded-md hover:bg-surface text-text-secondary hover:text-foreground transition-colors"
+            className="p-1.5 rounded-md hover:bg-surface text-text-secondary hover:text-foreground transition-colors touch-target"
             title="Back to projects"
           >
             <svg className="w-4 h-4" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2}>
@@ -197,7 +197,7 @@ export default function Sidebar({
           {isMobile && (
             <button
               onClick={onCloseMobileSidebar}
-              className="p-1.5 rounded-md hover:bg-surface text-text-secondary hover:text-foreground transition-colors"
+              className="p-1.5 rounded-md hover:bg-surface text-text-secondary hover:text-foreground transition-colors touch-target"
               title="Close sidebar"
               aria-label="Close sidebar"
             >
@@ -210,7 +210,7 @@ export default function Sidebar({
           {!isMobile && (
             <button
               onClick={() => setCollapsed(true)}
-              className="p-1.5 rounded-md hover:bg-surface text-text-secondary hover:text-foreground transition-colors"
+              className="p-1.5 rounded-md hover:bg-surface text-text-secondary hover:text-foreground transition-colors touch-target"
               title="Collapse sidebar"
               aria-expanded={!effectiveCollapsed}
               aria-controls="sidebar-panel"
@@ -273,7 +273,7 @@ export default function Sidebar({
           <button
             onClick={onNewProject}
             disabled={creating}
-            className="p-1.5 rounded-md hover:bg-surface text-text-secondary hover:text-foreground disabled:opacity-40 transition-colors"
+            className="p-1.5 rounded-md hover:bg-surface text-text-secondary hover:text-foreground disabled:opacity-40 transition-colors touch-target"
             title="New project"
           >
             <svg className="w-4 h-4" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2}>
@@ -284,7 +284,7 @@ export default function Sidebar({
           {isMobile && (
             <button
               onClick={onCloseMobileSidebar}
-              className="p-1.5 rounded-md hover:bg-surface text-text-secondary hover:text-foreground transition-colors"
+              className="p-1.5 rounded-md hover:bg-surface text-text-secondary hover:text-foreground transition-colors touch-target"
               title="Close sidebar"
               aria-label="Close sidebar"
             >
@@ -297,7 +297,7 @@ export default function Sidebar({
           {!isMobile && (
             <button
               onClick={() => setCollapsed(true)}
-              className="p-1.5 rounded-md hover:bg-surface text-text-secondary hover:text-foreground transition-colors"
+              className="p-1.5 rounded-md hover:bg-surface text-text-secondary hover:text-foreground transition-colors touch-target"
               title="Collapse sidebar"
             >
               <svg className="w-4 h-4" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2}>
@@ -435,10 +435,11 @@ export default function Sidebar({
                 className="fixed inset-0 z-10"
                 onClick={() => setShowUserMenu(false)}
               />
-              <div className="absolute bottom-full left-0 right-0 mb-1 mx-2 z-20 bg-surface border border-border rounded-lg shadow-lg py-1">
+              <div className="absolute bottom-full left-0 right-0 mb-1 mx-2 z-20 bg-surface border border-border rounded-lg shadow-lg py-1" role="menu">
                 <button
                   onClick={handleLogout}
                   className="w-full text-left px-3 py-1.5 text-xs text-text-secondary hover:text-foreground hover:bg-sidebar transition-colors"
+                  role="menuitem"
                 >
                   Sign out
                 </button>

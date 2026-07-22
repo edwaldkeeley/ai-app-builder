@@ -5,6 +5,7 @@ import ReactMarkdown from "react-markdown";
 import remarkGfm from "remark-gfm";
 import type { ChatMessage } from "../lib/types";
 import type { WritingStatus } from "../hooks/useChat";
+import { Spinner, BouncingDots } from "../lib/ui";
 import FigmaImport from "./FigmaImport";
 import DesignUpload from "./DesignUpload";
 
@@ -27,18 +28,14 @@ function WritingIndicator({ status }: { status: WritingStatus }) {
       {status.type === "done" ? (
         <span className="mt-0.5 text-green-500">✓</span>
       ) : (
-        <span className="mt-0.5 w-3.5 h-3.5 border-2 border-accent border-t-transparent rounded-full animate-spin flex-shrink-0" aria-label="Loading" />
+        <Spinner className="mt-0.5 w-3.5 h-3.5 flex-shrink-0" />
       )}
 
       <div className="flex flex-col gap-1 min-w-0">
         {status.type === "thinking" && (
           <div className="flex items-center gap-1.5">
             <span className="text-foreground font-medium">{status.message || "Analyzing request"}</span>
-            <span className="flex gap-0.5">
-              <span className="w-1 h-1 bg-text-secondary rounded-full animate-bounce" style={{ animationDelay: "0ms" }} />
-              <span className="w-1 h-1 bg-text-secondary rounded-full animate-bounce" style={{ animationDelay: "150ms" }} />
-              <span className="w-1 h-1 bg-text-secondary rounded-full animate-bounce" style={{ animationDelay: "300ms" }} />
-            </span>
+            <BouncingDots />
           </div>
         )}
 
@@ -46,11 +43,7 @@ function WritingIndicator({ status }: { status: WritingStatus }) {
           <div className="flex items-center gap-2">
             <span className="text-accent font-mono text-[11px]">▸</span>
             <span className="text-foreground font-medium">Generating response</span>
-            <span className="flex gap-0.5">
-              <span className="w-1 h-1 bg-text-secondary rounded-full animate-bounce" style={{ animationDelay: "0ms" }} />
-              <span className="w-1 h-1 bg-text-secondary rounded-full animate-bounce" style={{ animationDelay: "150ms" }} />
-              <span className="w-1 h-1 bg-text-secondary rounded-full animate-bounce" style={{ animationDelay: "300ms" }} />
-            </span>
+            <BouncingDots />
           </div>
         )}
 
@@ -165,7 +158,7 @@ export default function ChatPanel({
   };
 
   return (
-    <div className="flex-1 flex flex-col min-h-0 bg-background">
+    <div className="flex-1 flex flex-col min-h-0 bg-sidebar">
       {/* Messages */}
       <div className="flex-1 overflow-y-auto px-3 py-4 space-y-4 overscroll-contain" role="log" aria-live="polite" aria-label="Chat messages" onScroll={handleScroll}>
         {messages.length === 0 ? (
@@ -189,7 +182,7 @@ export default function ChatPanel({
                 }`}>
                   {msg.role === "user" ? "You" : "AI"}
                 </span>
-                <span className="text-[10px] text-text-secondary">
+                <span className="text-xs text-text-secondary">
                   {new Date(msg.timestamp).toLocaleTimeString()}
                 </span>
               </div>
@@ -222,81 +215,83 @@ export default function ChatPanel({
         <div ref={bottomRef} />
       </div>
 
-      {/* Prompt input */}
-      <div className="p-3">
-        <div className="flex items-end gap-2 bg-input rounded-xl px-3 py-2 focus-within:ring-1 focus-within:ring-accent/20 transition-all">
-          {showAddButton && (
-            <div className="relative" ref={addMenuRef}>
-              <button
-                onClick={() => setShowAddMenu((prev) => !prev)}
-                className="flex-shrink-0 w-7 h-7 rounded-full bg-accent/10 hover:bg-accent/20 text-accent hover:text-accent-hover flex items-center justify-center transition-colors touch-target"
-                title="Import or upload"
-                aria-label="Import or upload"
-              >
-                <svg className="w-4 h-4" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2.5}>
-                  <path strokeLinecap="round" strokeLinejoin="round" d="M12 4v16m8-8H4" />
-                </svg>
-              </button>
+      {/* Bottom input area — ChatGPT-style */}
+      <div className="border-t border-border bg-sidebar px-3 py-2">
+        <div className="flex items-center gap-1.5 bg-input border border-border rounded-lg px-3 py-2 focus-within:border-accent/50 focus-within:ring-1 focus-within:ring-accent/20 transition-all">
+            {showAddButton && (
+              <div className="relative" ref={addMenuRef}>
+                <button
+                  onClick={() => setShowAddMenu((prev) => !prev)}
+                  className="flex-shrink-0 w-7 h-7 rounded-full bg-accent/10 hover:bg-accent/20 text-accent hover:text-accent-hover flex items-center justify-center transition-colors touch-target"
+                  title="Import or upload"
+                  aria-label="Import or upload"
+                >
+                  <svg className="w-4 h-4" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2.5}>
+                    <path strokeLinecap="round" strokeLinejoin="round" d="M12 4v16m8-8H4" />
+                  </svg>
+                </button>
 
-              {showAddMenu && (
-                <div className="absolute bottom-full left-0 mb-2 w-56 bg-panel border border-border rounded-xl shadow-xl overflow-hidden z-50">
-                  <div className="p-3 space-y-1">
-                    <p className="text-[11px] font-semibold text-text-secondary uppercase tracking-wider px-1 pb-1">Import</p>
-                    <button
-                      onClick={openFigma}
-                      className="w-full flex items-center gap-2.5 px-3 py-2 rounded-lg hover:bg-surface transition-colors text-left"
-                    >
-                      <svg className="w-4 h-4 text-accent flex-shrink-0" viewBox="0 0 24 24" fill="currentColor">
-                        <path d="M12 2C6.477 2 2 6.477 2 12s4.477 10 10 10 10-4.477 10-10S17.523 2 12 2zm0 18a8 8 0 110-16 8 8 0 010 16zm1-12h-2v4H7v2h4v4h2v-4h4v-2h-4V8z" />
-                      </svg>
-                      <div className="min-w-0">
-                        <div className="text-xs font-medium text-foreground">Figma Import</div>
-                        <div className="text-[10px] text-text-secondary truncate">Paste a Figma URL to generate code</div>
-                      </div>
-                    </button>
-                    <button
-                      onClick={openDesignUpload}
-                      className="w-full flex items-center gap-2.5 px-3 py-2 rounded-lg hover:bg-surface transition-colors text-left"
-                    >
-                      <svg className="w-4 h-4 text-accent flex-shrink-0" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2}>
-                        <path strokeLinecap="round" strokeLinejoin="round" d="M4 16l4.586-4.586a2 2 0 012.828 0L16 16m-2-2l1.586-1.586a2 2 0 012.828 0L20 14m-6-6h.01M6 20h12a2 2 0 002-2V6a2 2 0 00-2-2H6a2 2 0 00-2 2v12a2 2 0 002 2z" />
-                      </svg>
-                      <div className="min-w-0">
-                        <div className="text-xs font-medium text-foreground">Design Upload</div>
-                        <div className="text-[10px] text-text-secondary truncate">Upload an image to generate matching code</div>
-                      </div>
-                    </button>
+                {showAddMenu && (
+                  <div className="absolute bottom-full left-0 mb-2 w-56 bg-panel border border-border rounded-xl shadow-xl overflow-hidden z-50" role="menu">
+                    <div className="p-3 space-y-1">
+                      <p className="text-[11px] font-semibold text-text-secondary uppercase tracking-wider px-1 pb-1">Import</p>
+                      <button
+                        onClick={openFigma}
+                        className="w-full flex items-center gap-2.5 px-3 py-2 rounded-lg hover:bg-surface transition-colors text-left"
+                        role="menuitem"
+                      >
+                        <svg className="w-4 h-4 text-accent flex-shrink-0" viewBox="0 0 24 24" fill="currentColor">
+                          <path d="M12 2C6.477 2 2 6.477 2 12s4.477 10 10 10 10-4.477 10-10S17.523 2 12 2zm0 18a8 8 0 110-16 8 8 0 010 16zm1-12h-2v4H7v2h4v4h2v-4h4v-2h-4V8z" />
+                        </svg>
+                        <div className="min-w-0">
+                          <div className="text-xs font-medium text-foreground">Figma Import</div>
+                          <div className="text-[10px] text-text-secondary truncate">Paste a Figma URL to generate code</div>
+                        </div>
+                      </button>
+                      <button
+                        onClick={openDesignUpload}
+                        className="w-full flex items-center gap-2.5 px-3 py-2 rounded-lg hover:bg-surface transition-colors text-left"
+                        role="menuitem"
+                      >
+                        <svg className="w-4 h-4 text-accent flex-shrink-0" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2}>
+                          <path strokeLinecap="round" strokeLinejoin="round" d="M4 16l4.586-4.586a2 2 0 012.828 0L16 16m-2-2l1.586-1.586a2 2 0 012.828 0L20 14m-6-6h.01M6 20h12a2 2 0 002-2V6a2 2 0 00-2-2H6a2 2 0 00-2 2v12a2 2 0 002 2z" />
+                        </svg>
+                        <div className="min-w-0">
+                          <div className="text-xs font-medium text-foreground">Design Upload</div>
+                          <div className="text-[10px] text-text-secondary truncate">Upload an image to generate matching code</div>
+                        </div>
+                      </button>
+                    </div>
                   </div>
-                </div>
-              )}
-            </div>
-          )}
+                )}
+              </div>
+            )}
 
-          <textarea
-            ref={textareaRef}
-            value={value}
-            onChange={(e) => setValue(e.target.value)}
-            onKeyDown={handleKeyDown}
-            placeholder="Describe what you want to build..."
-            rows={1}
-            disabled={disabled || generating}
-            className="flex-1 bg-transparent text-sm text-foreground placeholder-text-secondary resize-none outline-none focus-visible:outline-none max-h-[200px]"
-          />
-          <button
-            onClick={handleSend}
-            disabled={!value.trim() || disabled || generating}
-            aria-label="Send message"
-            className="flex-shrink-0 p-1.5 rounded-lg bg-accent text-white hover:bg-accent-hover disabled:opacity-40 disabled:cursor-not-allowed transition-colors touch-target"
-          >
-            <svg className="w-4 h-4" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2}>
-              <path strokeLinecap="round" strokeLinejoin="round" d="M5 12h14M12 5l7 7-7 7" />
-            </svg>
-          </button>
+            <textarea
+              ref={textareaRef}
+              value={value}
+              onChange={(e) => setValue(e.target.value)}
+              onKeyDown={handleKeyDown}
+              placeholder="Describe what you want to build..."
+              rows={1}
+              disabled={disabled || generating}
+              className="flex-1 bg-transparent text-sm text-foreground placeholder-text-secondary resize-none outline-none focus-visible:outline-none max-h-50 py-0.5"
+            />
+            <button
+              onClick={handleSend}
+              disabled={!value.trim() || disabled || generating}
+              aria-label="Send message"
+              className="flex-shrink-0 p-1.5 rounded-lg bg-accent text-white hover:bg-accent-hover disabled:opacity-40 disabled:cursor-not-allowed transition-colors touch-target"
+            >
+              <svg className="w-4 h-4" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2}>
+                <path strokeLinecap="round" strokeLinejoin="round" d="M5 12h14M12 5l7 7-7 7" />
+              </svg>
+            </button>
+          </div>
+          <p className="text-[10px] text-text-secondary text-center mt-1.5">
+            AI-generated code may not always be perfect. Review and test before using.
+          </p>
         </div>
-        <p className="text-[10px] text-text-secondary text-center mt-1.5">
-          AI-generated code may not always be perfect. Review and test before using.
-        </p>
-      </div>
 
       {/* Hidden toolbar buttons — their modals are triggered by the + menu */}
       <div ref={figmaWrapperRef} className="absolute -left-[9999px]" aria-hidden="true">

@@ -11,7 +11,7 @@ const EDITOR_WIDTHS = ["85%", "60%", "75%", "45%", "90%", "55%", "70%", "50%", "
 function SkeletonLine({ width = "100%", className = "" }: { width?: string; className?: string }) {
   return (
     <div
-      className={`h-3 rounded bg-border animate-pulse ${className}`}
+      className={`h-3 rounded bg-border/50 animate-pulse ${className}`}
       style={{ width }}
     />
   );
@@ -19,7 +19,7 @@ function SkeletonLine({ width = "100%", className = "" }: { width?: string; clas
 
 function SkeletonBlock({ className = "" }: { className?: string }) {
   return (
-    <div className={`rounded-lg bg-border animate-pulse ${className}`} />
+    <div className={`rounded-lg bg-border/50 animate-pulse ${className}`} />
   );
 }
 

@@ -5,7 +5,7 @@ import { SkeletonSidebar, SkeletonExplorer, SkeletonEditor } from "../app/compon
 describe("SkeletonSidebar", () => {
   it("renders skeleton items", () => {
     const { container } = render(<SkeletonSidebar />);
-    const items = container.querySelectorAll(".bg-border");
+    const items = container.querySelectorAll('[class*="bg-border"]');
     expect(items.length).toBeGreaterThan(0);
   });
 });
@@ -13,7 +13,7 @@ describe("SkeletonSidebar", () => {
 describe("SkeletonExplorer", () => {
   it("renders skeleton tree items", () => {
     const { container } = render(<SkeletonExplorer />);
-    const items = container.querySelectorAll(".bg-border");
+    const items = container.querySelectorAll('[class*="bg-border"]');
     expect(items.length).toBeGreaterThan(0);
   });
 });
@@ -21,7 +21,7 @@ describe("SkeletonExplorer", () => {
 describe("SkeletonEditor", () => {
   it("renders skeleton editor layout", () => {
     const { container } = render(<SkeletonEditor />);
-    const items = container.querySelectorAll(".bg-border");
+    const items = container.querySelectorAll('[class*="bg-border"]');
     expect(items.length).toBeGreaterThan(0);
   });
 });

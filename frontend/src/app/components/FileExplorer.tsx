@@ -280,7 +280,7 @@ function FileRow({
               onClick={(e) => e.stopPropagation()}
             />
             {renameError && (
-              <span className="text-[10px] text-danger" role="alert">{renameError}</span>
+              <span className="text-xs text-danger" role="alert">{renameError}</span>
             )}
           </div>
         ) : (
@@ -341,7 +341,7 @@ function FileRow({
       {/* Delete confirmation */}
       {showDeleteConfirm && (
         <div
-          className="flex items-center gap-2 px-2 py-1 bg-danger/10 border-b border-danger/20"
+          className="flex items-center gap-2 px-2 py-1 bg-surface rounded-lg border border-danger/30"
           style={{ paddingLeft: `${24 + indent}px` }}
         >
           <span className="text-xs text-danger flex-1">
@@ -394,7 +394,7 @@ function FileRow({
             />
           </div>
           {newFileError && (
-            <span className="text-[10px] text-danger mt-0.5" role="alert">{newFileError}</span>
+            <span className="text-xs text-danger mt-0.5" role="alert">{newFileError}</span>
           )}
         </div>
       )}
@@ -522,7 +522,7 @@ export default function FileExplorer({
       </div>
 
       {/* File count */}
-      <div className="px-3 py-1 text-[10px] text-text-secondary border-b border-border">
+      <div className="px-3 py-1 text-xs text-text-secondary border-b border-border">
         {files.length} file{files.length !== 1 ? "s" : ""}
       </div>
 
@@ -535,9 +535,9 @@ export default function FileExplorer({
             <p>No files yet.</p>
             <button
               onClick={() => setShowRootNewFile(true)}
-              className="mt-1 text-accent hover:underline"
+              className="mt-1 px-3 py-1.5 text-xs font-medium rounded-lg bg-accent text-white hover:bg-accent-hover transition-colors"
             >
-              Add a file
+              + Add File
             </button>
           </div>
         ) : (
@@ -578,7 +578,7 @@ export default function FileExplorer({
               />
             </div>
             {rootNewFileError && (
-              <span className="text-[10px] text-danger mt-0.5" role="alert">{rootNewFileError}</span>
+              <span className="text-xs text-danger mt-0.5" role="alert">{rootNewFileError}</span>
             )}
           </div>
         )}

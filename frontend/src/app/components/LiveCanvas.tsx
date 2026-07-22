@@ -201,7 +201,7 @@ export default function LiveCanvas({ files }: LiveCanvasProps) {
               onClick={() => setViewport(p.key)}
               className={`px-2 py-1 rounded-md text-xs font-medium transition-colors ${
                 viewport === p.key
-                  ? "bg-accent text-white shadow-sm"
+                  ? "bg-accent text-white"
                   : "text-text-secondary hover:text-foreground hover:bg-surface"
               }`}
               title={`${p.label}${p.width ? ` — ${p.width}px` : ""}`}
@@ -218,7 +218,7 @@ export default function LiveCanvas({ files }: LiveCanvasProps) {
         )}
       </div>
       {/* Iframe container — constrained width when a device preset is active */}
-      <div className="flex-1 flex items-start justify-center min-h-0 overflow-auto bg-[#1a1a1a]">
+      <div className="flex-1 flex items-start justify-center min-h-0 overflow-auto bg-preview-bg">
         <div
           className={`h-full transition-all duration-200 ${
             isConstrained
