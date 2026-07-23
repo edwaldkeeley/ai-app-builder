@@ -12,10 +12,8 @@ interface FileExplorerProps {
   onAddFile: (path: string) => void;
   onDeleteFile: (path: string) => void;
   onRenameFile: (oldPath: string, newPath: string) => void;
-  onToggleCollapse?: () => void;
   dirtyFiles?: Set<string>;
   loading?: boolean;
-  isMobile?: boolean;
 }
 
 interface TreeNode {
@@ -341,7 +339,7 @@ function FileRow({
       {/* Delete confirmation */}
       {showDeleteConfirm && (
         <div
-          className="flex items-center gap-2 px-2 py-1 bg-surface rounded-lg border border-danger/30"
+          className="flex items-center gap-2 px-2 py-1 bg-surface rounded-lg border border-danger/30 animate-fade-in"
           style={{ paddingLeft: `${24 + indent}px` }}
         >
           <span className="text-xs text-danger flex-1">
@@ -429,10 +427,8 @@ export default function FileExplorer({
   onAddFile,
   onDeleteFile,
   onRenameFile,
-  onToggleCollapse,
   dirtyFiles,
   loading,
-  isMobile,
 }: FileExplorerProps) {
   const [showRootNewFile, setShowRootNewFile] = useState(false);
   const [rootNewFileName, setRootNewFileName] = useState("");
@@ -495,30 +491,17 @@ export default function FileExplorer({
       {/* Header */}
       <div className="flex items-center justify-between px-3 py-2 border-b border-border min-h-[35px]">
         <span className="text-xs font-semibold uppercase tracking-wider text-text-secondary">
-          Explorer
+          Code Files
         </span>
-        <div className="flex items-center gap-0.5">
-          <button
-            onClick={() => setShowRootNewFile(true)}
-            className="p-0.5 rounded hover:bg-surface text-text-secondary hover:text-foreground transition-colors"
-            title="New file"
-          >
-            <svg className="w-3.5 h-3.5" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2}>
-              <path strokeLinecap="round" strokeLinejoin="round" d="M12 4v16m8-8H4" />
-            </svg>
-          </button>
-          {onToggleCollapse && (
-            <button
-              onClick={onToggleCollapse}
-              className="p-0.5 rounded hover:bg-surface text-text-secondary hover:text-foreground transition-colors"
-              title="Collapse explorer"
-            >
-              <svg className="w-3.5 h-3.5" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2}>
-                <path strokeLinecap="round" strokeLinejoin="round" d="M11 19l-7-7 7-7m8 14l-7-7 7-7" />
-              </svg>
-            </button>
-          )}
-        </div>
+        <button
+          onClick={() => setShowRootNewFile(true)}
+          className="p-0.5 rounded hover:bg-surface text-text-secondary hover:text-foreground transition-colors"
+          title="New file"
+        >
+          <svg className="w-3.5 h-3.5" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2}>
+            <path strokeLinecap="round" strokeLinejoin="round" d="M12 4v16m8-8H4" />
+          </svg>
+        </button>
       </div>
 
       {/* File count */}
@@ -585,21 +568,6 @@ export default function FileExplorer({
       </div>
     </div>
   );
-
-  // On mobile, render as overlay panel
-  if (isMobile) {
-    return (
-      <>
-        <div
-          className="fixed inset-0 bg-black/30 z-40"
-          onClick={() => onToggleCollapse?.()}
-        />
-        <div className="fixed inset-y-0 left-0 z-50 shadow-xl" style={{ paddingTop: "env(safe-area-inset-top, 0px)", paddingBottom: "env(safe-area-inset-bottom, 0px)" }}>
-          {explorerPanel}
-        </div>
-      </>
-    );
-  }
 
   return explorerPanel;
 }

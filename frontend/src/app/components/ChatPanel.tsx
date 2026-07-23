@@ -175,7 +175,7 @@ export default function ChatPanel({
           </div>
         ) : (
           messages.map((msg) => (
-            <div key={msg.id} className="space-y-1.5">
+            <div key={msg.id} className="space-y-1.5 animate-fade-in">
               <div className="flex items-center gap-2">
                 <span className={`text-xs font-semibold uppercase tracking-wider ${
                   msg.role === "user" ? "text-accent" : "text-text-secondary"
@@ -232,7 +232,7 @@ export default function ChatPanel({
                 </button>
 
                 {showAddMenu && (
-                  <div className="absolute bottom-full left-0 mb-2 w-56 bg-panel border border-border rounded-xl shadow-xl overflow-hidden z-50" role="menu">
+                  <div className="absolute bottom-full left-0 mb-2 w-56 bg-panel border border-border rounded-xl shadow-xl overflow-hidden z-50 animate-scale-in" role="menu">
                     <div className="p-3 space-y-1">
                       <p className="text-[11px] font-semibold text-text-secondary uppercase tracking-wider px-1 pb-1">Import</p>
                       <button

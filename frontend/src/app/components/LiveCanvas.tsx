@@ -195,15 +195,16 @@ export default function LiveCanvas({ files }: LiveCanvasProps) {
       {/* Toolbar */}
       <div className="flex items-center justify-between px-3 py-1.5 bg-sidebar border-b border-border text-xs text-text-secondary">
         <div className="flex items-center gap-1">
-          {VIEWPORT_PRESETS.map((p) => (
+          {VIEWPORT_PRESETS.map((p, i) => (
             <button
               key={p.key}
               onClick={() => setViewport(p.key)}
-              className={`px-2 py-1 rounded-md text-xs font-medium transition-colors ${
+              className={`px-2 py-1 rounded-md text-xs font-medium transition-all ${
                 viewport === p.key
                   ? "bg-accent text-white"
                   : "text-text-secondary hover:text-foreground hover:bg-surface"
               }`}
+              style={{ animationDelay: `${i * 30}ms` }}
               title={`${p.label}${p.width ? ` — ${p.width}px` : ""}`}
             >
               {p.label}

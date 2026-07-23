@@ -1,6 +1,6 @@
 "use client";
 
-import { useEffect, useRef } from "react";
+import { useEffect } from "react";
 
 export interface ShortcutHandlers {
   onSave?: () => void;
@@ -10,78 +10,93 @@ export interface ShortcutHandlers {
   onToggleViewMode?: () => void;
   onNewProject?: () => void;
   onFocusPrompt?: () => void;
+  onCycleFiles?: () => void;
+  onCycleFilesBackward?: () => void;
 }
 
 /**
  * Global keyboard shortcuts hook.
  * Registers keydown listeners on the document and calls the provided handlers.
- * Uses a ref to avoid re-registering the listener on every render.
- * All handlers are optional — only register the ones you need.
+ * Re-registers the listener whenever handlers change.
  */
 export function useKeyboardShortcuts(handlers: ShortcutHandlers) {
-  const handlersRef = useRef(handlers);
-
-  // Sync ref with latest handlers (in effect, not during render)
-  useEffect(() => {
-    handlersRef.current = handlers;
-  });
-
   useEffect(() => {
     const handleKeyDown = (e: KeyboardEvent) => {
-      const h = handlersRef.current;
       const isMod = e.ctrlKey || e.metaKey;
       const key = e.key.toLowerCase();
 
-      // Ctrl+S / Cmd+S — Save (only suppress if handler is registered)
-      if (isMod && key === "s" && h.onSave) {
+      // Ctrl+S / Cmd+S — Save
+      if (isMod && key === "s" && handlers.onSave) {
         e.preventDefault();
-        h.onSave();
+        handlers.onSave();
         return;
       }
 
       // Escape — Close panels / cancel
       if (e.key === "Escape") {
-        h.onEscape?.();
+        handlers.onEscape?.();
         return;
       }
 
       // Ctrl+B / Cmd+B — Toggle sidebar
       if (isMod && key === "b") {
         e.preventDefault();
-        h.onToggleSidebar?.();
+        handlers.onToggleSidebar?.();
         return;
       }
 
       // Ctrl+Shift+E — Toggle file explorer
       if (isMod && e.shiftKey && key === "e") {
         e.preventDefault();
-        h.onToggleExplorer?.();
+        handlers.onToggleExplorer?.();
         return;
       }
 
-      // Ctrl+Shift+P — Cycle view mode (Preview → Code → Split)
+      // Ctrl+Shift+P — Toggle view mode
       if (isMod && e.shiftKey && key === "p") {
         e.preventDefault();
-        h.onToggleViewMode?.();
+        handlers.onToggleViewMode?.();
+        return;
+      }
+
+      // Ctrl+Tab / Cmd+Tab — Cycle files forward
+      if ((e.ctrlKey || e.metaKey) && key === "tab") {
+        e.preventDefault();
+        e.stopPropagation();
+        handlers.onCycleFiles?.();
+        return;
+      }
+
+      // Ctrl+PageDown / Cmd+PageDown — Cycle forward
+      if ((e.ctrlKey || e.metaKey) && key === "pagedown") {
+        e.preventDefault();
+        handlers.onCycleFiles?.();
+        return;
+      }
+
+      // Ctrl+PageUp / Cmd+PageUp — Cycle backward
+      if ((e.ctrlKey || e.metaKey) && key === "pageup") {
+        e.preventDefault();
+        handlers.onCycleFilesBackward?.();
         return;
       }
 
       // Ctrl+Shift+N — New project
       if (isMod && e.shiftKey && key === "n") {
         e.preventDefault();
-        h.onNewProject?.();
+        handlers.onNewProject?.();
         return;
       }
 
       // Ctrl+Shift+F — Focus prompt input
       if (isMod && e.shiftKey && key === "f") {
         e.preventDefault();
-        h.onFocusPrompt?.();
+        handlers.onFocusPrompt?.();
         return;
       }
     };
 
     document.addEventListener("keydown", handleKeyDown);
     return () => document.removeEventListener("keydown", handleKeyDown);
-  }, []); // Empty deps — handlers read from ref, so no re-registration needed
+  }, [handlers]);
 }

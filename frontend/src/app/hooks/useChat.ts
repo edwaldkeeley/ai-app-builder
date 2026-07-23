@@ -22,6 +22,15 @@ export function useChat() {
   const chatIdCounterRef = useRef(0);
   const loadRequestIdRef = useRef(0);
   const generatingRef = useRef(false);
+  const chatMessagesRef = useRef(chatMessages);
+  // Keep ref in sync with state
+  const setChatMessagesWithRef = useCallback((update: React.SetStateAction<ChatMessage[]>) => {
+    setChatMessages((prev) => {
+      const next = typeof update === "function" ? update(prev) : update;
+      chatMessagesRef.current = next;
+      return next;
+    });
+  }, []);
   const { showToast } = useToast();
 
   const saveMessage = useCallback(
@@ -44,8 +53,9 @@ export function useChat() {
       if (requestId !== loadRequestIdRef.current) return;
       // Guard: if we already have messages for this project and the count matches,
       // don't re-set state (prevents duplication from React Strict Mode double-fire)
-      if (chatMessages.length > 0 && msgs.length > 0) {
-        const lastExisting = chatMessages[chatMessages.length - 1];
+      const currentMessages = chatMessagesRef.current;
+      if (currentMessages.length > 0 && msgs.length > 0) {
+        const lastExisting = currentMessages[currentMessages.length - 1];
         const lastFetched = msgs[msgs.length - 1];
         if (lastExisting.id === `chat-${lastFetched.id}`) return;
       }
@@ -56,16 +66,17 @@ export function useChat() {
         files: m.files,
         timestamp: m.created_at,
       }));
-      setChatMessages(converted);
+      setChatMessagesWithRef(converted);
       const maxId = msgs.reduce((max, m) => Math.max(max, m.id), 0);
       chatIdCounterRef.current = maxId + 1;
     } catch {
       // Silently fail
     }
-  }, [chatMessages]);
+  }, [setChatMessagesWithRef]);
 
   const clearChatMessages = useCallback(() => {
     setChatMessages([]);
+    chatMessagesRef.current = [];
   }, []);
 
   const handlePrompt = useCallback(
@@ -91,7 +102,7 @@ export function useChat() {
         content: prompt,
         timestamp: new Date().toISOString(),
       };
-      setChatMessages((prev) => [...prev, userMsg]);
+      setChatMessagesWithRef((prev) => [...prev, userMsg]);
       await saveMessage(projectId, "user", prompt);
 
       // Create a placeholder AI message
@@ -102,7 +113,7 @@ export function useChat() {
         content: "",
         timestamp: new Date().toISOString(),
       };
-      setChatMessages((prev) => [...prev, aiMessage]);
+      setChatMessagesWithRef((prev) => [...prev, aiMessage]);
 
       // Track streaming state
       let streamedContent = "";
@@ -114,7 +125,7 @@ export function useChat() {
         const session = generateStream({
           onMessageChunk: (delta) => {
             streamedContent += delta;
-            setChatMessages((prev) => {
+            setChatMessagesWithRef((prev) => {
               const updated = [...prev];
               const idx = updated.findIndex((m) => m.id === aiMsgId);
               if (idx !== -1) {
@@ -156,7 +167,7 @@ export function useChat() {
           },
           onDone: (message, generatedFiles) => {
             const finalContent = message || streamedContent || `Generated ${generatedFiles.length} file${generatedFiles.length !== 1 ? "s" : ""}`;
-            setChatMessages((prev) => {
+            setChatMessagesWithRef((prev) => {
               const updated = [...prev];
               const idx = updated.findIndex((m) => m.id === aiMsgId);
               if (idx !== -1) {
@@ -210,7 +221,7 @@ export function useChat() {
           setWritingStatus({ type: "thinking", message: "Falling back to REST..." });
           const result = await api.generate(prompt, resolvedProjectId);
           const finalContent = result.message || `Generated ${result.files.length} file${result.files.length !== 1 ? "s" : ""}`;
-          setChatMessages((prev) => {
+          setChatMessagesWithRef((prev) => {
             const updated = [...prev];
             const idx = updated.findIndex((m) => m.id === aiMsgId);
             if (idx !== -1) {
@@ -225,7 +236,7 @@ export function useChat() {
         } catch (err) {
           const msg = err instanceof Error ? err.message : "AI generation failed";
           setError(msg);
-          setChatMessages((prev) => {
+          setChatMessagesWithRef((prev) => {
             const updated = [...prev];
             const idx = updated.findIndex((m) => m.id === aiMsgId);
             if (idx !== -1) {
@@ -244,7 +255,7 @@ export function useChat() {
             setGenerating(false);
       }
     },
-    [saveMessage, showToast],
+    [saveMessage, showToast, setChatMessagesWithRef],
   );
 
   return {

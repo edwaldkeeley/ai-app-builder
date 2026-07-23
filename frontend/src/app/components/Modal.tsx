@@ -16,15 +16,17 @@ export default function Modal({ open, onClose, children }: ModalProps) {
 
   return (
     <div
-      className="fixed inset-0 z-50 flex items-center justify-center bg-black/50"
+      className="fixed inset-0 z-50 flex items-center justify-center bg-black/50 p-4 animate-fade-in"
       onClick={onClose}
     >
       <div
-        className="bg-panel border border-border rounded-xl p-5 w-full max-w-md mx-4 shadow-xl max-h-[90dvh] overflow-y-auto"
+        className="bg-panel border border-border rounded-xl shadow-xl w-full max-w-md max-h-[90dvh] overflow-y-auto animate-scale-in"
         onClick={(e) => e.stopPropagation()}
         style={{
-          paddingTop: "env(safe-area-inset-top, 0px)",
-          paddingBottom: "env(safe-area-inset-bottom, 0px)",
+          paddingTop: "calc(20px + env(safe-area-inset-top, 0px))",
+          paddingBottom: "calc(20px + env(safe-area-inset-bottom, 0px))",
+          paddingLeft: "20px",
+          paddingRight: "20px",
         }}
       >
         {children}

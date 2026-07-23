@@ -21,16 +21,17 @@ interface MainContentProps {
   onSendPrompt: (prompt: string) => void;
   generating: boolean;
   onAddFile: (path: string) => void;
+  onDeleteFile: (path: string) => void;
+  onRenameFile: (oldPath: string, newPath: string) => void;
   activeFilePath: string | null;
   onActiveFileChange: (path: string | null) => void;
-  showExplorer: boolean;
-  onToggleExplorer: () => void;
   saveStatus?: SaveStatus;
   viewMode: ViewMode;
   onViewModeChange: (mode: ViewMode) => void;
   onFigmaImportComplete?: (projectId: string) => void;
   onDesignUploadComplete?: (projectId: string) => void;
   isMobile?: boolean;
+  dirtyFiles?: Set<string>;
 }
 
 const VIEW_BUTTONS: { mode: ViewMode; label: string }[] = [
@@ -49,16 +50,17 @@ export default function MainContent({
   onSendPrompt,
   generating,
   onAddFile,
+  onDeleteFile,
+  onRenameFile,
   activeFilePath,
   onActiveFileChange,
-  showExplorer,
-  onToggleExplorer,
   saveStatus,
   viewMode,
   onViewModeChange,
   onFigmaImportComplete,
   onDesignUploadComplete,
   isMobile,
+  dirtyFiles,
 }: MainContentProps) {
   const [promptValue, setPromptValue] = useState("");
   const promptTextareaRef = useRef<HTMLTextAreaElement>(null);
@@ -67,15 +69,46 @@ export default function MainContent({
   const landingFigmaRef = useRef<HTMLDivElement>(null);
   const landingDesignRef = useRef<HTMLDivElement>(null);
   const filesRef = useRef(files);
+  const splitContainerRef = useRef<HTMLDivElement>(null);
+  const [splitRatio, setSplitRatio] = useState(0.5);
+  const isDragging = useRef(false);
+
+  // Draggable split divider
+  const handleSplitMouseDown = useCallback((e: React.MouseEvent) => {
+    e.preventDefault();
+    isDragging.current = true;
+    document.body.style.cursor = "col-resize";
+    document.body.style.userSelect = "none";
+  }, []);
+
+  useEffect(() => {
+    const handleMouseMove = (e: MouseEvent) => {
+      if (!isDragging.current || !splitContainerRef.current) return;
+      const rect = splitContainerRef.current.getBoundingClientRect();
+      const ratio = (e.clientX - rect.left) / rect.width;
+      setSplitRatio(Math.max(0.2, Math.min(0.8, ratio)));
+    };
+    const handleMouseUp = () => {
+      if (isDragging.current) {
+        isDragging.current = false;
+        document.body.style.cursor = "";
+        document.body.style.userSelect = "";
+      }
+    };
+    document.addEventListener("mousemove", handleMouseMove);
+    document.addEventListener("mouseup", handleMouseUp);
+    return () => {
+      document.removeEventListener("mousemove", handleMouseMove);
+      document.removeEventListener("mouseup", handleMouseUp);
+    };
+  }, []);
+
   useEffect(() => {
     filesRef.current = files;
   }, [files]);
 
   // Build a Map for O(1) file lookups instead of O(n) scans
   const filesMap = useMemo(() => new Map(files.map((f) => [f.path, f])), [files]);
-
-  // On mobile, force single-pane view (split is unusable at <768px)
-  const effectiveViewMode: ViewMode = isMobile && viewMode === "split" ? "preview" : viewMode;
 
   // When files change, auto-select the first file
   const effectiveActiveFile = activeFilePath && filesMap.has(activeFilePath)
@@ -176,21 +209,6 @@ export default function MainContent({
       <div className="flex-1 flex flex-col min-h-0 overscroll-contain">
         {/* Project name bar with view mode toggle */}
         <div className="flex items-center gap-2 px-4 py-2 border-b border-border bg-sidebar">
-          {/* Explorer toggle */}
-          <button
-            onClick={onToggleExplorer}
-            className={`p-1 rounded-md transition-colors touch-target ${
-              showExplorer
-                ? "bg-surface text-foreground"
-                : "text-text-secondary hover:text-foreground hover:bg-surface"
-            }`}
-            title={showExplorer ? "Collapse explorer" : "Show explorer"}
-          >
-            <svg className="w-4 h-4" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2}>
-              <path strokeLinecap="round" strokeLinejoin="round" d="M4 6h16M4 12h16M4 18h16" />
-            </svg>
-          </button>
-
           <span className="text-sm font-medium truncate">{activeProject.name}</span>
           {!isMobile && (
             <span className="text-xs text-text-secondary hidden sm:inline">
@@ -209,7 +227,7 @@ export default function MainContent({
               )}
               {saveStatus === "saved" && (
                 <>
-                  <span className="text-success">✓</span>
+                  <span className="text-success animate-scale-in">✓</span>
                   {!isMobile && <span className="text-success hidden sm:inline">Saved</span>}
                 </>
               )}
@@ -247,7 +265,7 @@ export default function MainContent({
                   onClick={() => onViewModeChange(mode)}
                   disabled={isDisabled}
                   className={`px-2.5 py-1 text-xs font-medium rounded-md transition-colors touch-target ${
-                    effectiveViewMode === mode
+                    viewMode === mode
                       ? "bg-accent text-white"
                       : isDisabled
                         ? "text-text-secondary/40 cursor-not-allowed"
@@ -263,23 +281,36 @@ export default function MainContent({
         </div>
 
         {/* Content area based on view mode */}
-        {effectiveViewMode === "split" ? (
-          /* Split: editor left, canvas right */
-          <div className="flex-1 flex min-h-0">
-            <div className="flex-1 flex flex-col min-w-0 border-r border-border">
+        {viewMode === "split" ? (
+          /* Split: editor left, canvas right with draggable divider */
+          <div ref={splitContainerRef} className="flex-1 flex min-h-0">
+            <div
+              className="flex flex-col min-w-0 overflow-hidden"
+              style={{ width: `${splitRatio * 100}%` }}
+            >
               <EditorPane
                 files={files}
                 activeFilePath={effectiveActiveFile}
                 onSelectFile={onActiveFileChange}
                 onFileContentChange={handleFileContentChange}
                 onAddFile={onAddFile}
+                onDeleteFile={onDeleteFile}
+                onRenameFile={onRenameFile}
+                dirtyFiles={dirtyFiles}
               />
             </div>
-            <div className="flex-1 flex flex-col min-w-0">
+            {/* Draggable divider */}
+            <div
+              onMouseDown={handleSplitMouseDown}
+              className="w-1.5 bg-border hover:bg-accent/50 active:bg-accent cursor-col-resize flex-shrink-0 transition-colors relative z-10"
+            >
+              <div className="absolute inset-y-0 -left-1 -right-1" />
+            </div>
+            <div className="flex-1 flex flex-col min-w-0 overflow-hidden">
               <LiveCanvas files={files} />
             </div>
           </div>
-        ) : effectiveViewMode === "code" ? (
+        ) : viewMode === "code" ? (
           /* Code only: editor fills the area */
           <div className="flex-1 flex min-h-0">
             <EditorPane
@@ -288,6 +319,9 @@ export default function MainContent({
               onSelectFile={onActiveFileChange}
               onFileContentChange={handleFileContentChange}
               onAddFile={onAddFile}
+              onDeleteFile={onDeleteFile}
+              onRenameFile={onRenameFile}
+              dirtyFiles={dirtyFiles}
             />
           </div>
         ) : (
@@ -334,7 +368,7 @@ export default function MainContent({
             </button>
 
             {showLandingMenu && (
-              <div className="absolute bottom-full left-0 mb-2 w-56 bg-panel border border-border rounded-xl shadow-xl overflow-hidden z-50" role="menu">
+              <div className="absolute bottom-full left-0 mb-2 w-56 bg-panel border border-border rounded-xl shadow-xl overflow-hidden z-50 animate-scale-in" role="menu">
                 <div className="p-3 space-y-1">
                   <p className="text-[11px] font-semibold text-text-secondary uppercase tracking-wider px-1 pb-1">Import</p>
                   <button

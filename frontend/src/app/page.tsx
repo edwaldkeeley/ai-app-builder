@@ -4,7 +4,6 @@ import { useState, useEffect, useCallback, useRef } from "react";
 import { useRouter } from "next/navigation";
 import Sidebar from "./components/Sidebar";
 import MainContent from "./components/MainContent";
-import FileExplorer from "./components/FileExplorer";
 import { api } from "./lib/api";
 import { useAuth } from "./contexts/AuthContext";
 import { useProjects } from "./hooks/useProjects";
@@ -58,13 +57,13 @@ export default function Home() {
   } = useFileSave(activeProjectId);
 
   const [activeFilePath, setActiveFilePath] = useState<string | null>(null);
-  const [showExplorer, setShowExplorer] = useState(true);
   const [isMobile, setIsMobile] = useState(false);
   const [viewMode, setViewMode] = useState<"preview" | "code" | "split">("preview");
   const [showMobileSidebar, setShowMobileSidebar] = useState(false);
   const [filesLoading, setFilesLoading] = useState(false);
   const filesRef = useRef(files);
   const activeProjectIdRef = useRef(activeProjectId);
+  const activeFilePathRef = useRef(activeFilePath);
 
   // ── Effects (also hooks — must be before early returns) ──
   useEffect(() => {
@@ -73,6 +72,9 @@ export default function Home() {
   useEffect(() => {
     activeProjectIdRef.current = activeProjectId;
   }, [activeProjectId]);
+  useEffect(() => {
+    activeFilePathRef.current = activeFilePath;
+  }, [activeFilePath]);
 
   // Load chat messages when a project is selected
   useEffect(() => {
@@ -90,7 +92,6 @@ export default function Home() {
       const mobile = window.innerWidth < 768;
       setIsMobile(mobile);
       if (mobile) {
-        setShowExplorer(false);
         setShowMobileSidebar(false);
       }
     };
@@ -125,6 +126,24 @@ export default function Home() {
     showToast("success", "All files saved");
   }, [activeProjectId, dirtyFiles, showToast]);
 
+  // Ctrl+Tab — cycle through files
+  const handleCycleFiles = useCallback(() => {
+    const currentFiles = filesRef.current;
+    if (currentFiles.length === 0) return;
+    const currentIndex = currentFiles.findIndex((f) => f.path === activeFilePathRef.current);
+    const nextIndex = (currentIndex + 1) % currentFiles.length;
+    setActiveFilePath(currentFiles[nextIndex].path);
+  }, []);
+
+  // Ctrl+PageUp — cycle backward through files
+  const handleCycleFilesBackward = useCallback(() => {
+    const currentFiles = filesRef.current;
+    if (currentFiles.length === 0) return;
+    const currentIndex = currentFiles.findIndex((f) => f.path === activeFilePathRef.current);
+    const prevIndex = (currentIndex - 1 + currentFiles.length) % currentFiles.length;
+    setActiveFilePath(currentFiles[prevIndex].path);
+  }, []);
+
   // Global keyboard shortcuts
   useKeyboardShortcuts({
     onSave: handleSave,
@@ -133,21 +152,17 @@ export default function Home() {
     },
     onToggleSidebar: () => {
       if (isMobile) {
-        setShowMobileSidebar((prev) => {
-          if (!prev) setShowExplorer(false); // opening sidebar → close explorer
-          return !prev;
-        });
+        setShowMobileSidebar((prev) => !prev);
       }
     },
-    onToggleExplorer: () => {
-      setShowExplorer((prev) => {
-        if (!prev && isMobile) setShowMobileSidebar(false); // opening explorer → close sidebar
-        return !prev;
-      });
+    onToggleViewMode: () => {
+      setViewMode((prev) => prev === "preview" ? "code" : prev === "code" ? "split" : "preview");
     },
     onNewProject: () => {
       handleCreateProject();
     },
+    onCycleFiles: handleCycleFiles,
+    onCycleFilesBackward: handleCycleFilesBackward,
   });
 
   // Fetch project files when active project changes
@@ -262,30 +277,10 @@ export default function Home() {
         onDesignUploadComplete={handleDesignUploadComplete}
       />
 
-      {/* File Explorer (hidden when collapsed) */}
-      {activeProject && showExplorer && (
-        <FileExplorer
-          key={activeProjectId}
-          files={files}
-          activeFilePath={activeFilePath}
-          onSelectFile={setActiveFilePath}
-          onAddFile={handleAddFile}
-          onDeleteFile={handleDeleteFile}
-          onRenameFile={handleRenameFile}
-          dirtyFiles={dirtyFiles}
-          loading={loading}
-          isMobile={isMobile}
-          onToggleCollapse={() => setShowExplorer(false)}
-        />
-      )}
-
       {/* Mobile hamburger button */}
       {isMobile && !showMobileSidebar && (
         <button
-          onClick={() => {
-            setShowMobileSidebar(true);
-            setShowExplorer(false);
-          }}
+          onClick={() => setShowMobileSidebar(true)}
           className="fixed top-3 left-3 z-30 p-2 rounded-lg bg-surface border border-border shadow-lg text-foreground hover:bg-sidebar transition-colors touch-target"
           style={{ top: "calc(12px + env(safe-area-inset-top, 0px))" }}
           aria-label="Open sidebar"
@@ -307,16 +302,17 @@ export default function Home() {
           onSendPrompt={handlePrompt}
           generating={generating}
           onAddFile={handleAddFile}
+          onDeleteFile={handleDeleteFile}
+          onRenameFile={handleRenameFile}
           activeFilePath={activeFilePath}
           onActiveFileChange={setActiveFilePath}
-          showExplorer={showExplorer}
-          onToggleExplorer={() => setShowExplorer((prev) => !prev)}
           saveStatus={saveStatus}
           viewMode={viewMode}
           onViewModeChange={setViewMode}
           onFigmaImportComplete={handleFigmaImportComplete}
           onDesignUploadComplete={handleDesignUploadComplete}
           isMobile={isMobile}
+          dirtyFiles={dirtyFiles}
         />
       </main>
     </div>

@@ -428,7 +428,9 @@ def _parse_final_json(
         blocks = _extract_code_blocks(content)
         if blocks:
             return _code_blocks_to_files(content, blocks, existing_files)
-        raise
+        # No code blocks found — treat entire response as conversational message
+        logger.warning("No code blocks found in AI response, treating as conversational message only")
+        return content.strip(), existing_files or []
 
     raw_files = parsed.get("files", [])
     message = parsed.get("message", "")

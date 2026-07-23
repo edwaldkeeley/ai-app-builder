@@ -8,6 +8,7 @@ import { useAuth } from "../contexts/AuthContext";
 import { useTheme } from "../contexts/ThemeContext";
 import ChatPanel from "./ChatPanel";
 import { SkeletonSidebar } from "./Skeleton";
+import ShortcutsModal from "./ShortcutsModal";
 
 interface SidebarProps {
   projects: Project[];
@@ -57,6 +58,7 @@ export default function Sidebar({
   const effectiveCollapsed = isMobile ? !showMobileSidebar : collapsed;
   const [confirmDelete, setConfirmDelete] = useState<string | null>(null);
   const [showUserMenu, setShowUserMenu] = useState(false);
+  const [showShortcuts, setShowShortcuts] = useState(false);
   const sidebarRef = useRef<HTMLDivElement>(null);
   const { user, logout } = useAuth();
   const { theme, toggleTheme } = useTheme();
@@ -435,12 +437,47 @@ export default function Sidebar({
                 className="fixed inset-0 z-10"
                 onClick={() => setShowUserMenu(false)}
               />
-              <div className="absolute bottom-full left-0 right-0 mb-1 mx-2 z-20 bg-surface border border-border rounded-lg shadow-lg py-1" role="menu">
+              <div className="absolute bottom-full left-0 right-0 mb-1 mx-2 z-20 bg-surface border border-border rounded-lg shadow-lg py-1 min-w-[160px]" role="menu">
+                <div className="px-3 py-1.5 border-b border-border mb-1">
+                  <div className="text-xs font-medium text-foreground truncate">{user?.username || "User"}</div>
+                  <div className="text-[10px] text-text-secondary truncate">{user?.email || ""}</div>
+                </div>
                 <button
-                  onClick={handleLogout}
-                  className="w-full text-left px-3 py-1.5 text-xs text-text-secondary hover:text-foreground hover:bg-sidebar transition-colors"
+                  onClick={() => { setShowUserMenu(false); toggleTheme(); }}
+                  className="w-full flex items-center gap-2 px-3 py-1.5 text-xs text-text-secondary hover:text-foreground hover:bg-sidebar transition-colors"
                   role="menuitem"
                 >
+                  {theme === "dark" ? (
+                    <svg className="w-3.5 h-3.5" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2}>
+                      <path strokeLinecap="round" strokeLinejoin="round" d="M12 3v1m0 16v1m9-9h-1M4 12H3m15.364 6.364l-.707-.707M6.343 6.343l-.707-.707m12.728 0l-.707.707M6.343 17.657l-.707.707M16 12a4 4 0 11-8 0 4 4 0 018 0z" />
+                    </svg>
+                  ) : (
+                    <svg className="w-3.5 h-3.5" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2}>
+                      <path strokeLinecap="round" strokeLinejoin="round" d="M20.354 15.354A9 9 0 018.646 3.646 9.003 9.003 0 0012 21a9.003 9.003 0 008.354-5.646z" />
+                    </svg>
+                  )}
+                  {theme === "dark" ? "Light mode" : "Dark mode"}
+                </button>
+                <button
+                  onClick={() => { setShowUserMenu(false); setShowShortcuts(true); }}
+                  className="w-full flex items-center gap-2 px-3 py-1.5 text-xs text-text-secondary hover:text-foreground hover:bg-sidebar transition-colors"
+                  role="menuitem"
+                  title="Ctrl+Shift+P to toggle view mode, Ctrl+Tab to cycle files"
+                >
+                  <svg className="w-3.5 h-3.5" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2}>
+                    <path strokeLinecap="round" strokeLinejoin="round" d="M13 10V3L4 14h7v7l9-11h-7z" />
+                  </svg>
+                  Keyboard shortcuts
+                </button>
+                <div className="border-t border-border my-1" />
+                <button
+                  onClick={handleLogout}
+                  className="w-full flex items-center gap-2 px-3 py-1.5 text-xs text-danger hover:bg-danger/10 transition-colors"
+                  role="menuitem"
+                >
+                  <svg className="w-3.5 h-3.5" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2}>
+                    <path strokeLinecap="round" strokeLinejoin="round" d="M17 16l4-4m0 0l-4-4m4 4H7m6 4v1a3 3 0 01-3 3H6a3 3 0 01-3-3V7a3 3 0 013-3h4a3 3 0 013 3v1" />
+                  </svg>
                   Sign out
                 </button>
               </div>
@@ -448,6 +485,8 @@ export default function Sidebar({
           )}
         </div>
       </div>
+
+      <ShortcutsModal open={showShortcuts} onClose={() => setShowShortcuts(false)} />
     </aside>
   );
 }

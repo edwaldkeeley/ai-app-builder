@@ -4,8 +4,8 @@ import { useRef, useCallback, useState, useEffect } from "react";
 import Editor, { type OnMount } from "@monaco-editor/react";
 import type { editor } from "monaco-editor";
 import type { ProjectFile } from "../lib/types";
+import FileExplorer from "./FileExplorer";
 import { SkeletonEditor } from "./Skeleton";
-import { useToast } from "./Toast";
 import { useTheme } from "../contexts/ThemeContext";
 
 interface EditorPaneProps {
@@ -14,6 +14,9 @@ interface EditorPaneProps {
   onSelectFile: (path: string) => void;
   onFileContentChange: (path: string, content: string) => void;
   onAddFile: (path: string) => void;
+  onDeleteFile: (path: string) => void;
+  onRenameFile: (oldPath: string, newPath: string) => void;
+  dirtyFiles?: Set<string>;
 }
 
 const LANGUAGE_MAP: Record<string, string> = {
@@ -24,25 +27,22 @@ const LANGUAGE_MAP: Record<string, string> = {
   python: "python",
 };
 
-const FILE_EXTENSIONS = [".html", ".css", ".js", ".json", ".py"];
-
 export default function EditorPane({
   files,
   activeFilePath,
   onSelectFile,
   onFileContentChange,
   onAddFile,
+  onDeleteFile,
+  onRenameFile,
+  dirtyFiles,
 }: EditorPaneProps) {
   const editorRef = useRef<editor.IStandaloneCodeEditor | null>(null);
   // eslint-disable-next-line @typescript-eslint/no-explicit-any
   const monacoRef = useRef<any>(null);
   const filesRef = useRef(files);
   const activeFilePathRef = useRef(activeFilePath);
-  const [showNewFileInput, setShowNewFileInput] = useState(false);
-  const [newFileName, setNewFileName] = useState("");
   const [editorReady, setEditorReady] = useState(false);
-  const newFileInputRef = useRef<HTMLInputElement>(null);
-  const { showToast } = useToast();
   const { theme } = useTheme();
 
   // Keep refs in sync with props
@@ -56,14 +56,13 @@ export default function EditorPane({
   const activeFile = files.find((f) => f.path === activeFilePath) ?? files[0];
   const language = activeFile ? LANGUAGE_MAP[activeFile.file_type] || "plaintext" : "plaintext";
 
-  // ── Monaco model management: preserve editor state across tab switches ──
+  // ── Monaco model management ──
 
   const handleEditorDidMount: OnMount = useCallback((editorInstance, monaco) => {
     editorRef.current = editorInstance;
     monacoRef.current = monaco;
     setEditorReady(true);
 
-    // Use refs to access latest props (avoids stale closure from [] deps)
     const currentFiles = filesRef.current;
     const currentActivePath = activeFilePathRef.current;
     const file = currentFiles.find((f) => f.path === currentActivePath) ?? currentFiles[0];
@@ -109,7 +108,6 @@ export default function EditorPane({
   const handleChange = useCallback(
     (value: string | undefined) => {
       if (value === undefined) return;
-      // Use ref to always read the latest active file path (avoids stale closure)
       const path = activeFilePathRef.current;
       if (!path) return;
       onFileContentChange(path, value);
@@ -117,141 +115,57 @@ export default function EditorPane({
     [onFileContentChange],
   );
 
-  const handleAddFileClick = () => {
-    setNewFileName("");
-    setShowNewFileInput(true);
-    setTimeout(() => newFileInputRef.current?.focus(), 50);
-  };
-
-  const handleNewFileSubmit = () => {
-    const trimmed = newFileName.trim();
-    if (!trimmed) {
-      setShowNewFileInput(false);
-      return;
-    }
-
-    // Auto-append extension if none provided
-    let finalPath = trimmed;
-    const hasExtension = FILE_EXTENSIONS.some((ext) => trimmed.endsWith(ext));
-    if (!hasExtension) {
-      finalPath = `${trimmed}.html`;
-    }
-
-    // Check for duplicate
-    if (files.some((f) => f.path === finalPath)) {
-      showToast("error", `File "${finalPath}" already exists`);
-      return;
-    }
-
-    onAddFile(finalPath);
-    setNewFileName("");
-    setShowNewFileInput(false);
-  };
-
-  const handleNewFileKeyDown = (e: React.KeyboardEvent) => {
-    if (e.key === "Enter") {
-      e.preventDefault();
-      handleNewFileSubmit();
-    }
-    if (e.key === "Escape") {
-      setShowNewFileInput(false);
-    }
-  };
-
-  if (files.length === 0) {
-    return (
-      <div className="flex-1 flex flex-col items-center justify-center gap-3 text-sm text-text-secondary">
-        <p>No files yet.</p>
-        <button
-          onClick={handleAddFileClick}
-          className="px-3 py-1.5 text-xs font-medium rounded-lg bg-accent text-white hover:bg-accent-hover transition-colors"
-        >
-          + Add File
-        </button>
-      </div>
-    );
-  }
-
   return (
     <div className="flex-1 flex flex-col min-h-0">
-      {/* File tabs — click to switch files, no delete here (use file explorer) */}
-      <div className="flex items-center gap-0.5 px-2 pt-2 bg-sidebar border-b border-border overflow-x-auto">
-        {files.map((file) => (
-          <div
-            key={file.path}
-            className={`flex items-center gap-1 px-3 py-1.5 text-xs font-medium rounded-t-md border border-border border-b-0 transition-colors whitespace-nowrap cursor-pointer touch-target ${
-              (activeFile?.path === file.path)
-                ? "bg-background text-foreground border-b-background"
-                : "bg-sidebar text-text-secondary hover:text-foreground"
-            }`}
-            onClick={() => onSelectFile(file.path)}
-          >
-            <span>{file.path.split("/").pop()}</span>
+      {/* File explorer + editor side by side */}
+      <div className="flex-1 flex min-h-0">
+        {/* Code Files panel (embedded FileExplorer) */}
+        <FileExplorer
+          files={files}
+          activeFilePath={activeFilePath}
+          onSelectFile={onSelectFile}
+          onAddFile={onAddFile}
+          onDeleteFile={onDeleteFile}
+          onRenameFile={onRenameFile}
+          dirtyFiles={dirtyFiles}
+        />
+
+        {/* Editor column: filename bar on top, editor below */}
+        <div className="flex-1 flex flex-col min-w-0">
+          {/* Filename bar — shows the active file name */}
+          <div className="flex items-center gap-2 px-3 py-1.5 bg-sidebar border-b border-border text-xs text-text-secondary animate-slide-down">
+            <span className="font-medium text-foreground truncate">
+              {activeFile?.path || "No file selected"}
+            </span>
+            {activeFile && dirtyFiles?.has(activeFile.path) && (
+              <span className="w-1.5 h-1.5 rounded-full bg-accent flex-shrink-0" title="Unsaved changes" />
+            )}
           </div>
-        ))}
 
-        {/* Add file button */}
-        <button
-          onClick={handleAddFileClick}
-          className="flex-shrink-0 px-2 py-1.5 text-xs text-text-secondary hover:text-foreground transition-colors rounded-t-md hover:bg-sidebar/80"
-          title="Add new file"
-        >
-          <svg className="w-4 h-4" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2}>
-            <path strokeLinecap="round" strokeLinejoin="round" d="M12 4v16m8-8H4" />
-          </svg>
-        </button>
-      </div>
-
-      {/* New file inline input */}
-      {showNewFileInput && (
-        <div className="flex items-center gap-2 px-3 py-2 bg-sidebar border-b border-border">
-          <input
-            ref={newFileInputRef}
-            type="text"
-            value={newFileName}
-            onChange={(e) => setNewFileName(e.target.value)}
-            onKeyDown={handleNewFileKeyDown}
-            placeholder="filename.html"
-            className="flex-1 bg-input border border-border rounded-md px-2 py-1 text-xs text-foreground placeholder-text-secondary outline-none focus:border-accent/50"
-          />
-          <button
-            onClick={handleNewFileSubmit}
-            disabled={!newFileName.trim()}
-            className="px-2 py-1 text-xs font-medium rounded-md bg-accent text-white hover:bg-accent-hover disabled:opacity-40 transition-colors"
-          >
-            Add
-          </button>
-          <button
-            onClick={() => setShowNewFileInput(false)}
-            className="px-2 py-1 text-xs font-medium rounded-md text-text-secondary hover:text-foreground hover:bg-surface transition-colors"
-          >
-            Cancel
-          </button>
-        </div>
-      )}
-
-      {/* Monaco editor with skeleton while loading */}
-      <div className="flex-1 min-h-0 relative">
-        {!editorReady && <SkeletonEditor />}
-        <div className={editorReady ? "absolute inset-0" : "invisible h-0"}>
-          <Editor
-            defaultLanguage={language}
-            language={language}
-            value={activeFile?.content ?? ""}
-            onChange={handleChange}
-            onMount={handleEditorDidMount}
-            theme={theme === "dark" ? "vs-dark" : "vs"}
-            options={{
-              fontSize: 13,
-              fontFamily: "var(--font-geist-mono), monospace",
-              minimap: { enabled: false },
-              scrollBeyondLastLine: false,
-              lineNumbers: "on",
-              tabSize: 2,
-              automaticLayout: true,
-              padding: { top: 8 },
-            }}
-          />
+          {/* Monaco editor */}
+          <div className="flex-1 min-h-0 relative">
+            {!editorReady && <SkeletonEditor />}
+            <div className={editorReady ? "absolute inset-0" : "invisible h-0"}>
+              <Editor
+                defaultLanguage={language}
+                language={language}
+                value={activeFile?.content ?? ""}
+                onChange={handleChange}
+                onMount={handleEditorDidMount}
+                theme={theme === "dark" ? "vs-dark" : "vs"}
+                options={{
+                  fontSize: 13,
+                  fontFamily: "var(--font-geist-mono), monospace",
+                  minimap: { enabled: false },
+                  scrollBeyondLastLine: false,
+                  lineNumbers: "on",
+                  tabSize: 2,
+                  automaticLayout: true,
+                  padding: { top: 8 },
+                }}
+              />
+            </div>
+          </div>
         </div>
       </div>
     </div>

@@ -13,16 +13,15 @@ describe("FileExplorer", () => {
     onRenameFile: jest.fn(),
     dirtyFiles: new Set<string>(),
     loading: false,
-    isMobile: false,
   };
 
   beforeEach(() => {
     jest.clearAllMocks();
   });
 
-  it("renders empty state with explorer header", () => {
+  it("renders empty state with code files header", () => {
     render(<FileExplorer {...defaultProps} />);
-    expect(screen.getByText("Explorer")).toBeInTheDocument();
+    expect(screen.getByText("Code Files")).toBeInTheDocument();
   });
 
   it("renders file list", () => {
