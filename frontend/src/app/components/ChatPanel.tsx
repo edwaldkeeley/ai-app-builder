@@ -1,6 +1,6 @@
 "use client";
 
-import { useState, useRef, useEffect } from "react";
+import { useState, useRef, useEffect, memo } from "react";
 import ReactMarkdown from "react-markdown";
 import remarkGfm from "remark-gfm";
 import type { ChatMessage } from "../lib/types";
@@ -79,7 +79,7 @@ function WritingIndicator({ status }: { status: WritingStatus }) {
   );
 }
 
-export default function ChatPanel({
+const ChatPanel = memo(function ChatPanel({
   messages,
   onSend,
   disabled,
@@ -302,4 +302,6 @@ export default function ChatPanel({
       </div>
     </div>
   );
-}
+});
+
+export default ChatPanel;

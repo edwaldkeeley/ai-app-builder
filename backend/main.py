@@ -20,6 +20,7 @@ logger = logging.getLogger(__name__)
 
 from fastapi import FastAPI
 from fastapi.middleware.cors import CORSMiddleware
+from fastapi.middleware.gzip import GZipMiddleware
 
 # Ensure the backend package is importable when running from the project root
 _backend_dir = Path(__file__).resolve().parent
@@ -105,6 +106,9 @@ app.add_middleware(
     allow_methods=["*"],
     allow_headers=["*"],
 )
+
+# ── GZip compression for API responses ────────────────────
+app.add_middleware(GZipMiddleware, minimum_size=1000)
 
 # ── Routers ───────────────────────────────────────────────
 app.include_router(projects.router)

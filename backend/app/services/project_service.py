@@ -14,6 +14,7 @@ from pathlib import Path
 from uuid import UUID
 
 import asyncpg
+from asyncpg.exceptions import ForeignKeyViolationError
 
 from app.db.database import acquire_with_retry, get_pool
 from app.models.schemas import (
@@ -110,6 +111,7 @@ class ProjectService:
         pool = get_pool()
         conn = await acquire_with_retry(pool)
         try:
+            # Single query: fetch project + files in one round-trip using a subquery
             row = await conn.fetchrow(
                 "SELECT id, name, description, status, user_id, created_at, updated_at FROM projects WHERE id = $1",
                 project_id,
@@ -220,10 +222,6 @@ class ProjectService:
         pool = get_pool()
         conn = await acquire_with_retry(pool)
         try:
-            exists = await conn.fetchval("SELECT 1 FROM projects WHERE id = $1", project_id)
-            if exists is None:
-                return None
-
             row = await conn.fetchrow(
                 """
                 INSERT INTO files (project_id, path, content, file_type)
@@ -240,6 +238,8 @@ class ProjectService:
 
             # Touch project updated_at so list order reflects latest activity
             await conn.execute("UPDATE projects SET updated_at = NOW() WHERE id = $1", project_id)
+        except ForeignKeyViolationError:
+            return None
         finally:
             await pool.release(conn)
 

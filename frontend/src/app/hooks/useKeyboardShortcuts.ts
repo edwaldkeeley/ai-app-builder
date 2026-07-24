@@ -1,6 +1,6 @@
 "use client";
 
-import { useEffect } from "react";
+import { useEffect, useRef } from "react";
 
 export interface ShortcutHandlers {
   onSave?: () => void;
@@ -16,46 +16,53 @@ export interface ShortcutHandlers {
 
 /**
  * Global keyboard shortcuts hook.
- * Registers keydown listeners on the document and calls the provided handlers.
- * Re-registers the listener whenever handlers change.
+ * Registers a single keydown listener that reads handlers from a ref,
+ * avoiding re-registration when handlers change.
  */
 export function useKeyboardShortcuts(handlers: ShortcutHandlers) {
+  const handlersRef = useRef(handlers);
+
+  useEffect(() => {
+    handlersRef.current = handlers;
+  });
+
   useEffect(() => {
     const handleKeyDown = (e: KeyboardEvent) => {
+      const h = handlersRef.current;
       const isMod = e.ctrlKey || e.metaKey;
       const key = e.key.toLowerCase();
 
       // Ctrl+S / Cmd+S — Save
-      if (isMod && key === "s" && handlers.onSave) {
+      if (isMod && key === "s" && h.onSave) {
         e.preventDefault();
-        handlers.onSave();
+        h.onSave();
         return;
       }
 
       // Escape — Close panels / cancel
       if (e.key === "Escape") {
-        handlers.onEscape?.();
+        h.onEscape?.();
         return;
       }
 
       // Ctrl+B / Cmd+B — Toggle sidebar
       if (isMod && key === "b") {
         e.preventDefault();
-        handlers.onToggleSidebar?.();
+        h.onToggleSidebar?.();
         return;
       }
 
       // Ctrl+Shift+E — Toggle file explorer
       if (isMod && e.shiftKey && key === "e") {
         e.preventDefault();
-        handlers.onToggleExplorer?.();
+        h.onToggleExplorer?.();
         return;
       }
 
       // Ctrl+Shift+P — Toggle view mode
       if (isMod && e.shiftKey && key === "p") {
         e.preventDefault();
-        handlers.onToggleViewMode?.();
+        h.onToggleViewMode?.();
         return;
       }
 
@@ -63,40 +70,40 @@ export function useKeyboardShortcuts(handlers: ShortcutHandlers) {
       if ((e.ctrlKey || e.metaKey) && key === "tab") {
         e.preventDefault();
         e.stopPropagation();
-        handlers.onCycleFiles?.();
+        h.onCycleFiles?.();
         return;
       }
 
       // Ctrl+PageDown / Cmd+PageDown — Cycle forward
       if ((e.ctrlKey || e.metaKey) && key === "pagedown") {
         e.preventDefault();
-        handlers.onCycleFiles?.();
+        h.onCycleFiles?.();
         return;
       }
 
       // Ctrl+PageUp / Cmd+PageUp — Cycle backward
       if ((e.ctrlKey || e.metaKey) && key === "pageup") {
         e.preventDefault();
-        handlers.onCycleFilesBackward?.();
+        h.onCycleFilesBackward?.();
         return;
       }
 
       // Ctrl+Shift+N — New project
       if (isMod && e.shiftKey && key === "n") {
         e.preventDefault();
-        handlers.onNewProject?.();
+        h.onNewProject?.();
         return;
       }
 
       // Ctrl+Shift+F — Focus prompt input
       if (isMod && e.shiftKey && key === "f") {
         e.preventDefault();
-        handlers.onFocusPrompt?.();
+        h.onFocusPrompt?.();
         return;
       }
     };
 
     document.addEventListener("keydown", handleKeyDown);
     return () => document.removeEventListener("keydown", handleKeyDown);
-  }, [handlers]);
+  }, []);
 }

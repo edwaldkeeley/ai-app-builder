@@ -1,6 +1,6 @@
 "use client";
 
-import { useState, useMemo, useRef, useEffect, useCallback } from "react";
+import { useState, useMemo, useRef, useEffect, useCallback, memo } from "react";
 import type { ProjectFile } from "../lib/types";
 import FileIcon from "../lib/fileIcons";
 import { SkeletonExplorer } from "./Skeleton";
@@ -420,7 +420,7 @@ function FileRow({
   );
 }
 
-export default function FileExplorer({
+const FileExplorer = memo(function FileExplorer({
   files,
   activeFilePath,
   onSelectFile,
@@ -570,4 +570,6 @@ export default function FileExplorer({
   );
 
   return explorerPanel;
-}
+});
+
+export default FileExplorer;

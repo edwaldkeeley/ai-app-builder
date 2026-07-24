@@ -1,6 +1,6 @@
 "use client";
 
-import { useState, useCallback, useRef, useEffect, useMemo } from "react";
+import { useState, useCallback, useRef, useEffect, useMemo, memo } from "react";
 import type { Project, ProjectFile } from "../lib/types";
 import type { SaveStatus } from "../hooks/useFileSave";
 import { Spinner } from "../lib/ui";
@@ -40,7 +40,7 @@ const VIEW_BUTTONS: { mode: ViewMode; label: string }[] = [
   { mode: "split", label: "Split" },
 ];
 
-export default function MainContent({
+const MainContent = memo(function MainContent({
   loading,
   error,
   activeProject,
@@ -111,9 +111,12 @@ export default function MainContent({
   const filesMap = useMemo(() => new Map(files.map((f) => [f.path, f])), [files]);
 
   // When files change, auto-select the first file
-  const effectiveActiveFile = activeFilePath && filesMap.has(activeFilePath)
-    ? activeFilePath
-    : files[0]?.path ?? null;
+  const effectiveActiveFile = useMemo(
+    () => activeFilePath && filesMap.has(activeFilePath)
+      ? activeFilePath
+      : files[0]?.path ?? null,
+    [activeFilePath, filesMap, files],
+  );
 
   // When the active file is deleted, switch to the next available file
   useEffect(() => {
@@ -441,4 +444,6 @@ export default function MainContent({
       </div>
     </div>
   );
-}
+});
+
+export default MainContent;

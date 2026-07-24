@@ -1,6 +1,6 @@
 "use client";
 
-import { useMemo, useState, useEffect, useRef } from "react";
+import { memo, useMemo, useState, useEffect, useRef } from "react";
 import type { ProjectFile } from "../lib/types";
 
 interface LiveCanvasProps {
@@ -16,8 +16,7 @@ const VIEWPORT_PRESETS: { key: ViewportPreset; label: string; width: number | nu
   { key: "mobile", label: "Mobile", width: 375 },
 ];
 
-export default function LiveCanvas({ files }: LiveCanvasProps) {
-  const [iframeError, setIframeError] = useState(false);
+const LiveCanvas = memo(function LiveCanvas({ files }: LiveCanvasProps) {
   const [viewport, setViewport] = useState<ViewportPreset>("fluid");
   const [displayContent, setDisplayContent] = useState<string | null>(null);
   const iframeRef = useRef<HTMLIFrameElement>(null);
@@ -151,34 +150,6 @@ export default function LiveCanvas({ files }: LiveCanvasProps) {
     };
   }, [htmlContent]);
 
-  // Reset iframe error when content changes
-  useEffect(() => {
-    if (iframeError) {
-      const timer = setTimeout(() => setIframeError(false), 0);
-      return () => clearTimeout(timer);
-    }
-  }, [displayContent]); // eslint-disable-line react-hooks/exhaustive-deps
-
-  // Detect iframe load failure: if srcdoc is set but iframe has no content
-  // after a short delay, assume rendering failed
-  useEffect(() => {
-    if (!displayContent) return;
-    const timer = setTimeout(() => {
-      try {
-        const iframe = iframeRef.current;
-        if (iframe && iframe.contentDocument) {
-          const body = iframe.contentDocument.body;
-          if (body && body.innerHTML === "" && displayContent.includes("<body")) {
-            setIframeError(true);
-          }
-        }
-      } catch {
-        // Cross-origin errors are expected and not a real failure
-      }
-    }, 2000);
-    return () => clearTimeout(timer);
-  }, [displayContent]);
-
   if (!displayContent) {
     return (
       <div className="flex-1 flex items-center justify-center text-sm text-text-secondary">
@@ -211,9 +182,6 @@ export default function LiveCanvas({ files }: LiveCanvasProps) {
             </button>
           ))}
         </div>
-        {iframeError && (
-          <span className="text-danger">Failed to render preview</span>
-        )}
         {isConstrained && (
           <span className="text-text-secondary hidden sm:inline">{preset.width}px</span>
         )}
@@ -243,4 +211,6 @@ export default function LiveCanvas({ files }: LiveCanvasProps) {
       </div>
     </div>
   );
-}
+});
+
+export default LiveCanvas;

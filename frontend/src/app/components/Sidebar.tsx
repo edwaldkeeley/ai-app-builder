@@ -1,6 +1,6 @@
 "use client";
 
-import { useState, useEffect, useRef } from "react";
+import { useState, useEffect, useRef, memo } from "react";
 import { useRouter } from "next/navigation";
 import type { ChatMessage, Project } from "../lib/types";
 import type { WritingStatus } from "../hooks/useChat";
@@ -32,7 +32,7 @@ interface SidebarProps {
   onDesignUploadComplete?: (projectId: string) => void;
 }
 
-export default function Sidebar({
+const Sidebar = memo(function Sidebar({
   projects,
   activeProjectId,
   onSelectProject,
@@ -54,6 +54,14 @@ export default function Sidebar({
   onDesignUploadComplete,
 }: SidebarProps) {
   const [collapsed, setCollapsed] = useState(isMobile);
+  // Sync collapsed state when transitioning between mobile and desktop
+  // Use setTimeout to avoid cascading render warning from the lint rule
+  useEffect(() => {
+    if (isMobile) {
+      const id = setTimeout(() => setCollapsed(true), 0);
+      return () => clearTimeout(id);
+    }
+  }, [isMobile]);
   // On mobile, collapsed state is derived from showMobileSidebar
   const effectiveCollapsed = isMobile ? !showMobileSidebar : collapsed;
   const [confirmDelete, setConfirmDelete] = useState<string | null>(null);
@@ -489,4 +497,6 @@ export default function Sidebar({
       <ShortcutsModal open={showShortcuts} onClose={() => setShowShortcuts(false)} />
     </aside>
   );
-}
+});
+
+export default Sidebar;

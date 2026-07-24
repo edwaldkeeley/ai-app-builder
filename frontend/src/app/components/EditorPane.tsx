@@ -1,7 +1,7 @@
 "use client";
 
-import { useRef, useCallback, useState, useEffect } from "react";
-import Editor, { type OnMount } from "@monaco-editor/react";
+import { memo, useRef, useCallback, useState, useEffect } from "react";
+import Editor, { type OnMount, type BeforeMount } from "@monaco-editor/react";
 import type { editor } from "monaco-editor";
 import type { ProjectFile } from "../lib/types";
 import FileExplorer from "./FileExplorer";
@@ -27,7 +27,33 @@ const LANGUAGE_MAP: Record<string, string> = {
   python: "python",
 };
 
-export default function EditorPane({
+// ── Monaco performance optimizations ──────────────────────────
+
+/** Default editor options — tuned for performance. */
+const EDITOR_OPTIONS: editor.IStandaloneEditorConstructionOptions = {
+  fontSize: 13,
+  fontFamily: "var(--font-geist-mono), monospace",
+  minimap: { enabled: false },
+  scrollBeyondLastLine: false,
+  lineNumbers: "on",
+  tabSize: 2,
+  automaticLayout: false, // We use ResizeObserver instead (cheaper)
+  padding: { top: 8 },
+  // Performance: disable features we don't need
+  suggest: { showKeywords: false, showSnippets: false },
+  hover: { enabled: true, delay: 500 },
+  folding: true,
+  foldingHighlight: false,
+  renderLineHighlight: "line" as const,
+  renderWhitespace: "selection" as const,
+  selectionHighlight: true,
+  codeLens: false,
+  colorDecorators: false,
+  // Reduce CPU usage on large files
+  maxTokenizationLineLength: 2000,
+};
+
+const EditorPane = memo(function EditorPane({
   files,
   activeFilePath,
   onSelectFile,
@@ -43,6 +69,7 @@ export default function EditorPane({
   const filesRef = useRef(files);
   const activeFilePathRef = useRef(activeFilePath);
   const [editorReady, setEditorReady] = useState(false);
+  const containerRef = useRef<HTMLDivElement>(null);
   const { theme } = useTheme();
 
   // Keep refs in sync with props
@@ -55,6 +82,40 @@ export default function EditorPane({
 
   const activeFile = files.find((f) => f.path === activeFilePath) ?? files[0];
   const language = activeFile ? LANGUAGE_MAP[activeFile.file_type] || "plaintext" : "plaintext";
+
+  // ── ResizeObserver instead of automaticLayout ──
+  useEffect(() => {
+    const editor = editorRef.current;
+    const container = containerRef.current;
+    if (!editor || !container) return;
+
+    const observer = new ResizeObserver(() => {
+      editor.layout();
+    });
+    observer.observe(container);
+    return () => observer.disconnect();
+  }, [editorReady]);
+
+  // ── Clean up models for deleted files ──
+  useEffect(() => {
+    const monaco = monacoRef.current;
+    if (!monaco) return;
+    // Get all tracked URIs from current files
+    const activePaths = new Set(files.map((f) => f.path));
+    // Dispose models that no longer have a corresponding file
+    for (const model of monaco.editor.getModels()) {
+      const modelPath = (model.uri as { path?: string }).path?.replace(/^file:\/\//, "") || "";
+      if (modelPath && !activePaths.has(modelPath)) {
+        model.dispose();
+      }
+    }
+  }, [files]);
+
+  // ── Configure Monaco before mounting ──
+  const handleBeforeMount: BeforeMount = useCallback((monaco) => {
+    // Disable colorizer for better performance
+    monaco.editor.setColorDecorationsEnabled(false);
+  }, []);
 
   // ── Monaco model management ──
 
@@ -143,26 +204,19 @@ export default function EditorPane({
           </div>
 
           {/* Monaco editor */}
-          <div className="flex-1 min-h-0 relative">
+          <div ref={containerRef} className="flex-1 min-h-0 relative">
             {!editorReady && <SkeletonEditor />}
             <div className={editorReady ? "absolute inset-0" : "invisible h-0"}>
               <Editor
+                beforeMount={handleBeforeMount}
                 defaultLanguage={language}
                 language={language}
                 value={activeFile?.content ?? ""}
                 onChange={handleChange}
                 onMount={handleEditorDidMount}
                 theme={theme === "dark" ? "vs-dark" : "vs"}
-                options={{
-                  fontSize: 13,
-                  fontFamily: "var(--font-geist-mono), monospace",
-                  minimap: { enabled: false },
-                  scrollBeyondLastLine: false,
-                  lineNumbers: "on",
-                  tabSize: 2,
-                  automaticLayout: true,
-                  padding: { top: 8 },
-                }}
+                options={EDITOR_OPTIONS}
+                loading={null}
               />
             </div>
           </div>
@@ -170,4 +224,6 @@ export default function EditorPane({
       </div>
     </div>
   );
-}
+});
+
+export default EditorPane;

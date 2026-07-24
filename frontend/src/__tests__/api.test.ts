@@ -1,5 +1,5 @@
 import { describe, it, expect, beforeEach, jest } from "@jest/globals";
-import { api, generateStream } from "../app/lib/api";
+import { api, clearApiCache, generateStream } from "../app/lib/api";
 import type { Project, ProjectDetail, ProjectFile, GenerateResponse, ChatMessageSchema, User } from "../app/lib/types";
 
 // ── Mock fetch ──────────────────────────────────────────────
@@ -37,6 +37,7 @@ function mockErrorResponse(status: number, detail: string, retryAfter?: number) 
 
 beforeEach(() => {
   mockFetch.mockReset();
+  clearApiCache();
 });
 
 // ── Tests ───────────────────────────────────────────────────

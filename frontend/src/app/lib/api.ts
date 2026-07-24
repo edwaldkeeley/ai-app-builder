@@ -174,18 +174,65 @@ async function request<T>(path: string, options?: RequestInit, timeoutMs = 12000
   }
 }
 
+// ── Simple in-memory cache ──────────────────────────────────
+// Reduces redundant network requests for data that changes infrequently.
+// Cache entries expire after CACHE_TTL_MS milliseconds.
+
+const CACHE_TTL_MS = 30_000; // 30 seconds
+const cache = new Map<string, { data: unknown; timestamp: number }>();
+
+function getCached<T>(key: string): T | null {
+  const entry = cache.get(key);
+  if (!entry) return null;
+  if (Date.now() - entry.timestamp > CACHE_TTL_MS) {
+    cache.delete(key);
+    return null;
+  }
+  return entry.data as T;
+}
+
+function setCache(key: string, data: unknown): void {
+  cache.set(key, { data, timestamp: Date.now() });
+}
+
+function invalidateCache(prefix?: string): void {
+  if (prefix) {
+    for (const key of cache.keys()) {
+      if (key.startsWith(prefix)) cache.delete(key);
+    }
+  } else {
+    cache.clear();
+  }
+}
+
+/** Clear all cached data (used in tests). */
+export function clearApiCache(): void {
+  cache.clear();
+}
+
+/** Wrapper that caches GET responses and invalidates on mutations. */
+function withCache<T>(cacheKey: string, fetcher: () => Promise<T>): Promise<T> {
+  const cached = getCached<T>(cacheKey);
+  if (cached) return Promise.resolve(cached);
+  return fetcher().then((data) => {
+    setCache(cacheKey, data);
+    return data;
+  });
+}
+
 export const api = {
   // ── Projects ──────────────────────────────────────────────
 
   listProjects(): Promise<Project[]> {
-    return request("/api/projects/");
+    return withCache("projects", () => request<Project[]>("/api/projects/"));
   },
 
   getProject(id: string): Promise<ProjectDetail> {
-    return request(`/api/projects/${id}`);
+    return withCache(`project:${id}`, () => request<ProjectDetail>(`/api/projects/${id}`));
   },
 
   createProject(name: string, description = ""): Promise<ProjectDetail> {
+    invalidateCache("projects");
     return request("/api/projects/", {
       method: "POST",
       body: JSON.stringify({ name, description }),
@@ -193,6 +240,8 @@ export const api = {
   },
 
   updateProject(id: string, data: { name?: string; description?: string }): Promise<ProjectDetail> {
+    invalidateCache(`project:${id}`);
+    invalidateCache("projects");
     return request(`/api/projects/${id}`, {
       method: "PATCH",
       body: JSON.stringify(data),
@@ -200,6 +249,8 @@ export const api = {
   },
 
   deleteProject(id: string): Promise<void> {
+    invalidateCache(`project:${id}`);
+    invalidateCache("projects");
     return request(`/api/projects/${id}`, { method: "DELETE" });
   },
 
@@ -210,6 +261,7 @@ export const api = {
   },
 
   upsertFile(projectId: string, path: string, content: string): Promise<ProjectFile> {
+    invalidateCache(`project:${projectId}`);
     return request(`/api/sandbox/${projectId}/files`, {
       method: "PUT",
       body: JSON.stringify({ path, content }),
@@ -217,6 +269,7 @@ export const api = {
   },
 
   deleteFile(projectId: string, path: string): Promise<void> {
+    invalidateCache(`project:${projectId}`);
     return request(`/api/sandbox/${projectId}/files?path=${encodeURIComponent(path)}`, {
       method: "DELETE",
     });
@@ -225,6 +278,8 @@ export const api = {
   // ── AI Generation ─────────────────────────────────────────
 
   generate(prompt: string, projectId?: string): Promise<GenerateResponse> {
+    if (projectId) invalidateCache(`project:${projectId}`);
+    invalidateCache("projects");
     return request("/api/ai/generate", {
       method: "POST",
       body: JSON.stringify({ prompt, project_id: projectId }),
@@ -234,10 +289,11 @@ export const api = {
   // ── Chat ─────────────────────────────────────────────────
 
   getChatMessages(projectId: string): Promise<ChatMessageSchema[]> {
-    return request(`/api/projects/${projectId}/chat`);
+    return withCache(`chat:${projectId}`, () => request<ChatMessageSchema[]>(`/api/projects/${projectId}/chat`));
   },
 
   saveChatMessage(projectId: string, role: string, content: string, files?: ProjectFile[]): Promise<ChatMessageSchema> {
+    invalidateCache(`chat:${projectId}`);
     return request(`/api/projects/${projectId}/chat`, {
       method: "POST",
       body: JSON.stringify({ role, content, files: files || [] }),

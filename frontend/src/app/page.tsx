@@ -1,9 +1,7 @@
 "use client";
 
-import { useState, useEffect, useCallback, useRef } from "react";
+import { useState, useEffect, useCallback, useRef, lazy, Suspense } from "react";
 import { useRouter } from "next/navigation";
-import Sidebar from "./components/Sidebar";
-import MainContent from "./components/MainContent";
 import { api } from "./lib/api";
 import { useAuth } from "./contexts/AuthContext";
 import { useProjects } from "./hooks/useProjects";
@@ -11,6 +9,11 @@ import { useChat } from "./hooks/useChat";
 import { useFileSave } from "./hooks/useFileSave";
 import { useKeyboardShortcuts } from "./hooks/useKeyboardShortcuts";
 import { useToast } from "./components/Toast";
+import { SkeletonSidebar, SkeletonEditor } from "./components/Skeleton";
+
+// Dynamic imports for heavy components — loaded only when needed
+const Sidebar = lazy(() => import("./components/Sidebar"));
+const MainContent = lazy(() => import("./components/MainContent"));
 
 export default function Home() {
   const { showToast } = useToast();
@@ -64,6 +67,7 @@ export default function Home() {
   const filesRef = useRef(files);
   const activeProjectIdRef = useRef(activeProjectId);
   const activeFilePathRef = useRef(activeFilePath);
+  const dirtyFilesRef = useRef(dirtyFiles);
 
   // ── Effects (also hooks — must be before early returns) ──
   useEffect(() => {
@@ -75,6 +79,9 @@ export default function Home() {
   useEffect(() => {
     activeFilePathRef.current = activeFilePath;
   }, [activeFilePath]);
+  useEffect(() => {
+    dirtyFilesRef.current = dirtyFiles;
+  }, [dirtyFiles]);
 
   // Load chat messages when a project is selected
   useEffect(() => {
@@ -112,19 +119,20 @@ export default function Home() {
 
   // Ctrl+S — save all dirty files immediately
   const handleSave = useCallback(async () => {
-    if (!activeProjectId || dirtyFiles.size === 0) return;
-    for (const path of dirtyFiles) {
+    const currentDirty = dirtyFilesRef.current;
+    if (!activeProjectIdRef.current || currentDirty.size === 0) return;
+    for (const path of currentDirty) {
       const file = filesRef.current.find((f) => f.path === path);
       if (file) {
         try {
-          await api.upsertFile(activeProjectId, path, file.content);
+          await api.upsertFile(activeProjectIdRef.current, path, file.content);
         } catch {
           showToast("error", `Failed to save ${path}`);
         }
       }
     }
     showToast("success", "All files saved");
-  }, [activeProjectId, dirtyFiles, showToast]);
+  }, [showToast]);
 
   // Ctrl+Tab — cycle through files
   const handleCycleFiles = useCallback(() => {
@@ -255,27 +263,29 @@ export default function Home() {
 
   return (
     <div className="h-dvh flex">
-      <Sidebar
-        projects={projects}
-        activeProjectId={activeProjectId}
-        onSelectProject={handleSelectProject}
-        onNewProject={handleCreateProject}
-        onDeleteProject={handleDeleteProject}
-        creating={creating}
-        deleting={deleting}
-        chatMode={chatMode}
-        chatMessages={chatMessages}
-        generating={generating}
-        writingStatus={writingStatus}
-        onSendPrompt={handlePrompt}
-        onBackToProjects={handleBackToProjects}
-        loading={loading}
-        isMobile={isMobile}
-        showMobileSidebar={showMobileSidebar}
-        onCloseMobileSidebar={() => setShowMobileSidebar(false)}
-        onFigmaImportComplete={handleFigmaImportComplete}
-        onDesignUploadComplete={handleDesignUploadComplete}
-      />
+      <Suspense fallback={<SkeletonSidebar />}>
+        <Sidebar
+          projects={projects}
+          activeProjectId={activeProjectId}
+          onSelectProject={handleSelectProject}
+          onNewProject={handleCreateProject}
+          onDeleteProject={handleDeleteProject}
+          creating={creating}
+          deleting={deleting}
+          chatMode={chatMode}
+          chatMessages={chatMessages}
+          generating={generating}
+          writingStatus={writingStatus}
+          onSendPrompt={handlePrompt}
+          onBackToProjects={handleBackToProjects}
+          loading={loading}
+          isMobile={isMobile}
+          showMobileSidebar={showMobileSidebar}
+          onCloseMobileSidebar={() => setShowMobileSidebar(false)}
+          onFigmaImportComplete={handleFigmaImportComplete}
+          onDesignUploadComplete={handleDesignUploadComplete}
+        />
+      </Suspense>
 
       {/* Mobile hamburger button */}
       {isMobile && !showMobileSidebar && (
@@ -292,28 +302,30 @@ export default function Home() {
       )}
 
       <main className="flex-1 flex flex-col min-w-0">
-        <MainContent
-          loading={loading || filesLoading}
-          error={error}
-          activeProject={activeProject}
-          files={files}
-          onRetry={fetchProjects}
-          onFilesChange={handleFilesChange}
-          onSendPrompt={handlePrompt}
-          generating={generating}
-          onAddFile={handleAddFile}
-          onDeleteFile={handleDeleteFile}
-          onRenameFile={handleRenameFile}
-          activeFilePath={activeFilePath}
-          onActiveFileChange={setActiveFilePath}
-          saveStatus={saveStatus}
-          viewMode={viewMode}
-          onViewModeChange={setViewMode}
-          onFigmaImportComplete={handleFigmaImportComplete}
-          onDesignUploadComplete={handleDesignUploadComplete}
-          isMobile={isMobile}
-          dirtyFiles={dirtyFiles}
-        />
+        <Suspense fallback={<SkeletonEditor />}>
+          <MainContent
+            loading={loading || filesLoading}
+            error={error}
+            activeProject={activeProject}
+            files={files}
+            onRetry={fetchProjects}
+            onFilesChange={handleFilesChange}
+            onSendPrompt={handlePrompt}
+            generating={generating}
+            onAddFile={handleAddFile}
+            onDeleteFile={handleDeleteFile}
+            onRenameFile={handleRenameFile}
+            activeFilePath={activeFilePath}
+            onActiveFileChange={setActiveFilePath}
+            saveStatus={saveStatus}
+            viewMode={viewMode}
+            onViewModeChange={setViewMode}
+            onFigmaImportComplete={handleFigmaImportComplete}
+            onDesignUploadComplete={handleDesignUploadComplete}
+            isMobile={isMobile}
+            dirtyFiles={dirtyFiles}
+          />
+        </Suspense>
       </main>
     </div>
   );

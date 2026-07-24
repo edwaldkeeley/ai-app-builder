@@ -63,6 +63,9 @@ export function useProjects() {
     }
   }, [creating, showToast]);
 
+  const projectsRef = useRef(projects);
+  useEffect(() => { projectsRef.current = projects; }, [projects]);
+
   const handleDeleteProject = useCallback(async (id: string) => {
     if (deleting) return;
     setDeleting(id);
@@ -72,13 +75,13 @@ export function useProjects() {
       // Update active project if the deleted one was active
       setActiveProjectId((current) => {
         if (current === id) {
-          // Find the next project to select
-          const remaining = projects.filter((p) => p.id !== id);
+          // Read from ref to avoid stale closure
+          const remaining = projectsRef.current.filter((p) => p.id !== id);
           return remaining[0]?.id ?? null;
         }
         return current;
       });
-      const deletedName = projects.find((p) => p.id === id)?.name || "Project";
+      const deletedName = projectsRef.current.find((p) => p.id === id)?.name || "Project";
       showToast("success", `Deleted "${deletedName}"`);
     } catch (err) {
       const msg = err instanceof Error ? err.message : "Failed to delete project";
@@ -87,7 +90,7 @@ export function useProjects() {
     } finally {
       setDeleting(null);
     }
-  }, [deleting, projects, showToast]);
+  }, [deleting, showToast]);
 
   const handleSelectProject = useCallback((id: string) => {
     setActiveProjectId(id);

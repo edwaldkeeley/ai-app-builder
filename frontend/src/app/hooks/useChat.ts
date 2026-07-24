@@ -120,6 +120,7 @@ export function useChat() {
       const streamedFiles = new Map<string, string>();
       let resolvedProjectId = projectId;
       let streamError: string | null = null;
+      let completed = false; // guards against race between onDone/onError and timeout
 
       const streamComplete = new Promise<void>((resolve) => {
         const session = generateStream({
@@ -166,6 +167,9 @@ export function useChat() {
             resolvedProjectId = id;
           },
           onDone: (message, generatedFiles) => {
+            if (completed) return; // already resolved by timeout
+            completed = true;
+            clearTimeout(timeoutId);
             const finalContent = message || streamedContent || `Generated ${generatedFiles.length} file${generatedFiles.length !== 1 ? "s" : ""}`;
             setChatMessagesWithRef((prev) => {
               const updated = [...prev];
@@ -184,6 +188,7 @@ export function useChat() {
             resolve();
           },
           onError: (detail, retryAfter) => {
+            if (completed) return; // already resolved
             streamError = detail;
             if (retryAfter && retryAfter > 0) {
               const mins = Math.floor(retryAfter / 60);
@@ -191,6 +196,7 @@ export function useChat() {
               const timeStr = mins > 0 ? `${mins}m ${secs}s` : `${secs}s`;
               streamError = `Rate limited — retry in ${timeStr}: ${detail}`;
             }
+            clearTimeout(timeoutId);
             session.close();
             resolve();
           },
@@ -198,16 +204,12 @@ export function useChat() {
 
         // Timeout: if WebSocket doesn't complete in 60s, fall back to REST
         const timeoutId = setTimeout(() => {
+          if (completed) return; // already resolved by onDone/onError
+          completed = true;
           streamError = streamError || "WebSocket timed out";
           session.close();
           resolve();
         }, 60000);
-
-        // Clear timeout if promise resolves naturally
-        // (onDone and onError already call resolve, so we hook into session.close)
-        const clearTimer = () => clearTimeout(timeoutId);
-        const origClose = session.close.bind(session);
-        session.close = () => { clearTimer(); origClose(); };
 
         session.send(prompt, projectId);
       });
@@ -247,12 +249,12 @@ export function useChat() {
         } finally {
           setWritingStatus(null);
           generatingRef.current = false;
-            setGenerating(false);
+          setGenerating(false);
         }
       } else {
-        // WebSocket succeeded but onDone may not have fired (edge case)
+        // WebSocket succeeded
         generatingRef.current = false;
-            setGenerating(false);
+        setGenerating(false);
       }
     },
     [saveMessage, showToast, setChatMessagesWithRef],

@@ -3,12 +3,14 @@
 from __future__ import annotations
 
 import json
+from uuid import UUID
 
 from fastapi import APIRouter, Depends, HTTPException, WebSocket, WebSocketDisconnect, status
 
 from app.models.schemas import GenerateResponse, ProjectCreate, ProjectFile, PromptRequest
 from app.routers.dependencies import get_current_user
 from app.services.ai_service import BaseAIProvider, RateLimitError
+from app.services.auth_service import decode_access_token
 from app.services.project_service import ProjectService
 
 router = APIRouter(prefix="/api/ai", tags=["ai"])
@@ -138,8 +140,6 @@ async def ws_generate(websocket: WebSocket, token: str | None = None):
         return
 
     # Validate auth token
-    from app.services.auth_service import decode_access_token
-
     payload = decode_access_token(token) if token else None
     if payload is None:
         await websocket.accept()
