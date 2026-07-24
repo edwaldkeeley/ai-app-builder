@@ -1,6 +1,7 @@
 "use client";
 
-import { useState, useEffect, useCallback, useRef, lazy, Suspense } from "react";
+import { useState, useEffect, useCallback, useRef, Suspense } from "react";
+import dynamic from "next/dynamic";
 import { useRouter } from "next/navigation";
 import { api } from "./lib/api";
 import { useAuth } from "./contexts/AuthContext";
@@ -12,8 +13,8 @@ import { useToast } from "./components/Toast";
 import { SkeletonSidebar, SkeletonEditor } from "./components/Skeleton";
 
 // Dynamic imports for heavy components — loaded only when needed
-const Sidebar = lazy(() => import("./components/Sidebar"));
-const MainContent = lazy(() => import("./components/MainContent"));
+const Sidebar = dynamic(() => import("./components/Sidebar"), { ssr: false });
+const MainContent = dynamic(() => import("./components/MainContent"), { ssr: false });
 
 export default function Home() {
   const { showToast } = useToast();
