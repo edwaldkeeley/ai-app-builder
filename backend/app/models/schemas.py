@@ -22,8 +22,13 @@ class FileType(str, Enum):
     html = "html"
     css = "css"
     js = "javascript"
+    ts = "typescript"
+    tsx = "tsx"
+    jsx = "jsx"
     json = "json"
     python = "python"
+    markdown = "markdown"
+    svg = "svg"
     other = "other"
 
 

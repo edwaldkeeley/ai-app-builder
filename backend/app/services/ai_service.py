@@ -141,7 +141,8 @@ _SYSTEM_PROMPT = (
     "and main user flows. Consider business logic, edge cases, and design preferences.\n"
     "2. Architecture: Use modern, clean, and secure frameworks. Default to vanilla HTML/CSS/JS "
     "unless the user specifies a framework.\n"
-    "3. Modularity: Keep code clean, well-organized, and properly commented.\n"
+    "3. Modularity: Keep code clean, well-organized, and properly commented. Split code into "
+    "appropriate files — components/, utils/, assets/, data/ directories as needed.\n"
     "4. Error Handling: Include graceful error handling, loading states, and form validations.\n"
     "5. Design: Make it look professional — use proper spacing, typography, color schemes, "
     "and responsive layouts. Think like a product designer.\n\n"
@@ -149,7 +150,7 @@ _SYSTEM_PROMPT = (
     "Return ONLY valid JSON. Do NOT wrap the JSON in markdown code blocks.\n"
     'The JSON must have a "message" field (string, explain what you built in a friendly conversational tone) '
     'and a "files" array where each file has: '
-    '"path" (string), "content" (string), "file_type" (one of: html, css, javascript, json, python, other).\n\n'
+    '"path" (string), "content" (string), "file_type" (one of: html, css, javascript, typescript, tsx, jsx, json, python, markdown, svg, other).\n\n'
     "CONVERSATION RULES:\n"
     "6. Only include files you want to CREATE or MODIFY. Files you don't include will be left unchanged by the system. "
     "Do NOT echo back files that haven't changed.\n"
@@ -157,7 +158,9 @@ _SYSTEM_PROMPT = (
     "Do NOT regenerate the entire project.\n"
     "8. If the user asks to delete a file, omit it from the files array (the system will handle deletion).\n"
     "9. Preserve proper indentation and line breaks in file content.\n"
-    "10. Use standard filenames (index.html, style.css, script.js, app.js, etc.).\n\n"
+    "10. You can create any file structure you need — use directories like components/, utils/, "
+    "assets/, data/ to organize code. Use appropriate file extensions: .html, .css, .js, .ts, .tsx, "
+    ".jsx, .json, .py, .md, .svg.\n\n"
     "BUG FIXING RULES:\n"
     "11. When the user reports a bug, first identify the root cause by reading the relevant file content. "
     "Then output the FULL corrected file — never output only the changed lines or a diff.\n"
@@ -180,8 +183,9 @@ _DESIGN_UPLOAD_SYSTEM_PROMPT = (
     "- Center the design in the viewport (margin: 0 auto on the main container)\n\n"
     "### Output format\n"
     "Return ONLY valid JSON with \"message\" (string) and \"files\" array. "
-    "Each file has \"path\", \"content\", \"file_type\" (html/css/javascript/json/python/other). "
-    "Always include index.html, style.css, and script.js."
+    "Each file has \"path\", \"content\", \"file_type\" (html/css/javascript/typescript/tsx/jsx/json/python/markdown/svg/other). "
+    "Create index.html, style.css, and script.js as the main files. You can add additional files "
+    "for components, data, or assets as needed."
 )
 
 _DESIGN_ANALYSIS_PROMPT = (
@@ -238,8 +242,9 @@ _FIGMA_SYSTEM_PROMPT = (
     "- Center the design in the viewport (margin: 0 auto on the main container)\n\n"
     "### Output format\n"
     "Return ONLY valid JSON with \"message\" (string) and \"files\" array. "
-    "Each file has \"path\", \"content\", \"file_type\" (html/css/javascript/json/python/other). "
-    "Always include index.html, style.css, and script.js."
+    "Each file has \"path\", \"content\", \"file_type\" (html/css/javascript/typescript/tsx/jsx/json/python/markdown/svg/other). "
+    "Create index.html, style.css, and script.js as the main files. You can add additional files "
+    "for components, data, or assets as needed."
 )
 
 
@@ -359,12 +364,32 @@ def _code_blocks_to_files(
         "css": "style.css",
         "js": "script.js",
         "javascript": "script.js",
+        "typescript": "script.ts",
+        "ts": "script.ts",
+        "tsx": "component.tsx",
+        "jsx": "component.jsx",
+        "json": "data.json",
+        "python": "script.py",
+        "py": "script.py",
+        "markdown": "README.md",
+        "md": "README.md",
+        "svg": "icon.svg",
     }
     lang_to_type = {
         "html": FileType.html,
         "css": FileType.css,
         "js": FileType.js,
         "javascript": FileType.js,
+        "typescript": FileType.ts,
+        "ts": FileType.ts,
+        "tsx": FileType.tsx,
+        "jsx": FileType.jsx,
+        "json": FileType.json,
+        "python": FileType.python,
+        "py": FileType.python,
+        "markdown": FileType.markdown,
+        "md": FileType.markdown,
+        "svg": FileType.svg,
     }
 
     ai_files: list[ProjectFile] = []
@@ -471,39 +496,26 @@ def _validate_generated_files(
 ) -> list[str]:
     """Validate generated files for common issues.
 
-    Checks:
-    - index.html exists
-    - style.css exists
-    - script.js exists
-    - index.html links to style.css
-    - index.html links to script.js
-    - style.css has content (not empty)
+    Checks (only when the relevant files exist):
     - index.html has a <body> tag
     - index.html has a <title> tag
+    - style.css has content (not empty)
+    - script.js has content (not empty)
 
     Returns a list of warning messages (empty = no issues).
     """
     warnings: list[str] = []
     file_map = {f.path: f for f in files}
 
-    # Check all three required files exist
-    for required in ["index.html", "style.css", "script.js"]:
-        if required not in file_map:
-            warnings.append(f"Missing required file: {required}")
-
-    # Validate index.html structure
+    # Validate index.html structure (only if it exists)
     if "index.html" in file_map:
         html_content = file_map["index.html"].content
-        if "style.css" not in html_content and '<link rel="stylesheet"' not in html_content:
-            warnings.append("index.html does not link to style.css")
-        if "script.js" not in html_content and '<script' not in html_content:
-            warnings.append("index.html does not link to script.js")
         if "<body" not in html_content:
             warnings.append("index.html is missing <body> tag")
         if "<title>" not in html_content:
             warnings.append("index.html is missing <title> tag")
 
-    # Validate style.css has content
+    # Validate style.css has content (only if it exists)
     if "style.css" in file_map:
         css_content = file_map["style.css"].content.strip()
         if not css_content:
@@ -511,7 +523,7 @@ def _validate_generated_files(
         elif len(css_content) < 50:
             warnings.append(f"style.css seems too short ({len(css_content)} chars)")
 
-    # Validate script.js has content
+    # Validate script.js has content (only if it exists)
     if "script.js" in file_map:
         js_content = file_map["script.js"].content.strip()
         if not js_content:

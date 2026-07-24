@@ -11,7 +11,7 @@ export interface Project {
 export interface ProjectFile {
   path: string;
   content: string;
-  file_type: "html" | "css" | "javascript" | "json" | "python" | "other";
+  file_type: "html" | "css" | "javascript" | "typescript" | "tsx" | "jsx" | "json" | "python" | "markdown" | "svg" | "other";
 }
 
 export interface ProjectDetail {

@@ -214,8 +214,13 @@ class ProjectService:
             ".htm": FileType.html,
             ".css": FileType.css,
             ".js": FileType.js,
+            ".ts": FileType.ts,
+            ".tsx": FileType.tsx,
+            ".jsx": FileType.jsx,
             ".json": FileType.json,
             ".py": FileType.python,
+            ".md": FileType.markdown,
+            ".svg": FileType.svg,
         }
         file_type = type_map.get(ext, FileType.other)
 
@@ -270,8 +275,13 @@ class ProjectService:
                         ".htm": FileType.html,
                         ".css": FileType.css,
                         ".js": FileType.js,
+                        ".ts": FileType.ts,
+                        ".tsx": FileType.tsx,
+                        ".jsx": FileType.jsx,
                         ".json": FileType.json,
                         ".py": FileType.python,
+                        ".md": FileType.markdown,
+                        ".svg": FileType.svg,
                     }
                     file_type = type_map.get(ext, FileType.other)
 

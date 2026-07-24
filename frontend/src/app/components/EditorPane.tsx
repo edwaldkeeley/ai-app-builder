@@ -23,8 +23,13 @@ const LANGUAGE_MAP: Record<string, string> = {
   html: "html",
   css: "css",
   javascript: "javascript",
+  typescript: "typescript",
+  tsx: "typescript",
+  jsx: "javascript",
   json: "json",
   python: "python",
+  markdown: "markdown",
+  svg: "xml",
 };
 
 // ── Monaco performance optimizations ──────────────────────────
