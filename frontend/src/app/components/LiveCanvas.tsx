@@ -1,6 +1,11 @@
 "use client";
 
 import { memo, useMemo, useState, useEffect, useRef } from "react";
+import {
+  SandpackProvider,
+  SandpackPreview,
+  useSandpack,
+} from "@codesandbox/sandpack-react";
 import type { ProjectFile } from "../lib/types";
 
 interface LiveCanvasProps {
@@ -16,141 +21,66 @@ const VIEWPORT_PRESETS: { key: ViewportPreset; label: string; width: number | nu
   { key: "mobile", label: "Mobile", width: 375 },
 ];
 
+// ── Convert ProjectFile[] to Sandpack's file format ──────────
+
+function toSandpackFiles(files: ProjectFile[]): Record<string, { code: string }> {
+  const result: Record<string, { code: string }> = {};
+  for (const f of files) {
+    result[f.path] = { code: f.content };
+  }
+  return result;
+}
+
+// ── File syncer: pushes file changes into Sandpack ───────────
+
+function FileSyncer({ files }: { files: ProjectFile[] }) {
+  const { sandpack } = useSandpack();
+  const filesRef = useRef(files);
+
+  useEffect(() => {
+    filesRef.current = files;
+  });
+
+  useEffect(() => {
+    const currentFiles = filesRef.current;
+    for (const f of currentFiles) {
+      const existing = sandpack.files[f.path];
+      if (!existing || existing.code !== f.content) {
+        sandpack.updateFile(f.path, f.content);
+      }
+    }
+  }, [files, sandpack]);
+
+  return null;
+}
+
+// ── Main component ───────────────────────────────────────────
+
 const LiveCanvas = memo(function LiveCanvas({ files }: LiveCanvasProps) {
   const [viewport, setViewport] = useState<ViewportPreset>("fluid");
-  const [displayContent, setDisplayContent] = useState<string | null>(null);
-  const iframeRef = useRef<HTMLIFrameElement>(null);
+  const [debouncedFiles, setDebouncedFiles] = useState<ProjectFile[]>(files);
   const debounceRef = useRef<ReturnType<typeof setTimeout> | null>(null);
 
-  const htmlContent = useMemo(() => {
-    const htmlFile = files.find((f) => f.path === "index.html" || f.path.endsWith(".html"));
-    if (!htmlFile) return null;
-
-    // Build maps of filename → content for CSS, JS, and image files
-    const cssMap = new Map<string, string>();
-    const jsMap = new Map<string, string>();
-    const imageMap = new Map<string, string>();
-    for (const f of files) {
-      if (f.path.endsWith(".css")) {
-        const name = f.path.split("/").pop() || f.path;
-        cssMap.set(name, f.content);
-      } else if (f.path.endsWith(".js")) {
-        const name = f.path.split("/").pop() || f.path;
-        jsMap.set(name, f.content);
-      } else if (f.path.match(/\.(png|jpg|jpeg|gif|webp|svg|ico)$/i)) {
-        // Store image files by their full path (e.g., "images/hero.png")
-        imageMap.set(f.path, f.content);
-      }
-    }
-
-    let html = htmlFile.content;
-
-    // Inline CSS: match each <link href="..."> to the correct CSS file by filename
-    if (cssMap.size > 0) {
-      html = html.replace(
-        /<link[^>]*href=["']([^"']*\.css)["'][^>]*\/?>/gi,
-        (_match, href: string) => {
-          const cssFileName = href.split("/").pop() || href;
-          const content = cssMap.get(cssFileName);
-          if (content !== undefined) {
-            return `<style>\n${content}\n</style>`;
-          }
-          // If no matching CSS file found, remove the link tag to avoid 404s
-          return "";
-        },
-      );
-    }
-
-    // Inline JS: match each <script src="..."> to the correct JS file by filename
-    // Handles both regular and type="module" scripts
-    if (jsMap.size > 0) {
-      html = html.replace(
-        /<script[^>]*src=["']([^"']*\.js)["'][^>]*><\/script>/gi,
-        (_match, src: string) => {
-          const jsFileName = src.split("/").pop() || src;
-          const content = jsMap.get(jsFileName);
-          if (content !== undefined) {
-            return `<script>\n${content}\n</script>`;
-          }
-          // If no matching project JS file found, preserve the original script tag
-          // (it may be a CDN or external script)
-          return _match;
-        },
-      );
-    }
-
-    // Inline images: convert <img src="images/..."> to base64 data URIs
-    if (imageMap.size > 0) {
-      html = html.replace(
-        /<img[^>]*src=["']([^"']+)["'][^>]*\/?>/gi,
-        (_match, src: string) => {
-          // Only inline images that match our project files
-          const b64Content = imageMap.get(src);
-          if (b64Content) {
-            // Determine MIME type from extension
-            const ext = src.split(".").pop()?.toLowerCase() || "png";
-            const mimeMap: Record<string, string> = {
-              png: "image/png",
-              jpg: "image/jpeg",
-              jpeg: "image/jpeg",
-              gif: "image/gif",
-              webp: "image/webp",
-              svg: "image/svg+xml",
-              ico: "image/x-icon",
-            };
-            const mime = mimeMap[ext] || "image/png";
-            return _match.replace(`src="${src}"`, `src="data:${mime};base64,${b64Content}"`);
-          }
-          // Not a project image — leave the src as-is
-          return _match;
-        },
-      );
-    }
-
-    // Inject viewport meta tag for mobile-friendly iframe rendering
-    if (!html.includes('name="viewport"') && !html.includes("name='viewport'")) {
-      const viewportMeta = '<meta name="viewport" content="width=device-width, initial-scale=1">\n';
-      html = html.replace("<head>", `<head>\n${viewportMeta}`);
-    }
-
-    // Inject navigation guard: allow hash/anchor links (href="#section")
-    // but block external navigation that would redirect the iframe away.
-    const navGuard = `
-<script>
-(function() {
-  document.addEventListener('click', function(e) {
-    var target = e.target.closest('a');
-    if (target && target.href) {
-      // Allow hash/anchor links (e.g. href="#home") for SPA navigation
-      if (target.href.indexOf('#') !== -1) {
-        return;
-      }
-      // Block all other navigation
-      e.preventDefault();
-    }
-  }, true);
-  document.addEventListener('submit', function(e) {
-    e.preventDefault();
-  }, true);
-})();
-</script>`;
-    html = html.replace("</head>", `${navGuard}\n</head>`);
-
-    return html;
-  }, [files]);
-
-  // Debounce srcDoc updates to avoid iframe glitching on rapid keystrokes
+  // Debounce file updates to avoid recompilation on every keystroke
   useEffect(() => {
     if (debounceRef.current) clearTimeout(debounceRef.current);
     debounceRef.current = setTimeout(() => {
-      setDisplayContent(htmlContent);
+      setDebouncedFiles(files);
     }, 400);
     return () => {
       if (debounceRef.current) clearTimeout(debounceRef.current);
     };
-  }, [htmlContent]);
+  }, [files]);
 
-  if (!displayContent) {
+  const sandpackFiles = useMemo(() => toSandpackFiles(debouncedFiles), [debouncedFiles]);
+
+  // Determine if there's an HTML file to render
+  const hasHtmlFile = useMemo(
+    () => files.some((f) => f.path === "index.html" || f.path.endsWith(".html")),
+    [files],
+  );
+
+  if (!hasHtmlFile) {
     return (
       <div className="flex-1 flex items-center justify-center text-sm text-text-secondary">
         <p>No HTML file found. Create an index.html to see a preview.</p>
@@ -186,7 +116,8 @@ const LiveCanvas = memo(function LiveCanvas({ files }: LiveCanvasProps) {
           <span className="text-text-secondary hidden sm:inline">{preset.width}px</span>
         )}
       </div>
-      {/* Iframe container — constrained width when a device preset is active */}
+
+      {/* Sandpack preview */}
       <div className="flex-1 flex items-start justify-center min-h-0 overflow-auto bg-preview-bg">
         <div
           className={`h-full transition-all duration-200 ${
@@ -200,13 +131,27 @@ const LiveCanvas = memo(function LiveCanvas({ files }: LiveCanvasProps) {
               : undefined
           }
         >
-          <iframe
-            ref={iframeRef}
-            srcDoc={displayContent}
-            sandbox="allow-scripts allow-same-origin"
-            title="Live Preview"
-            className="w-full h-full border-0"
-          />
+          <SandpackProvider
+            template="vanilla"
+            files={sandpackFiles}
+            theme="auto"
+            options={{
+              visibleFiles: [],
+              activeFile: "/index.html",
+              recompileMode: "delayed",
+              recompileDelay: 500,
+              initMode: "lazy",
+              bundlerURL: "https://1e4f9bda-3b1e-4b7a-8c0d-5f2a3e4b5c6d.pkg.codesandbox.dev",
+            }}
+          >
+            <FileSyncer files={debouncedFiles} />
+            <SandpackPreview
+              showOpenInCodeSandbox={false}
+              showRefreshButton={false}
+              className="!h-full !w-full !border-0"
+              style={{ height: "100%", width: "100%" }}
+            />
+          </SandpackProvider>
         </div>
       </div>
     </div>
