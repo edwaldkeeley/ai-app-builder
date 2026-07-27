@@ -45,6 +45,7 @@ export function useProjects() {
         name: project.name,
         description: project.description,
         status: project.status,
+        framework: project.framework,
         file_count: project.files.length,
         created_at: project.created_at,
         updated_at: project.updated_at,

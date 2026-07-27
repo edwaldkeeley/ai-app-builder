@@ -87,6 +87,7 @@ export function useChat() {
       setFiles: React.Dispatch<React.SetStateAction<ProjectFile[]>>,
       fetchProjects: () => void,
       setError: (err: string | null) => void,
+      framework: string = "vanilla",
     ) => {
       // Use ref-based guard to prevent double-invocation before React re-renders
       if (generatingRef.current) return;
@@ -211,7 +212,7 @@ export function useChat() {
           resolve();
         }, 60000);
 
-        session.send(prompt, projectId);
+        session.send(prompt, projectId, framework);
       });
 
       await streamComplete;
@@ -221,7 +222,7 @@ export function useChat() {
         showToast("info", "WebSocket timed out, falling back to REST...");
         try {
           setWritingStatus({ type: "thinking", message: "Falling back to REST..." });
-          const result = await api.generate(prompt, resolvedProjectId);
+          const result = await api.generate(prompt, resolvedProjectId, framework);
           const finalContent = result.message || `Generated ${result.files.length} file${result.files.length !== 1 ? "s" : ""}`;
           setChatMessagesWithRef((prev) => {
             const updated = [...prev];

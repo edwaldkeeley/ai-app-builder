@@ -275,6 +275,20 @@ textarea,
 }
 
 /* Minimum 44px touch targets on mobile — applied via className */
+
+/* ── Sandpack sizing ──────────────────────────────────────── */
+/* Ensure the Sandpack preview fills its container */
+.sp-preview-container,
+.sp-preview-iframe {
+  height: 100% !important;
+  width: 100% !important;
+}
+
+/* The outermost Sandpack wrapper should stretch */
+.sandpack {
+  height: 100%;
+  width: 100%;
+}
 @media (max-width: 767px) {
   .touch-target {
     min-width: 44px;

@@ -32,6 +32,11 @@ class FileType(str, Enum):
     other = "other"
 
 
+class Framework(str, Enum):
+    vanilla = "vanilla"
+    react = "react"
+
+
 # ── Project ────────────────────────────────────────────────
 
 
@@ -46,11 +51,13 @@ class ProjectFile(BaseModel):
 class ProjectCreate(BaseModel):
     name: str = Field(..., min_length=1, max_length=128, description="Human-readable project name")
     description: str = ""
+    framework: Framework = Framework.vanilla
 
 
 class ProjectUpdate(BaseModel):
     name: str | None = Field(None, max_length=128)
     description: str | None = None
+    framework: Framework | None = None
 
 
 class Project(BaseModel):
@@ -58,6 +65,7 @@ class Project(BaseModel):
     name: str
     description: str = ""
     status: ProjectStatus = ProjectStatus.idle
+    framework: Framework = Framework.vanilla
     user_id: UUID | None = None
     files: list[ProjectFile] = []
     created_at: datetime = Field(default_factory=lambda: datetime.now(timezone.utc))
@@ -71,6 +79,7 @@ class ProjectSummary(BaseModel):
     name: str
     description: str
     status: ProjectStatus
+    framework: Framework = Framework.vanilla
     user_id: UUID | None = None
     file_count: int = 0
     created_at: datetime
@@ -103,6 +112,7 @@ class PromptRequest(BaseModel):
 
     prompt: str = Field(..., min_length=1, max_length=10_000)
     project_id: UUID | None = None
+    framework: Framework = Framework.vanilla
 
 
 class GenerateResponse(BaseModel):

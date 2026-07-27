@@ -63,6 +63,7 @@ export default function Home() {
   const [activeFilePath, setActiveFilePath] = useState<string | null>(null);
   const [isMobile, setIsMobile] = useState(false);
   const [viewMode, setViewMode] = useState<"preview" | "code" | "split">("preview");
+  const [framework, setFramework] = useState<"vanilla" | "react">("vanilla");
   const [showMobileSidebar, setShowMobileSidebar] = useState(false);
   const [filesLoading, setFilesLoading] = useState(false);
   const filesRef = useRef(files);
@@ -93,6 +94,14 @@ export default function Home() {
     if (generating) return;
     loadChatMessages(activeProjectId);
   }, [activeProjectId]); // eslint-disable-line react-hooks/exhaustive-deps
+
+  // Sync framework toggle from the active project
+  useEffect(() => {
+    if (activeProject) {
+      // eslint-disable-next-line react-hooks/set-state-in-effect
+      setFramework(activeProject.framework);
+    }
+  }, [activeProject]);
 
   // Responsive: detect mobile width and auto-collapse panels
   useEffect(() => {
@@ -220,8 +229,19 @@ export default function Home() {
     }
 
     if (!projectId) return;
-    generate(prompt, projectId, filesRef.current, setFiles, fetchProjects, setError);
-  }, [generating, handleNewProject, setChatMode, setFiles, fetchProjects, setError, generate]);
+    generate(prompt, projectId, filesRef.current, setFiles, fetchProjects, setError, framework);
+  }, [generating, handleNewProject, setChatMode, setFiles, fetchProjects, setError, generate, framework]);
+
+  const handleFrameworkChange = useCallback((newFramework: "vanilla" | "react") => {
+    setFramework(newFramework);
+    // If a project is active, update its framework on the backend
+    const pid = activeProjectIdRef.current;
+    if (pid) {
+      api.updateProject(pid, { framework: newFramework }).catch(() => {
+        // Silently fail — the toggle will reset on next project load
+      });
+    }
+  }, []);
 
   const handleBackToProjects = useCallback(() => {
     setActiveProjectId(null);
@@ -325,6 +345,8 @@ export default function Home() {
             onDesignUploadComplete={handleDesignUploadComplete}
             isMobile={isMobile}
             dirtyFiles={dirtyFiles}
+            framework={framework}
+            onFrameworkChange={handleFrameworkChange}
           />
         </Suspense>
       </main>

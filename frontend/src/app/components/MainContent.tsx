@@ -32,6 +32,8 @@ interface MainContentProps {
   onDesignUploadComplete?: (projectId: string) => void;
   isMobile?: boolean;
   dirtyFiles?: Set<string>;
+  framework: "vanilla" | "react";
+  onFrameworkChange: (framework: "vanilla" | "react") => void;
 }
 
 const VIEW_BUTTONS: { mode: ViewMode; label: string }[] = [
@@ -61,6 +63,8 @@ const MainContent = memo(function MainContent({
   onDesignUploadComplete,
   isMobile,
   dirtyFiles,
+  framework,
+  onFrameworkChange,
 }: MainContentProps) {
   const [promptValue, setPromptValue] = useState("");
   const promptTextareaRef = useRef<HTMLTextAreaElement>(null);
@@ -281,6 +285,34 @@ const MainContent = memo(function MainContent({
               );
             })}
           </div>
+
+          {/* Framework toggle */}
+          {!isMobile && (
+            <div className="flex items-center gap-0.5 bg-surface rounded-lg p-0.5">
+              <button
+                onClick={() => onFrameworkChange("vanilla")}
+                className={`px-2 py-1 text-[11px] font-medium rounded-md transition-colors touch-target ${
+                  framework === "vanilla"
+                    ? "bg-accent text-white"
+                    : "text-text-secondary hover:text-foreground"
+                }`}
+                title="Generate vanilla HTML/CSS/JS"
+              >
+                Vanilla
+              </button>
+              <button
+                onClick={() => onFrameworkChange("react")}
+                className={`px-2 py-1 text-[11px] font-medium rounded-md transition-colors touch-target ${
+                  framework === "react"
+                    ? "bg-accent text-white"
+                    : "text-text-secondary hover:text-foreground"
+                }`}
+                title="Generate React JSX components"
+              >
+                React
+              </button>
+            </div>
+          )}
         </div>
 
         {/* Content area based on view mode */}
@@ -310,7 +342,7 @@ const MainContent = memo(function MainContent({
               <div className="absolute inset-y-0 -left-1 -right-1" />
             </div>
             <div className="flex-1 flex flex-col min-w-0 overflow-hidden">
-              <LiveCanvas files={files} />
+              <LiveCanvas files={files} framework={framework} />
             </div>
           </div>
         ) : viewMode === "code" ? (
@@ -330,7 +362,7 @@ const MainContent = memo(function MainContent({
         ) : (
           /* Preview only (default): canvas fills the area */
           <div className="flex-1 flex min-h-0">
-            <LiveCanvas files={files} />
+            <LiveCanvas files={files} framework={framework} />
           </div>
         )}
       </div>
@@ -427,6 +459,30 @@ const MainContent = memo(function MainContent({
                 <path strokeLinecap="round" strokeLinejoin="round" d="M5 12h14M12 5l7 7-7 7" />
               </svg>
             )}
+          </button>
+        </div>
+
+        {/* Framework toggle on landing page */}
+        <div className="flex items-center gap-1.5">
+          <button
+            onClick={() => onFrameworkChange("vanilla")}
+            className={`px-3 py-1 text-xs font-medium rounded-full transition-colors ${
+              framework === "vanilla"
+                ? "bg-accent text-white"
+                : "bg-surface text-text-secondary hover:text-foreground border border-border"
+            }`}
+          >
+            Vanilla
+          </button>
+          <button
+            onClick={() => onFrameworkChange("react")}
+            className={`px-3 py-1 text-xs font-medium rounded-full transition-colors ${
+              framework === "react"
+                ? "bg-accent text-white"
+                : "bg-surface text-text-secondary hover:text-foreground border border-border"
+            }`}
+          >
+            React
           </button>
         </div>
 

@@ -119,7 +119,11 @@ const EditorPane = memo(function EditorPane({
   // ── Configure Monaco before mounting ──
   const handleBeforeMount: BeforeMount = useCallback((monaco) => {
     // Disable colorizer for better performance
-    monaco.editor.setColorDecorationsEnabled(false);
+    // The `editor` namespace may not expose setColorDecorationsEnabled in all versions,
+    // so guard against it being undefined
+    if (typeof monaco.editor.setColorDecorationsEnabled === "function") {
+      monaco.editor.setColorDecorationsEnabled(false);
+    }
   }, []);
 
   // ── Monaco model management ──
@@ -159,6 +163,8 @@ const EditorPane = memo(function EditorPane({
   }, [activeFile?.path]); // eslint-disable-line react-hooks/exhaustive-deps
 
   // Sync model content when files change externally (e.g., AI streaming)
+  // Only push content into the model if it differs AND the model is not the
+  // source of the change (avoids loop between model.setValue → onChange → parent setState → re-render)
   useEffect(() => {
     const editor = editorRef.current;
     const monaco = monacoRef.current;
@@ -167,7 +173,19 @@ const EditorPane = memo(function EditorPane({
     const uri = monaco.Uri.parse(`file:///${activeFile.path}`);
     const model = monaco.editor.getModel(uri);
     if (model && model.getValue() !== activeFile.content) {
-      model.setValue(activeFile.content);
+      // Push the new content without triggering onChange
+      model.pushEditOperations(
+        [],
+        [
+          {
+            range: model.getFullModelRange(),
+            text: activeFile.content,
+          },
+        ],
+        () => null,
+      );
+      // Push a no-op stack element so undo doesn't jump to the pushed content
+      model.pushStackElement();
     }
   }, [activeFile?.content]); // eslint-disable-line react-hooks/exhaustive-deps
 
@@ -216,7 +234,6 @@ const EditorPane = memo(function EditorPane({
                 beforeMount={handleBeforeMount}
                 defaultLanguage={language}
                 language={language}
-                value={activeFile?.content ?? ""}
                 onChange={handleChange}
                 onMount={handleEditorDidMount}
                 theme={theme === "dark" ? "vs-dark" : "vs"}

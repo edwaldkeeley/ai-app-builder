@@ -59,7 +59,7 @@ async def generate(body: PromptRequest, current_user: dict = Depends(get_current
         ]
 
     try:
-        message, files = await _provider.generate(body.prompt, existing_files, chat_history)
+        message, files = await _provider.generate(body.prompt, existing_files, chat_history, framework=body.framework.value)
     except RateLimitError as e:
         raise HTTPException(
             status_code=429,
@@ -88,6 +88,7 @@ async def generate(body: PromptRequest, current_user: dict = Depends(get_current
             ProjectCreate(
                 name=name,
                 description=f"Generated from: {body.prompt[:200]}",
+                framework=body.framework,
             ),
             user_id=current_user["id"],
         )
@@ -170,6 +171,7 @@ async def ws_generate(websocket: WebSocket, token: str | None = None):
             return
 
         incoming_project_id = msg.get("project_id")
+        framework = msg.get("framework", "vanilla")
 
         # Resolve or create project
         if incoming_project_id:
@@ -188,6 +190,7 @@ async def ws_generate(websocket: WebSocket, token: str | None = None):
                 ProjectCreate(
                     name=name,
                     description=f"Generated from: {prompt[:200]}",
+                    framework=framework,
                 ),
                 user_id=UUID(current_user_id) if current_user_id else None,
             )
@@ -208,7 +211,7 @@ async def ws_generate(websocket: WebSocket, token: str | None = None):
 
         # Stream generation events
         done_event = None
-        async for event in _provider.generate_stream(prompt, existing_files, chat_history):
+        async for event in _provider.generate_stream(prompt, existing_files, chat_history, framework=framework):
             await websocket.send_json(event)
 
             if event["type"] == "done":

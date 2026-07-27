@@ -54,6 +54,7 @@ class ProjectService:
             name=row["name"],
             description=row["description"],
             status=row["status"],
+            framework=row.get("framework", "vanilla"),
             user_id=row.get("user_id"),
             files=[
                 ProjectFile(path=r["path"], content=r["content"], file_type=r["file_type"])
@@ -72,20 +73,27 @@ class ProjectService:
             async with conn.transaction():
                 row = await conn.fetchrow(
                     """
-                    INSERT INTO projects (name, description, user_id)
-                    VALUES ($1, $2, $3)
+                    INSERT INTO projects (name, description, user_id, framework)
+                    VALUES ($1, $2, $3, $4)
                     RETURNING id, name, description, status, user_id, created_at, updated_at
                     """,
                     data.name,
                     data.description,
                     user_id,
+                    data.framework.value,
                 )
 
-                boilerplate = [
-                    ("index.html", HTML_BOILERPLATE, "html"),
-                    ("style.css", CSS_BOILERPLATE, "css"),
-                    ("script.js", JS_BOILERPLATE, "javascript"),
-                ]
+                if data.framework.value == "react":
+                    boilerplate = [
+                        ("App.jsx", REACT_APP_BOILERPLATE, "jsx"),
+                        ("style.css", CSS_BOILERPLATE, "css"),
+                    ]
+                else:
+                    boilerplate = [
+                        ("index.html", HTML_BOILERPLATE, "html"),
+                        ("style.css", CSS_BOILERPLATE, "css"),
+                        ("script.js", JS_BOILERPLATE, "javascript"),
+                    ]
                 for path, content, file_type in boilerplate:
                     await conn.execute(
                         """
@@ -113,7 +121,7 @@ class ProjectService:
         try:
             # Single query: fetch project + files in one round-trip using a subquery
             row = await conn.fetchrow(
-                "SELECT id, name, description, status, user_id, created_at, updated_at FROM projects WHERE id = $1",
+                "SELECT id, name, description, status, framework, user_id, created_at, updated_at FROM projects WHERE id = $1",
                 project_id,
             )
             if row is None:
@@ -132,7 +140,7 @@ class ProjectService:
         try:
             rows = await conn.fetch(
                 """
-                SELECT p.id, p.name, p.description, p.status, p.user_id,
+                SELECT p.id, p.name, p.description, p.status, p.framework, p.user_id,
                        p.created_at, p.updated_at,
                        COUNT(f.id)::int AS file_count
                 FROM projects p
@@ -152,6 +160,7 @@ class ProjectService:
                 name=r["name"],
                 description=r["description"],
                 status=r["status"],
+                framework=r.get("framework", "vanilla"),
                 user_id=r.get("user_id"),
                 file_count=r["file_count"],
                 created_at=r["created_at"],
@@ -173,6 +182,10 @@ class ProjectService:
             sets.append(f"description = ${idx}")
             params.append(data.description)
             idx += 1
+        if data.framework is not None:
+            sets.append(f"framework = ${idx}")
+            params.append(data.framework.value)
+            idx += 1
 
         if not sets:
             return await self.get(project_id)
@@ -183,7 +196,7 @@ class ProjectService:
             params.append(project_id)
             sql = (
                 f"UPDATE projects SET {', '.join(sets)} WHERE id = ${idx}"
-                " RETURNING id, name, description, status, user_id, created_at, updated_at"
+                " RETURNING id, name, description, status, framework, user_id, created_at, updated_at"
             )
             row = await conn.fetchrow(sql, *params)
             if row is None:
@@ -455,4 +468,28 @@ p {
 
 JS_BOILERPLATE = """\
 console.log('Sandbox ready!');
+"""
+
+REACT_APP_BOILERPLATE = """\
+import React, { useState } from "react";
+import { createRoot } from "react-dom/client";
+
+function App() {
+  const [count, setCount] = useState(0);
+
+  return (
+    <div className="app">
+      <h1>Hello, React!</h1>
+      <p>Start editing App.jsx to see your changes live.</p>
+      <div className="card">
+        <button onClick={() => setCount((c) => c + 1)}>
+          Count is {count}
+        </button>
+      </div>
+    </div>
+  );
+}
+
+const root = createRoot(document.getElementById("root"));
+root.render(<App />);
 """

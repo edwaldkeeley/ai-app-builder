@@ -10,6 +10,7 @@ import type { ProjectFile } from "../lib/types";
 
 interface LiveCanvasProps {
   files: ProjectFile[];
+  framework?: "vanilla" | "react";
 }
 
 type ViewportPreset = "fluid" | "desktop" | "tablet" | "mobile";
@@ -36,27 +37,34 @@ function toSandpackFiles(files: ProjectFile[]): Record<string, { code: string }>
 function FileSyncer({ files }: { files: ProjectFile[] }) {
   const { sandpack } = useSandpack();
   const filesRef = useRef(files);
+  const sandpackRef = useRef(sandpack);
 
+  // Keep refs in sync (runs after every render, no deps — intentional)
   useEffect(() => {
     filesRef.current = files;
   });
-
   useEffect(() => {
-    const currentFiles = filesRef.current;
-    for (const f of currentFiles) {
-      const existing = sandpack.files[f.path];
+    sandpackRef.current = sandpack;
+  });
+
+  // Push file changes into Sandpack only when the files array identity changes
+  // (debouncedFiles in the parent creates a new array only after the 400ms debounce)
+  useEffect(() => {
+    const sp = sandpackRef.current;
+    for (const f of files) {
+      const existing = sp.files[f.path];
       if (!existing || existing.code !== f.content) {
-        sandpack.updateFile(f.path, f.content);
+        sp.updateFile(f.path, f.content);
       }
     }
-  }, [files, sandpack]);
+  }, [files]);
 
   return null;
 }
 
 // ── Main component ───────────────────────────────────────────
 
-const LiveCanvas = memo(function LiveCanvas({ files }: LiveCanvasProps) {
+const LiveCanvas = memo(function LiveCanvas({ files, framework = "vanilla" }: LiveCanvasProps) {
   const [viewport, setViewport] = useState<ViewportPreset>("fluid");
   const [debouncedFiles, setDebouncedFiles] = useState<ProjectFile[]>(files);
   const debounceRef = useRef<ReturnType<typeof setTimeout> | null>(null);
@@ -118,7 +126,7 @@ const LiveCanvas = memo(function LiveCanvas({ files }: LiveCanvasProps) {
       </div>
 
       {/* Sandpack preview */}
-      <div className="flex-1 flex items-start justify-center min-h-0 overflow-auto bg-preview-bg">
+      <div className="flex-1 flex items-stretch justify-center min-h-0 overflow-auto bg-preview-bg">
         <div
           className={`h-full transition-all duration-200 ${
             isConstrained
@@ -127,22 +135,33 @@ const LiveCanvas = memo(function LiveCanvas({ files }: LiveCanvasProps) {
           }`}
           style={
             isConstrained
-              ? { width: `${preset.width}px`, maxWidth: "100%" }
-              : undefined
+              ? { width: `${preset.width}px`, maxWidth: "100%", minHeight: "100%" }
+              : { width: "100%", minHeight: "100%" }
           }
         >
           <SandpackProvider
-            template="vanilla"
+            template={framework === "react" ? "react" : "static"}
             files={sandpackFiles}
             theme="auto"
             options={{
               visibleFiles: [],
-              activeFile: "/index.html",
+              activeFile: framework === "react" ? "/App.jsx" : "/index.html",
               recompileMode: "delayed",
               recompileDelay: 500,
               initMode: "lazy",
-              bundlerURL: "https://1e4f9bda-3b1e-4b7a-8c0d-5f2a3e4b5c6d.pkg.codesandbox.dev",
             }}
+            customSetup={
+              framework === "react"
+                ? {
+                    dependencies: {
+                      react: "^18.0.0",
+                      "react-dom": "^18.0.0",
+                    },
+                    entry: "/App.jsx",
+                  }
+                : undefined
+            }
+            style={{ height: "100%", width: "100%" }}
           >
             <FileSyncer files={debouncedFiles} />
             <SandpackPreview

@@ -290,5 +290,6 @@ class TestSystemPrompts:
         assert "script.js" in _FIGMA_SYSTEM_PROMPT
 
     def test_default_prompt_has_guidelines(self):
-        assert "GUIDELINES" in _SYSTEM_PROMPT
-        assert "OUTPUT FORMAT" in _SYSTEM_PROMPT
+        assert "RULES" in _SYSTEM_PROMPT
+        assert "REQUIRED FILES" in _SYSTEM_PROMPT
+        assert "OUTPUT" in _SYSTEM_PROMPT

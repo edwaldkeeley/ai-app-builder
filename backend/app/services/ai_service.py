@@ -57,6 +57,7 @@ class BaseAIProvider(ABC):
         existing_files: list[ProjectFile] | None = None,
         chat_history: list[dict[str, str]] | None = None,
         system_prompt_override: str | None = None,
+        framework: str = "vanilla",
     ) -> tuple[str, list[ProjectFile]]:
         """Send a prompt and return (message, list of project files).
 
@@ -65,7 +66,7 @@ class BaseAIProvider(ABC):
             existing_files: Current files in the project (for context).
             chat_history: Previous conversation messages.
             system_prompt_override: Optional system prompt to use instead of the default.
-                Used for Figma imports where layout fidelity is critical.
+            framework: "vanilla" or "react" — selects the appropriate system prompt.
         """
         ...
 
@@ -76,6 +77,7 @@ class BaseAIProvider(ABC):
         existing_files: list[ProjectFile] | None = None,
         chat_history: list[dict[str, str]] | None = None,
         system_prompt_override: str | None = None,
+        framework: str = "vanilla",
     ) -> AsyncIterator[dict[str, Any]]:
         """Stream generation events.
 
@@ -132,43 +134,83 @@ class BaseAIProvider(ABC):
 
 
 _SYSTEM_PROMPT = (
-    "You are a Full-Stack Software Engineer and a brilliant Product Designer. "
-    "Your goal is to build fully functional, production-ready web applications based on user descriptions.\n\n"
-    "You will receive the conversation history and the current list of project files. "
-    "Your job is to respond to the latest user request by modifying, adding, or deleting files as needed.\n\n"
-    "GUIDELINES:\n"
-    "1. Analyze First: Before writing any code, think through the user personas, core data models, "
-    "and main user flows. Consider business logic, edge cases, and design preferences.\n"
-    "2. Architecture: Use modern, clean, and secure frameworks. Default to vanilla HTML/CSS/JS "
-    "unless the user specifies a framework.\n"
-    "3. Modularity: Keep code clean, well-organized, and properly commented. Split code into "
-    "appropriate files — components/, utils/, assets/, data/ directories as needed.\n"
-    "4. Error Handling: Include graceful error handling, loading states, and form validations.\n"
-    "5. Design: Make it look professional — use proper spacing, typography, color schemes, "
-    "and responsive layouts. Think like a product designer.\n\n"
-    "OUTPUT FORMAT:\n"
-    "Return ONLY valid JSON. Do NOT wrap the JSON in markdown code blocks.\n"
-    'The JSON must have a "message" field (string, explain what you built in a friendly conversational tone) '
-    'and a "files" array where each file has: '
-    '"path" (string), "content" (string), "file_type" (one of: html, css, javascript, typescript, tsx, jsx, json, python, markdown, svg, other).\n\n'
-    "CONVERSATION RULES:\n"
-    "6. Only include files you want to CREATE or MODIFY. Files you don't include will be left unchanged by the system. "
-    "Do NOT echo back files that haven't changed.\n"
-    "7. If the user asks to modify something specific (e.g. 'add a chart', 'fix the layout'), only include the changed files. "
-    "Do NOT regenerate the entire project.\n"
-    "8. If the user asks to delete a file, omit it from the files array (the system will handle deletion).\n"
-    "9. Preserve proper indentation and line breaks in file content.\n"
-    "10. You can create any file structure you need — use directories like components/, utils/, "
-    "assets/, data/ to organize code. Use appropriate file extensions: .html, .css, .js, .ts, .tsx, "
-    ".jsx, .json, .py, .md, .svg.\n\n"
-    "BUG FIXING RULES:\n"
-    "11. When the user reports a bug, first identify the root cause by reading the relevant file content. "
-    "Then output the FULL corrected file — never output only the changed lines or a diff.\n"
-    "12. Be thorough: check for common issues like missing imports, incorrect selectors, "
-    "unclosed tags, mismatched brackets, wrong API endpoints, and CSS specificity problems.\n"
-    "13. If a fix requires changes to multiple files, include ALL of them in the files array "
-    "with their COMPLETE updated content.\n"
-    "14. After fixing, explain in the 'message' field what the bug was and how you fixed it."
+    "You are a Full-Stack Software Engineer building web applications.\n\n"
+    "RULES:\n"
+    "1. Use vanilla HTML/CSS/JS unless the user specifies a framework.\n"
+    "2. Split code into files — use directories like components/, utils/, assets/.\n"
+    "3. Include error handling, loading states, and form validation.\n"
+    "4. Make it look professional with proper spacing, typography, and responsive design.\n\n"
+    "REQUIRED FILES:\n"
+    "  index.html — entry point, links to style.css and script.js\n"
+    "  style.css — all styles\n"
+    "  script.js — all JavaScript\n\n"
+    "EXAMPLE index.html:\n"
+    '  <!DOCTYPE html>\n'
+    '  <html lang="en">\n'
+    "  <head>\n"
+    '    <meta charset="UTF-8" />\n'
+    '    <link rel="stylesheet" href="style.css" />\n'
+    "  </head>\n"
+    "  <body>\n"
+    '    <div id="app"></div>\n'
+    '    <script src="script.js"></script>\n'
+    "  </body>\n"
+    "  </html>\n\n"
+    "ORGANIZATION:\n"
+    "  components/Header.js, components/Card.js\n"
+    "  utils/api.js, utils/helpers.js\n"
+    "  assets/icons.js\n\n"
+    "OUTPUT: Return ONLY valid JSON with 'message' (string) and 'files' array. "
+    "Each file has 'path', 'content', 'file_type'.\n"
+    "Only include files you want to CREATE or MODIFY.\n"
+    "On follow-ups: only include changed files.\n"
+    "Preserve indentation. Use FULL corrected files for bug fixes."
+)
+
+_REACT_SYSTEM_PROMPT = (
+    "You are a Full-Stack Software Engineer building React applications.\n\n"
+    "RULES:\n"
+    "1. Use React 18 with functional components and hooks.\n"
+    "2. Do NOT create index.html — the bundler provides it.\n"
+    "3. Do NOT use CDN script tags.\n"
+    "4. Use ES module import syntax ONLY.\n\n"
+    "CORRECT import syntax (MUST use this):\n"
+    '  import React, { useState, useEffect } from "react";\n'
+    '  import { createRoot } from "react-dom/client";\n\n'
+    "WRONG — do NOT use these patterns:\n"
+    '  const { useState } = React;        // WRONG\n'
+    "  React.useState()                    // WRONG\n"
+    "  ReactDOM.createRoot()               // WRONG — use createRoot()\n"
+    "  <script src=\"...react...\">         // WRONG — no CDN tags\n\n"
+    "REQUIRED FILES:\n"
+    "  App.jsx — entry point with createRoot render\n"
+    "  style.css — all styles\n\n"
+    "EXAMPLE App.jsx:\n"
+    '  import React, { useState } from "react";\n'
+    "  import { createRoot } from 'react-dom/client';\n"
+    "  import './style.css';\n"
+    "  \n"
+    "  function App() {\n"
+    "    const [count, setCount] = useState(0);\n"
+    "    return (\n"
+    "      <div className='app'>\n"
+    "        <h1>Hello</h1>\n"
+    "        <button onClick={() => setCount(c => c + 1)}>{count}</button>\n"
+    "      </div>\n"
+    "    );\n"
+    "  }\n"
+    "  \n"
+    "  const root = createRoot(document.getElementById('root'));\n"
+    "  root.render(<App />);\n\n"
+    "ORGANIZATION:\n"
+    "  components/Header.jsx, components/Footer.jsx\n"
+    "  utils/api.js, utils/helpers.js\n"
+    "  hooks/useCustomHook.js\n\n"
+    "OUTPUT: Return ONLY valid JSON with 'message' (string) and 'files' array. "
+    "Each file has 'path', 'content', 'file_type'.\n"
+    "On first message: include App.jsx + style.css + any extra files.\n"
+    "On follow-ups: only include changed files.\n"
+    "Preserve indentation. Use FULL corrected files for bug fixes."
 )
 
 _DESIGN_UPLOAD_SYSTEM_PROMPT = (
@@ -255,6 +297,7 @@ def _build_payload(
     chat_history: list[dict[str, str]] | None = None,
     system_prompt_override: str | None = None,
     max_tokens: int | None = None,
+    framework: str = "vanilla",
 ) -> dict[str, Any]:
     """Build the OpenAI-compatible messages payload.
 
@@ -264,8 +307,14 @@ def _build_payload(
         chat_history: Previous messages in the conversation.
         system_prompt_override: Optional system prompt to use instead of the default.
         max_tokens: Maximum output tokens for the AI response.
+        framework: "vanilla" or "react" — selects the appropriate system prompt.
     """
-    system_prompt = system_prompt_override if system_prompt_override else _SYSTEM_PROMPT
+    if system_prompt_override:
+        system_prompt = system_prompt_override
+    elif framework == "react":
+        system_prompt = _REACT_SYSTEM_PROMPT
+    else:
+        system_prompt = _SYSTEM_PROMPT
     messages: list[dict[str, str]] = [
         {"role": "system", "content": system_prompt},
     ]
@@ -490,13 +539,66 @@ def _parse_final_json(
     return message, merged_files
 
 
+def _fix_react_imports(files: list[ProjectFile]) -> list[ProjectFile]:
+    """Post-process .jsx files to fix React import patterns.
+
+    The AI often generates code using the global React object pattern:
+      const { useState } = React;
+    instead of proper ES module imports:
+      import React, { useState } from "react";
+
+    This function rewrites the imports to the correct ES module syntax.
+    """
+    fixed: list[ProjectFile] = []
+    for f in files:
+        if not f.path.endswith(".jsx"):
+            fixed.append(f)
+            continue
+
+        content = f.content
+
+        # Pattern 1: const { useState, useEffect } = React;
+        # → import React, { useState, useEffect } from "react";
+        import_pattern = re.compile(
+            r'const\s*\{\s*([^}]+)\s*\}\s*=\s*React\s*;?\s*\n?'
+        )
+        content = import_pattern.sub(
+            lambda m: f'import React, {{ {m.group(1).strip()} }} from "react";\n',
+            content,
+        )
+
+        # Pattern 2: const root = ReactDOM.createRoot(...)
+        # → import { createRoot } from "react-dom/client";
+        # and: const root = createRoot(...)
+        if "ReactDOM.createRoot" in content:
+            content = content.replace("ReactDOM.createRoot", "createRoot")
+            if 'from "react-dom/client"' not in content and "from 'react-dom/client'" not in content:
+                content = 'import { createRoot } from "react-dom/client";\n' + content
+
+        # Pattern 3: React.useState, React.useEffect, etc.
+        # → useState, useEffect (already imported via pattern 1)
+        content = re.sub(r'React\.(\w+)', r'\1', content)
+
+        # Pattern 4: React.createElement → just createElement (though JSX is preferred)
+        # Already handled by pattern 3
+
+        fixed.append(ProjectFile(path=f.path, content=content, file_type=f.file_type))
+
+    return fixed
+
+
 def _validate_generated_files(
     files: list[ProjectFile],
     design_name: str = "",
+    framework: str = "vanilla",
 ) -> list[str]:
     """Validate generated files for common issues.
 
-    Checks (only when the relevant files exist):
+    Checks:
+    - index.html exists (required for vanilla projects)
+    - style.css exists (recommended)
+    - script.js exists (recommended for vanilla)
+    - App.jsx exists (required for react)
     - index.html has a <body> tag
     - index.html has a <title> tag
     - style.css has content (not empty)
@@ -507,6 +609,20 @@ def _validate_generated_files(
     warnings: list[str] = []
     file_map = {f.path: f for f in files}
 
+    if framework == "react":
+        # React projects: App.jsx is the entry point
+        if "App.jsx" not in file_map:
+            warnings.append("Missing required file: App.jsx")
+    else:
+        # Vanilla projects: index.html is the entry point
+        if "index.html" not in file_map:
+            warnings.append("Missing required file: index.html")
+        if "script.js" not in file_map:
+            warnings.append("Missing required file: script.js")
+
+    if "style.css" not in file_map:
+        warnings.append("Missing required file: style.css")
+
     # Validate index.html structure (only if it exists)
     if "index.html" in file_map:
         html_content = file_map["index.html"].content
@@ -514,6 +630,9 @@ def _validate_generated_files(
             warnings.append("index.html is missing <body> tag")
         if "<title>" not in html_content:
             warnings.append("index.html is missing <title> tag")
+        # Check if style.css is linked when it exists in the project
+        if "style.css" in file_map and "href=\"style.css\"" not in html_content and "href='style.css'" not in html_content:
+            warnings.append("index.html does not link to style.css")
 
     # Validate style.css has content (only if it exists)
     if "style.css" in file_map:
@@ -695,13 +814,14 @@ class HttpAIProvider(BaseAIProvider):
         existing_files: list[ProjectFile] | None = None,
         chat_history: list[dict[str, str]] | None = None,
         system_prompt_override: str | None = None,
+        framework: str = "vanilla",
     ) -> tuple[str, list[ProjectFile]]:
         headers = {
             "Authorization": f"Bearer {self._jwt_token}",
             "Content-Type": "application/json",
         }
 
-        payload = _build_payload(prompt, existing_files, chat_history, system_prompt_override, max_tokens=settings.max_tokens)
+        payload = _build_payload(prompt, existing_files, chat_history, system_prompt_override, max_tokens=settings.max_tokens, framework=framework)
         payload["model"] = self._model
 
         # Log prompt size for debugging
@@ -776,8 +896,12 @@ class HttpAIProvider(BaseAIProvider):
 
         message, files = _parse_final_json(content, existing_files)
 
+        # Fix React import patterns in .jsx files
+        if framework == "react":
+            files = _fix_react_imports(files)
+
         # Validate generated files and log warnings
-        warnings = _validate_generated_files(files)
+        warnings = _validate_generated_files(files, framework=framework)
         if warnings:
             logger.warning("Generated file validation warnings (%d):", len(warnings))
             for w in warnings:
@@ -785,6 +909,46 @@ class HttpAIProvider(BaseAIProvider):
             # Append warnings to the message so the frontend can display them
             if warnings:
                 message += "\n\n**Note:** " + " ".join(warnings)
+
+        # Self-correction: if critical files are missing, try one correction pass
+        critical_warnings = [w for w in warnings if w.startswith("Missing required")]
+        if critical_warnings and framework == "react":
+            logger.info("Critical validation warnings — attempting self-correction")
+            correction_prompt = (
+                "The previous response had issues. Please fix the following:\n"
+                + "\n".join(f"- {w}" for w in critical_warnings)
+                + "\n\nMake sure App.jsx uses proper ES module imports:\n"
+                + '  import React, { useState } from "react";\n'
+                + "  import { createRoot } from 'react-dom/client';\n\n"
+                + "Output the COMPLETE corrected files as JSON."
+            )
+            try:
+                correction_payload = _build_payload(
+                    correction_prompt,
+                    existing_files=files,
+                    chat_history=chat_history,
+                    framework=framework,
+                    max_tokens=settings.max_tokens,
+                )
+                correction_payload["model"] = self._model
+                async with httpx.AsyncClient(timeout=httpx.Timeout(self._timeout, connect=self._connect_timeout)) as client:
+                    correction_response = await client.post(self._target_url, json=correction_payload, headers=headers)
+                if correction_response.is_success:
+                    correction_data = correction_response.json()
+                    correction_content = correction_data["choices"][0]["message"]["content"]
+                    if correction_content and correction_content.strip():
+                        correction_message, correction_files = _parse_final_json(correction_content, files)
+                        if framework == "react":
+                            correction_files = _fix_react_imports(correction_files)
+                        # Only use correction if it actually fixed the missing files
+                        correction_map = {f.path for f in correction_files}
+                        original_map = {f.path for f in files}
+                        if len(correction_map) > len(original_map):
+                            logger.info("Self-correction added %d new files", len(correction_map - original_map))
+                            message = correction_message
+                            files = correction_files
+            except Exception as e:
+                logger.warning("Self-correction attempt failed: %s", e)
 
         return message, files
 
@@ -794,9 +958,10 @@ class HttpAIProvider(BaseAIProvider):
         existing_files: list[ProjectFile] | None = None,
         chat_history: list[dict[str, str]] | None = None,
         system_prompt_override: str | None = None,
+        framework: str = "vanilla",
     ) -> AsyncIterator[dict[str, Any]]:
         """Non-streaming fallback — yields the complete result as a single event."""
-        message, files = await self.generate(prompt, existing_files, chat_history, system_prompt_override)
+        message, files = await self.generate(prompt, existing_files, chat_history, system_prompt_override, framework=framework)
         for f in files:
             yield {"type": "file_start", "path": f.path, "file_type": f.file_type.value}
             yield {"type": "file_chunk", "path": f.path, "delta": f.content}
@@ -926,12 +1091,13 @@ class StreamingHttpAIProvider(BaseAIProvider):
         existing_files: list[ProjectFile] | None = None,
         chat_history: list[dict[str, str]] | None = None,
         system_prompt_override: str | None = None,
+        framework: str = "vanilla",
     ) -> tuple[str, list[ProjectFile]]:
         """Non-streaming fallback — delegates to HttpAIProvider logic."""
         provider = HttpAIProvider(
             self._target_url, self._jwt_token, self._model, self._timeout
         )
-        return await provider.generate(prompt, existing_files, chat_history, system_prompt_override)
+        return await provider.generate(prompt, existing_files, chat_history, system_prompt_override, framework=framework)
 
     async def generate_stream(
         self,
@@ -939,13 +1105,14 @@ class StreamingHttpAIProvider(BaseAIProvider):
         existing_files: list[ProjectFile] | None = None,
         chat_history: list[dict[str, str]] | None = None,
         system_prompt_override: str | None = None,
+        framework: str = "vanilla",
     ) -> AsyncIterator[dict[str, Any]]:
         headers = {
             "Authorization": f"Bearer {self._jwt_token}",
             "Content-Type": "application/json",
         }
 
-        payload = _build_payload(prompt, existing_files, chat_history, system_prompt_override, max_tokens=settings.max_tokens)
+        payload = _build_payload(prompt, existing_files, chat_history, system_prompt_override, max_tokens=settings.max_tokens, framework=framework)
         payload["model"] = self._model
         payload["stream"] = True
 
@@ -1195,6 +1362,9 @@ class StreamingHttpAIProvider(BaseAIProvider):
         # After the stream ends, parse the full accumulated content
         try:
             message, files = _parse_final_json(accumulated_content, existing_files)
+            # Fix React import patterns in .jsx files
+            if framework == "react":
+                files = _fix_react_imports(files)
         except (json.JSONDecodeError, RuntimeError) as e:
             # On parse failure, preserve existing files so the project isn't wiped
             fallback_files = existing_files or []

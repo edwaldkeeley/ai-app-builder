@@ -1,8 +1,11 @@
+export type Framework = "vanilla" | "react";
+
 export interface Project {
   id: string;
   name: string;
   description: string;
   status: "idle" | "generating" | "error";
+  framework: Framework;
   file_count: number;
   created_at: string;
   updated_at: string;
@@ -19,6 +22,7 @@ export interface ProjectDetail {
   name: string;
   description: string;
   status: "idle" | "generating" | "error";
+  framework: Framework;
   files: ProjectFile[];
   created_at: string;
   updated_at: string;

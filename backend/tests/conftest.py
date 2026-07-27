@@ -56,12 +56,14 @@ class MockAIProvider(BaseAIProvider):
         existing_files: list[ProjectFile] | None = None,
         chat_history: list[dict[str, str]] | None = None,
         system_prompt_override: str | None = None,
+        framework: str = "vanilla",
     ) -> tuple[str, list[ProjectFile]]:
         self.generate_calls.append({
             "prompt": prompt,
             "existing_files": existing_files,
             "chat_history": chat_history,
             "system_prompt_override": system_prompt_override,
+            "framework": framework,
         })
         return self.default_message, self.default_files
 
@@ -71,6 +73,7 @@ class MockAIProvider(BaseAIProvider):
         existing_files: list[ProjectFile] | None = None,
         chat_history: list[dict[str, str]] | None = None,
         system_prompt_override: str | None = None,
+        framework: str = "vanilla",
     ) -> AsyncIterator[dict[str, Any]]:
         yield {"type": "message_chunk", "delta": "Test "}
         yield {"type": "message_chunk", "delta": "response"}

@@ -16,7 +16,7 @@ export interface StreamCallbacks {
 }
 
 export interface StreamSession {
-  send: (prompt: string, projectId?: string) => void;
+  send: (prompt: string, projectId?: string, framework?: string) => void;
   close: () => void;
 }
 
@@ -24,7 +24,7 @@ export function generateStream(callbacks: StreamCallbacks): StreamSession {
   let ws: WebSocket | null = null;
   let closed = false;
 
-  const connect = (prompt: string, projectId?: string) => {
+  const connect = (prompt: string, projectId?: string, framework?: string) => {
     if (closed) return;
 
     ws = new WebSocket(`${WS_BASE}/api/ai/ws/generate`);
@@ -34,6 +34,7 @@ export function generateStream(callbacks: StreamCallbacks): StreamSession {
         type: "generate",
         prompt,
         project_id: projectId || null,
+        framework: framework || "vanilla",
       }));
     };
 
@@ -81,8 +82,8 @@ export function generateStream(callbacks: StreamCallbacks): StreamSession {
   };
 
   return {
-    send: (prompt: string, projectId?: string) => {
-      connect(prompt, projectId);
+    send: (prompt: string, projectId?: string, framework?: string) => {
+      connect(prompt, projectId, framework);
     },
     close: () => {
       closed = true;
@@ -239,7 +240,7 @@ export const api = {
     });
   },
 
-  updateProject(id: string, data: { name?: string; description?: string }): Promise<ProjectDetail> {
+  updateProject(id: string, data: { name?: string; description?: string; framework?: string }): Promise<ProjectDetail> {
     invalidateCache(`project:${id}`);
     invalidateCache("projects");
     return request(`/api/projects/${id}`, {
@@ -277,12 +278,12 @@ export const api = {
 
   // ── AI Generation ─────────────────────────────────────────
 
-  generate(prompt: string, projectId?: string): Promise<GenerateResponse> {
+  generate(prompt: string, projectId?: string, framework?: string): Promise<GenerateResponse> {
     if (projectId) invalidateCache(`project:${projectId}`);
     invalidateCache("projects");
     return request("/api/ai/generate", {
       method: "POST",
-      body: JSON.stringify({ prompt, project_id: projectId }),
+      body: JSON.stringify({ prompt, project_id: projectId, framework: framework || "vanilla" }),
     });
   },
 
