@@ -334,6 +334,24 @@ export const api = {
     return request("/api/auth/me");
   },
 
+  updateUser(data: { username?: string; email?: string }): Promise<User> {
+    return request("/api/auth/me", {
+      method: "PATCH",
+      body: JSON.stringify(data),
+    });
+  },
+
+  changePassword(currentPassword: string, newPassword: string): Promise<{ message: string }> {
+    return request("/api/auth/me/change-password", {
+      method: "POST",
+      body: JSON.stringify({ current_password: currentPassword, new_password: newPassword }),
+    });
+  },
+
+  deleteAccount(): Promise<void> {
+    return request("/api/auth/me", { method: "DELETE" });
+  },
+
   // ── Design Upload ──────────────────────────────────────────
 
   async uploadDesign(

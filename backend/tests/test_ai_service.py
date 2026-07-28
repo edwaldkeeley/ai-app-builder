@@ -15,8 +15,10 @@ import pytest
 from app.models.schemas import FileType, ProjectFile
 from app.services.ai_service import (
     _FIGMA_SYSTEM_PROMPT,
+    _REACT_SYSTEM_PROMPT,
     _SYSTEM_PROMPT,
     _build_payload,
+    _fix_react_imports,
     _parse_final_json,
     _validate_generated_files,
 )
@@ -107,6 +109,68 @@ class TestParseFinalJson:
 # ── _validate_generated_files tests ───────────────────────────
 
 
+class TestFixReactImports:
+    def test_skips_non_jsx_files(self):
+        files = [
+            ProjectFile(path="style.css", content="body {}", file_type=FileType.css),
+            ProjectFile(path="script.js", content="// js", file_type=FileType.js),
+        ]
+        result = _fix_react_imports(files)
+        assert len(result) == 2
+        assert result[0].content == "body {}"
+        assert result[1].content == "// js"
+
+    def test_const_destructure_from_react(self):
+        files = [
+            ProjectFile(path="App.jsx", content='const { useState, useEffect } = React;\n', file_type=FileType.jsx),
+        ]
+        result = _fix_react_imports(files)
+        assert 'import React, { useState, useEffect } from "react";' in result[0].content
+        assert "const {" not in result[0].content
+
+    def test_reactdom_createroot(self):
+        files = [
+            ProjectFile(path="App.jsx", content='const root = ReactDOM.createRoot(document.getElementById("root"));\nroot.render(<App />);\n', file_type=FileType.jsx),
+        ]
+        result = _fix_react_imports(files)
+        assert 'import { createRoot } from "react-dom/client";' in result[0].content
+        assert "ReactDOM.createRoot" not in result[0].content
+        assert "createRoot(" in result[0].content
+
+    def test_react_dot_method_calls(self):
+        files = [
+            ProjectFile(path="App.jsx", content="const [count, setCount] = React.useState(0);\nReact.useEffect(() => {}, []);\n", file_type=FileType.jsx),
+        ]
+        result = _fix_react_imports(files)
+        assert "React.useState" not in result[0].content
+        assert "React.useEffect" not in result[0].content
+        assert "useState(0)" in result[0].content
+        assert "useEffect(() =>" in result[0].content
+
+    def test_mixed_patterns(self):
+        content = (
+            'const { useState } = React;\n'
+            'const root = ReactDOM.createRoot(document.getElementById("root"));\n'
+            'root.render(<App />);\n'
+        )
+        files = [
+            ProjectFile(path="App.jsx", content=content, file_type=FileType.jsx),
+        ]
+        result = _fix_react_imports(files)
+        assert 'import React, { useState } from "react";' in result[0].content
+        assert 'import { createRoot } from "react-dom/client";' in result[0].content
+        assert "ReactDOM.createRoot" not in result[0].content
+        assert "const {" not in result[0].content
+
+    def test_no_react_patterns_unchanged(self):
+        content = 'import React from "react";\nfunction App() { return <h1>Hi</h1>; }\n'
+        files = [
+            ProjectFile(path="App.jsx", content=content, file_type=FileType.jsx),
+        ]
+        result = _fix_react_imports(files)
+        assert result[0].content == content
+
+
 class TestValidateGeneratedFiles:
     def test_all_files_present(self):
         files = [
@@ -184,6 +248,55 @@ class TestValidateGeneratedFiles:
         warnings = _validate_generated_files(files)
         assert any("style.css seems too short" in w for w in warnings)
 
+    # ── React framework validation ─────────────────────────────
+
+    def test_react_missing_app_jsx(self):
+        files = [
+            ProjectFile(path="style.css", content="body {}", file_type=FileType.css),
+        ]
+        warnings = _validate_generated_files(files, framework="react")
+        assert any("Missing required file: App.jsx" in w for w in warnings)
+
+    def test_react_has_app_jsx(self):
+        files = [
+            ProjectFile(path="App.jsx", content='import React from "react";', file_type=FileType.jsx),
+            ProjectFile(path="style.css", content="body {}", file_type=FileType.css),
+        ]
+        warnings = _validate_generated_files(files, framework="react")
+        assert not any("App.jsx" in w for w in warnings)
+
+    def test_react_does_not_require_index_html(self):
+        files = [
+            ProjectFile(path="App.jsx", content='import React from "react";', file_type=FileType.jsx),
+            ProjectFile(path="style.css", content="body {}", file_type=FileType.css),
+        ]
+        warnings = _validate_generated_files(files, framework="react")
+        assert not any("index.html" in w for w in warnings)
+
+    def test_react_does_not_require_script_js(self):
+        files = [
+            ProjectFile(path="App.jsx", content='import React from "react";', file_type=FileType.jsx),
+            ProjectFile(path="style.css", content="body {}", file_type=FileType.css),
+        ]
+        warnings = _validate_generated_files(files, framework="react")
+        assert not any("script.js" in w for w in warnings)
+
+    def test_react_still_requires_style_css(self):
+        files = [
+            ProjectFile(path="App.jsx", content='import React from "react";', file_type=FileType.jsx),
+        ]
+        warnings = _validate_generated_files(files, framework="react")
+        assert any("Missing required file: style.css" in w for w in warnings)
+
+    def test_react_vanilla_still_validates_normally(self):
+        files = [
+            ProjectFile(path="index.html", content='<!DOCTYPE html><html lang="en"><head><meta charset="UTF-8" /><title>Test</title><link rel="stylesheet" href="style.css" /></head><body><h1>Hello</h1></body></html>', file_type=FileType.html),
+            ProjectFile(path="style.css", content="body { color: red; margin: 0; padding: 0; font-family: sans-serif; }", file_type=FileType.css),
+            ProjectFile(path="script.js", content="// js", file_type=FileType.js),
+        ]
+        warnings = _validate_generated_files(files, framework="vanilla")
+        assert len(warnings) == 0
+
 
 # ── _build_payload tests ──────────────────────────────────────
 
@@ -244,6 +357,29 @@ class TestBuildPayload:
         payload = _build_payload("Hi", max_tokens=0)
         assert "max_tokens" not in payload
 
+    # ── Framework selection ────────────────────────────────────
+
+    def test_payload_vanilla_uses_vanilla_prompt(self):
+        payload = _build_payload("Build a page", framework="vanilla")
+        assert payload["messages"][0]["content"] == _SYSTEM_PROMPT
+
+    def test_payload_react_uses_react_prompt(self):
+        payload = _build_payload("Build a React app", framework="react")
+        assert payload["messages"][0]["content"] == _REACT_SYSTEM_PROMPT
+
+    def test_payload_default_framework_is_vanilla(self):
+        payload = _build_payload("Build a page")
+        assert payload["messages"][0]["content"] == _SYSTEM_PROMPT
+
+    def test_payload_react_with_existing_files(self):
+        files = [
+            ProjectFile(path="App.jsx", content='import React from "react";', file_type=FileType.jsx),
+            ProjectFile(path="style.css", content="body {}", file_type=FileType.css),
+        ]
+        payload = _build_payload("Update", existing_files=files, framework="react")
+        assert payload["messages"][0]["content"] == _REACT_SYSTEM_PROMPT
+        assert len(payload["messages"]) == 3  # system + file context + user
+
 
 # ── _parse_retry_after tests ──────────────────────────────────
 
@@ -293,3 +429,31 @@ class TestSystemPrompts:
         assert "RULES" in _SYSTEM_PROMPT
         assert "REQUIRED FILES" in _SYSTEM_PROMPT
         assert "OUTPUT" in _SYSTEM_PROMPT
+
+    # ── React system prompt ────────────────────────────────────
+
+    def test_react_prompt_has_react_rules(self):
+        assert "React" in _REACT_SYSTEM_PROMPT
+        assert "functional components" in _REACT_SYSTEM_PROMPT
+        assert "hooks" in _REACT_SYSTEM_PROMPT
+
+    def test_react_prompt_no_index_html(self):
+        assert "Do NOT create index.html" in _REACT_SYSTEM_PROMPT
+
+    def test_react_prompt_es_module_syntax(self):
+        assert "import" in _REACT_SYSTEM_PROMPT
+        assert "createRoot" in _REACT_SYSTEM_PROMPT
+
+    def test_react_prompt_has_required_files(self):
+        assert "App.jsx" in _REACT_SYSTEM_PROMPT
+        assert "style.css" in _REACT_SYSTEM_PROMPT
+
+    def test_react_prompt_has_example(self):
+        assert "EXAMPLE App.jsx" in _REACT_SYSTEM_PROMPT
+
+    def test_react_prompt_has_correct_import_example(self):
+        assert 'import React, { useState } from "react"' in _REACT_SYSTEM_PROMPT
+
+    def test_react_prompt_warns_against_wrong_patterns(self):
+        assert "WRONG" in _REACT_SYSTEM_PROMPT
+        assert "ReactDOM.createRoot" in _REACT_SYSTEM_PROMPT

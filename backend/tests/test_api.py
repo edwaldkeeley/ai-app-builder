@@ -62,6 +62,70 @@ class TestAuth:
         response = await auth_client.post("/api/auth/logout")
         assert response.status_code == 200
 
+    # ── User settings ─────────────────────────────────────────
+
+    async def test_update_username(self, auth_client):
+        response = await auth_client.patch(
+            "/api/auth/me",
+            json={"username": "newname"},
+        )
+        assert response.status_code == 200
+        data = response.json()
+        assert data["username"] == "newname"
+        assert data["email"] == "test@example.com"
+
+    async def test_update_email(self, auth_client):
+        response = await auth_client.patch(
+            "/api/auth/me",
+            json={"email": "newemail@test.com"},
+        )
+        assert response.status_code == 200
+        data = response.json()
+        assert data["email"] == "newemail@test.com"
+
+    async def test_update_email_duplicate(self, auth_client, async_client):
+        # Register a second user via async_client (no auth)
+        response = await async_client.post(
+            "/api/auth/register",
+            json={"email": "other@test.com", "username": "other", "password": "pass123456"},
+        )
+        assert response.status_code == 201
+
+        # auth_client is still the first user — try to take the second user's email
+        response = await auth_client.patch(
+            "/api/auth/me",
+            json={"email": "other@test.com"},
+        )
+        assert response.status_code == 409
+
+    async def test_change_password(self, auth_client):
+        response = await auth_client.post(
+            "/api/auth/me/change-password",
+            json={"current_password": "testpass123", "new_password": "newpass456"},
+        )
+        assert response.status_code == 200
+        data = response.json()
+        assert "Password changed" in data["message"]
+
+    async def test_change_password_wrong_current(self, auth_client):
+        response = await auth_client.post(
+            "/api/auth/me/change-password",
+            json={"current_password": "wrongpass", "new_password": "newpass456"},
+        )
+        assert response.status_code == 401
+
+    async def test_delete_account(self, auth_client):
+        response = await auth_client.delete("/api/auth/me")
+        assert response.status_code == 204
+
+        # Verify the user is gone
+        me_response = await auth_client.get("/api/auth/me")
+        assert me_response.status_code == 401
+
+    async def test_delete_account_unauthorized(self, async_client):
+        response = await async_client.delete("/api/auth/me")
+        assert response.status_code == 401
+
 
 # ── Health check ──────────────────────────────────────────────
 
@@ -168,6 +232,55 @@ class TestProjects:
         assert len(projects) >= 1
         ids = [p["id"] for p in projects]
         assert str(sample_project.id) in ids
+
+    # ── React framework ────────────────────────────────────────
+
+    async def test_create_react_project(self, auth_client):
+        response = await auth_client.post(
+            "/api/projects/",
+            json={"name": "React App", "description": "A React project", "framework": "react"},
+        )
+        assert response.status_code == 201
+        data = response.json()
+        assert data["framework"] == "react"
+        # React projects should have App.jsx and style.css, not index.html
+        paths = [f["path"] for f in data["files"]]
+        assert "App.jsx" in paths
+        assert "style.css" in paths
+        assert "index.html" not in paths
+        assert "script.js" not in paths
+
+    async def test_create_project_default_framework_vanilla(self, auth_client):
+        response = await auth_client.post(
+            "/api/projects/",
+            json={"name": "Vanilla Project"},
+        )
+        assert response.status_code == 201
+        data = response.json()
+        assert data["framework"] == "vanilla"
+        paths = [f["path"] for f in data["files"]]
+        assert "index.html" in paths
+        assert "style.css" in paths
+        assert "script.js" in paths
+
+    async def test_update_project_framework(self, auth_client, sample_project):
+        project_id = sample_project.id
+        response = await auth_client.patch(
+            f"/api/projects/{project_id}",
+            json={"framework": "react"},
+        )
+        assert response.status_code == 200
+        data = response.json()
+        assert data["framework"] == "react"
+
+    async def test_project_list_includes_framework(self, auth_client, sample_project):
+        response = await auth_client.get("/api/projects/")
+        assert response.status_code == 200
+        projects = response.json()
+        assert len(projects) >= 1
+        for p in projects:
+            assert "framework" in p
+            assert p["framework"] in ("vanilla", "react")
 
 
 # ── Sandbox file operations ───────────────────────────────────
@@ -325,6 +438,52 @@ class TestAIGeneration:
         chat_response = await auth_client.get(f"/api/projects/{data['project_id']}/chat")
         messages = chat_response.json()
         assert len(messages) >= 2  # user prompt + AI response
+
+    async def test_generate_with_react_framework(self, auth_client):
+        response = await auth_client.post(
+            "/api/ai/generate",
+            json={"prompt": "Build a React counter", "framework": "react"},
+        )
+        assert response.status_code == 201
+        data = response.json()
+        assert data["project_id"] is not None
+
+        # Verify the project has framework=react
+        project_response = await auth_client.get(f"/api/projects/{data['project_id']}")
+        assert project_response.status_code == 200
+        project = project_response.json()
+        assert project["framework"] == "react"
+
+    async def test_generate_default_framework_is_vanilla(self, auth_client):
+        response = await auth_client.post(
+            "/api/ai/generate",
+            json={"prompt": "Build a page"},
+        )
+        assert response.status_code == 201
+        data = response.json()
+
+        project_response = await auth_client.get(f"/api/projects/{data['project_id']}")
+        assert project_response.status_code == 200
+        project = project_response.json()
+        assert project["framework"] == "vanilla"
+
+    async def test_generate_passes_framework_to_provider(self, auth_client, mock_ai_provider):
+        await auth_client.post(
+            "/api/ai/generate",
+            json={"prompt": "Build a React app", "framework": "react"},
+        )
+        assert len(mock_ai_provider.generate_calls) >= 1
+        last_call = mock_ai_provider.generate_calls[-1]
+        assert last_call["framework"] == "react"
+
+    async def test_generate_passes_vanilla_framework_to_provider(self, auth_client, mock_ai_provider):
+        await auth_client.post(
+            "/api/ai/generate",
+            json={"prompt": "Build a page"},
+        )
+        assert len(mock_ai_provider.generate_calls) >= 1
+        last_call = mock_ai_provider.generate_calls[-1]
+        assert last_call["framework"] == "vanilla"
 
 
 # ── Figma import ──────────────────────────────────────────────

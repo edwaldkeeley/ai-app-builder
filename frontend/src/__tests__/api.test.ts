@@ -172,6 +172,40 @@ describe("api", () => {
     });
   });
 
+  describe("generate with framework", () => {
+    it("sends framework parameter when provided", async () => {
+      const response: GenerateResponse = {
+        project_id: "1", project_name: "Test", message: "Done", files: [],
+      };
+      mockFetch.mockResolvedValue(mockResponse(response));
+
+      await api.generate("build a React app", "1", "react");
+      expect(mockFetch).toHaveBeenCalledWith(
+        expect.stringContaining("/api/ai/generate"),
+        expect.objectContaining({
+          method: "POST",
+          body: expect.stringContaining('"framework":"react"'),
+        }),
+      );
+    });
+
+    it("defaults framework to vanilla when not provided", async () => {
+      const response: GenerateResponse = {
+        project_id: "1", project_name: "Test", message: "Done", files: [],
+      };
+      mockFetch.mockResolvedValue(mockResponse(response));
+
+      await api.generate("build a site", "1");
+      expect(mockFetch).toHaveBeenCalledWith(
+        expect.stringContaining("/api/ai/generate"),
+        expect.objectContaining({
+          method: "POST",
+          body: expect.stringContaining('"framework":"vanilla"'),
+        }),
+      );
+    });
+  });
+
   describe("getChatMessages", () => {
     it("returns chat messages", async () => {
       const messages: ChatMessageSchema[] = [
@@ -248,6 +282,39 @@ describe("api", () => {
       const result = await api.me();
       expect(result).toBeDefined();
     });
+
+    it("updateUser sends PATCH with username and email", async () => {
+      const updated: User = { id: "1", email: "new@b.com", username: "newname", created_at: "" };
+      mockFetch.mockResolvedValue(mockResponse(updated));
+
+      const result = await api.updateUser({ username: "newname", email: "new@b.com" });
+      expect(result).toEqual(updated);
+      expect(mockFetch).toHaveBeenCalledWith(
+        expect.stringContaining("/api/auth/me"),
+        expect.objectContaining({ method: "PATCH" }),
+      );
+    });
+
+    it("changePassword sends POST with passwords", async () => {
+      mockFetch.mockResolvedValue(mockResponse({ message: "Password changed" }));
+
+      const result = await api.changePassword("oldpass", "newpass");
+      expect(result.message).toBe("Password changed");
+      expect(mockFetch).toHaveBeenCalledWith(
+        expect.stringContaining("/api/auth/me/change-password"),
+        expect.objectContaining({ method: "POST" }),
+      );
+    });
+
+    it("deleteAccount sends DELETE", async () => {
+      mockFetch.mockResolvedValue(mockResponse(undefined, 204));
+
+      await api.deleteAccount();
+      expect(mockFetch).toHaveBeenCalledWith(
+        expect.stringContaining("/api/auth/me"),
+        expect.objectContaining({ method: "DELETE" }),
+      );
+    });
   });
 
   describe("uploadDesign", () => {
@@ -321,9 +388,11 @@ describe("api", () => {
 
 describe("generateStream", () => {
   let originalWebSocket: typeof WebSocket;
+  let lastSentData: string | null = null;
 
   beforeEach(() => {
     originalWebSocket = globalThis.WebSocket;
+    lastSentData = null;
     // Mock WebSocket
     (globalThis as any).WebSocket = class MockWebSocket {
       onopen: (() => void) | null = null;
@@ -331,7 +400,7 @@ describe("generateStream", () => {
       onerror: (() => void) | null = null;
       onclose: (() => void) | null = null;
       readyState = 0;
-      send = jest.fn();
+      send = jest.fn((data: string) => { lastSentData = data; });
       close = jest.fn();
       constructor(public url: string) {
         setTimeout(() => {
@@ -354,8 +423,41 @@ describe("generateStream", () => {
     session.send("build a site", "1");
 
     setTimeout(() => {
-      const ws = (globalThis.WebSocket as any).mock?.instances?.[0];
-      // Just verify no crash
+      expect(lastSentData).not.toBeNull();
+      if (lastSentData) {
+        const msg = JSON.parse(lastSentData);
+        expect(msg.type).toBe("generate");
+        expect(msg.prompt).toBe("build a site");
+        expect(msg.project_id).toBe("1");
+      }
+      done();
+    }, 50);
+  });
+
+  it("sends framework parameter in WebSocket message", (done) => {
+    const session = generateStream({});
+    session.send("build a React app", "1", "react");
+
+    setTimeout(() => {
+      expect(lastSentData).not.toBeNull();
+      if (lastSentData) {
+        const msg = JSON.parse(lastSentData);
+        expect(msg.framework).toBe("react");
+      }
+      done();
+    }, 50);
+  });
+
+  it("defaults framework to vanilla in WebSocket message", (done) => {
+    const session = generateStream({});
+    session.send("build a site", "1");
+
+    setTimeout(() => {
+      expect(lastSentData).not.toBeNull();
+      if (lastSentData) {
+        const msg = JSON.parse(lastSentData);
+        expect(msg.framework).toBe("vanilla");
+      }
       done();
     }, 50);
   });

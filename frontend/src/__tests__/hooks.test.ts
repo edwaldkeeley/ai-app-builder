@@ -14,7 +14,14 @@ jest.mock("../app/lib/api", () => ({
     deleteProject: jest.fn(),
     upsertFile: jest.fn(),
     deleteFile: jest.fn(),
+    saveChatMessage: jest.fn(),
+    getChatMessages: jest.fn(),
+    generate: jest.fn(),
   },
+  generateStream: jest.fn(() => ({
+    send: jest.fn(),
+    close: jest.fn(),
+  })),
 }));
 
 jest.mock("../app/components/Toast", () => ({
@@ -204,5 +211,49 @@ describe("useFileSave", () => {
     const { result: result2 } = renderHook(() => useFileSave("2"));
 
     expect(result2.current.dirtyFiles.size).toBe(0);
+  });
+});
+
+// ── useChat tests ──────────────────────────────────────────
+
+describe("useChat", () => {
+  beforeEach(() => {
+    jest.clearAllMocks();
+  });
+
+  it("initializes with empty messages", () => {
+    const { useChat } = require("../app/hooks/useChat");
+    const { result } = renderHook(() => useChat());
+    expect(result.current.chatMessages).toEqual([]);
+    expect(result.current.generating).toBe(false);
+    expect(result.current.chatMode).toBe(false);
+  });
+
+  it("loads chat messages for a project", async () => {
+    const mockMessages = [
+      { id: 1, project_id: "1", role: "user", content: "hi", files: [], created_at: "2026-01-01" },
+    ];
+    (api.getChatMessages as jest.Mock).mockResolvedValue(mockMessages);
+
+    const { useChat } = require("../app/hooks/useChat");
+    const { result } = renderHook(() => useChat());
+
+    await act(async () => {
+      await result.current.loadChatMessages("1");
+    });
+
+    expect(api.getChatMessages).toHaveBeenCalledWith("1");
+    expect(result.current.chatMessages.length).toBeGreaterThan(0);
+  });
+
+  it("clears chat messages", () => {
+    const { useChat } = require("../app/hooks/useChat");
+    const { result } = renderHook(() => useChat());
+
+    act(() => {
+      result.current.clearChatMessages();
+    });
+
+    expect(result.current.chatMessages).toEqual([]);
   });
 });

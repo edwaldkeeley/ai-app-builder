@@ -75,7 +75,7 @@ class ProjectService:
                     """
                     INSERT INTO projects (name, description, user_id, framework)
                     VALUES ($1, $2, $3, $4)
-                    RETURNING id, name, description, status, user_id, created_at, updated_at
+                    RETURNING id, name, description, status, framework, user_id, created_at, updated_at
                     """,
                     data.name,
                     data.description,

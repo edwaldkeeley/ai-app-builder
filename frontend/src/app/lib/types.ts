@@ -54,6 +54,7 @@ export interface User {
   email: string;
   username: string;
   created_at: string;
+  updated_at?: string;
 }
 
 export interface LoginRequest {

@@ -179,3 +179,20 @@ class ChatMessageSchema(BaseModel):
     content: str = Field(..., max_length=100_000)
     files: list[ProjectFile] = []
     created_at: datetime | None = None
+
+
+# ── User Settings ────────────────────────────────────────────
+
+
+class UpdateUserRequest(BaseModel):
+    """Request to update user profile fields."""
+
+    username: str | None = Field(None, min_length=1, max_length=128)
+    email: str | None = Field(None, max_length=255)
+
+
+class ChangePasswordRequest(BaseModel):
+    """Request to change the user's password."""
+
+    current_password: str = Field(..., min_length=1, max_length=128)
+    new_password: str = Field(..., min_length=6, max_length=128)

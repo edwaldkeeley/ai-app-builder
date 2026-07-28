@@ -45,7 +45,7 @@ async def get_current_user(
     conn = await acquire_with_retry(pool)
     try:
         row = await conn.fetchrow(
-            "SELECT id, email, username, created_at FROM users WHERE id = $1",
+            "SELECT id, email, username, created_at, updated_at FROM users WHERE id = $1",
             UUID(user_id),
         )
     finally:
