@@ -8,7 +8,7 @@ AI-powered design-to-code platform. Users describe what they want in natural lan
 
 - **Phase 1 (Complete)**: Backend — FastAPI with project CRUD, sandbox file operations, PostgreSQL persistence via raw SQL, AI engine with OpenAI-compatible HTTP provider.
 - **Phase 2 (Complete)**: Frontend — ChatGPT-inspired layout with centered chat landing page, Monaco editor, live canvas iframe preview, sidebar toggles between project list and chat. All 44 bugs (18 critical + 26 medium/low) from frontend and backend audits fixed.
-- **Phase 3 (In Progress)**: Figma URL import (complete, OAuth removed, hybrid summary+JSON prompt), ZIP export, design upload, testing.
+- **Phase 3 (Complete)**: Figma URL import (OAuth removed, hybrid summary+JSON prompt), ZIP export, design upload (two-stage vision pipeline), multi-user auth system, React framework support, user settings page, UI polish (dark mode, viewport presets, animations, accessibility).
 
 ## Architecture
 
@@ -63,6 +63,9 @@ API docs: `http://localhost:8000/docs`
 | `backend/app/services/project_service.py` | PostgreSQL-backed project + file + chat message management (asyncpg) |
 | `backend/app/services/ai_service.py` | Abstract BaseAIProvider + HttpAIProvider (OpenAI-compatible) |
 | `backend/app/services/figma_service.py` | Figma REST API client + design prompt builder (stateless, no OAuth) |
+| `backend/app/routers/upload.py` | Design image upload + two-stage vision pipeline (`POST /api/projects/{id}/upload-design`) |
+| `backend/app/routers/auth.py` | Auth endpoints: register, login, profile, password change, delete account |
+| `backend/app/services/auth_service.py` | JWT token handling, password hashing, user CRUD |
 | `backend/app/db/database.py` | asyncpg pool manager + migration runner |
 | `backend/app/db/migrations/` | Append-only SQL migration files |
 | `frontend/src/app/page.tsx` | Main page — orchestrates sidebar, main content, chat state, API calls |
@@ -73,6 +76,15 @@ API docs: `http://localhost:8000/docs`
 | `frontend/src/app/components/FileExplorer.tsx` | VS Code-style file tree with directory structure, icons, rename/delete/new file |
 | `frontend/src/app/components/LiveCanvas.tsx` | Sandboxed iframe preview with per-file CSS/JS inlining, viewport presets (Fluid/Desktop/Tablet/Mobile), and debounced srcDoc updates |
 | `frontend/src/app/components/FigmaImport.tsx` | Figma URL import UI (landing page form + toolbar modal) |
+| `frontend/src/app/components/DesignUpload.tsx` | Design image upload UI (landing page form + toolbar modal) |
+| `frontend/src/app/components/Modal.tsx` | Reusable modal dialog component |
+| `frontend/src/app/components/ShortcutsModal.tsx` | Keyboard shortcuts reference modal |
+| `frontend/src/app/contexts/AuthContext.tsx` | Auth state provider (login, logout, user, token) |
+| `frontend/src/app/contexts/ThemeContext.tsx` | Theme provider (dark/light mode toggle) |
+| `frontend/src/app/settings/page.tsx` | User settings page (profile, password, preferences, danger zone) |
+| `frontend/src/app/login/page.tsx` | Login page |
+| `frontend/src/app/register/page.tsx` | Registration page |
+| `frontend/src/app/lib/ui.tsx` | Shared UI primitives (Spinner, BouncingDots) |
 | `frontend/src/app/lib/api.ts` | Typed API client |
 | `frontend/src/app/lib/types.ts` | Shared TypeScript interfaces |
 | `frontend/src/app/lib/fileIcons.tsx` | File type icon utility (SVG icons by extension) |
@@ -103,17 +115,30 @@ API docs: `http://localhost:8000/docs`
 | POST | `/api/ai/generate` | Generate code from prompt (returns message + files) |
 | GET | `/api/projects/{id}/chat` | Get chat messages for a project |
 | POST | `/api/projects/{id}/chat` | Save a chat message |
+| POST | `/api/ai/ws/generate` | WebSocket — streaming AI code generation |
+| GET | `/api/projects/{id}/chat` | Get chat messages for a project |
+| POST | `/api/projects/{id}/chat` | Save a chat message |
+| GET | `/api/projects/{id}/export` | Download project as ZIP archive |
+| POST | `/api/projects/{id}/upload-design` | Upload design image → AI generates code (two-stage vision pipeline) |
 | POST | `/api/figma/import-url` | Import Figma design by URL + personal access token → AI generates code |
+| POST | `/api/auth/register` | Register a new user |
+| POST | `/api/auth/login` | Login, returns JWT token |
+| GET | `/api/auth/me` | Get current user profile |
+| PATCH | `/api/auth/me` | Update profile (username/email) |
+| POST | `/api/auth/me/change-password` | Change password |
+| DELETE | `/api/auth/me` | Delete account |
 
 ## Data Model
 
-**Project**: `id` (UUID), `name`, `description`, `status` (idle/generating/error), `files` (list of {path, content, file_type}), `created_at`, `updated_at`.
+**Project**: `id` (UUID), `name`, `description`, `status` (idle/generating/error), `framework` (vanilla/react), `user_id` (UUID, FK to users), `files` (list of {path, content, file_type}), `created_at`, `updated_at`.
+
+**User**: `id` (UUID), `username` (unique), `email` (unique), `password_hash`, `theme` (light/dark), `created_at`, `updated_at`.
 
 **GenerateResponse**: `project_id`, `project_name`, `message` (AI conversational response), `files` (generated files).
 
 **ChatMessage**: `id`, `project_id`, `role` (user/assistant), `content`, `files` (JSONB), `created_at`.
 
-New projects get boilerplate: `index.html`, `style.css`, `script.js`.
+New projects get boilerplate: `index.html`, `style.css`, `script.js` (vanilla) or `App.jsx`, `style.css` (React).
 
 ## Coding Conventions
 
@@ -123,7 +148,7 @@ New projects get boilerplate: `index.html`, `style.css`, `script.js`.
 - **Figma**: OAuth 2.0 with `file_content:read` scope. Token endpoint: `https://api.figma.com/v1/oauth/token`. File listing (`/v1/me/files`) is enterprise-only — non-enterprise users paste file keys manually.
 - **Frontend**: Next.js 16 App Router, React 19, Tailwind CSS v4 syntax (`@import "tailwindcss"`, `@theme inline`), TypeScript, Monaco Editor, react-markdown + remark-gfm for AI message rendering.
 - **File type inference**: From extension — `.html`, `.css`, `.js`, `.json`, `.py`, or `other`.
-- **No tests yet** — add them when implementing new features.
+- **Tests**: 100 frontend (Jest) + 207 backend (pytest) — run with `cd frontend && npx jest` or `cd backend && python -m pytest`.
 - **Root `.gitignore`** exists — excludes `.env`, `__pycache__/`, `node_modules/`, `.next/`, etc.
 - **Zero lint/type errors** — `npx tsc --noEmit` and `npx eslint src/` both pass clean. Maintain this standard before committing.
 
@@ -149,6 +174,10 @@ The `.env` file lives at the **project root** (`./.env`) — not in `backend/`. 
 | `FIGMA_CLIENT_ID` | (empty) | Figma OAuth (no longer used — kept for reference) |
 | `FIGMA_CLIENT_SECRET` | (empty) | Figma OAuth (no longer used — kept for reference) |
 | `FIGMA_REDIRECT_URI` | `http://localhost:8000/api/figma/callback` | Figma OAuth (no longer used — kept for reference) |
+| `DESIGN_UPLOAD_TARGET_URL` | (empty, falls back to TARGET_URL) | Optional separate endpoint for design upload vision model |
+| `DESIGN_UPLOAD_JWT_TOKEN` | (empty, falls back to JWT_TOKEN) | Optional separate JWT for design upload |
+| `DESIGN_UPLOAD_MODEL` | (empty, falls back to MODEL) | Optional separate model for design upload (e.g. vision model) |
+| `MAX_UPLOAD_SIZE_MB` | `10` | Max design upload file size in MB |
 
 ## Bugs Fixed
 
@@ -217,10 +246,22 @@ Figma OAuth has been removed. The only way to import Figma designs is via URL im
 | `frontend/src/app/components/Toast.tsx` | Toast notification system (provider + hook + component) |
 | `frontend/src/app/hooks/useKeyboardShortcuts.ts` | Global keyboard shortcut handler |
 | `frontend/src/app/components/Skeleton.tsx` | Reusable skeleton loading components |
-| `backend/app/services/figma_service.py` | Figma OAuth + API client + design prompt builder |
-| `backend/app/routers/figma.py` | Figma OAuth + import endpoints |
-| `backend/app/db/migrations/003_create_figma_tokens.sql` | Figma OAuth token storage |
-| `frontend/src/app/components/FigmaImport.tsx` | Figma import UI (OAuth popup + file picker) |
+| `frontend/src/app/components/Modal.tsx` | Reusable modal dialog component |
+| `frontend/src/app/components/ShortcutsModal.tsx` | Keyboard shortcuts reference modal |
+| `frontend/src/app/components/DesignUpload.tsx` | Design image upload UI (landing page + toolbar) |
+| `frontend/src/app/components/FigmaImport.tsx` | Figma URL import UI (landing page form + toolbar modal) |
+| `frontend/src/app/contexts/AuthContext.tsx` | Auth state provider (login, logout, user, token) |
+| `frontend/src/app/contexts/ThemeContext.tsx` | Theme provider (dark/light mode toggle) |
+| `frontend/src/app/settings/page.tsx` | User settings page |
+| `frontend/src/app/login/page.tsx` | Login page |
+| `frontend/src/app/register/page.tsx` | Registration page |
+| `frontend/src/app/lib/ui.tsx` | Shared UI primitives (Spinner, BouncingDots) |
+| `backend/app/services/figma_service.py` | Figma REST API client + design prompt builder |
+| `backend/app/routers/figma.py` | Figma URL import endpoint |
+| `backend/app/routers/upload.py` | Design image upload + two-stage vision pipeline |
+| `backend/app/routers/auth.py` | Auth endpoints (register, login, profile, password) |
+| `backend/app/services/auth_service.py` | JWT + password hashing + user CRUD |
+| `backend/app/db/migrations/` | Append-only SQL migration files (010 total) |
 
 ## Bugs Fixed (44 total)
 
@@ -308,16 +349,17 @@ After the 44-bug fix session, a full project audit was performed. **20 items** f
 **Root cause**: `pool.acquire()` had no timeout — blocks forever when all connections are busy or DB is unreachable.
 **Fix**: Added `timeout=10` to `create_pool()`, `pool.acquire()` in `acquire_with_retry()`, and `pool.acquire()` in `run_migrations()`. Server now fails fast (~15s) instead of hanging indefinitely.
 
-## Phase 3 (In Progress)
+## Phase 3 (Complete)
 
 ### Completed
 - **Figma URL import** — Users paste a Figma URL + personal access token. Backend fetches the Figma file via REST API (`X-Figma-Token` header), builds a structured design prompt, and feeds it into the AI generation pipeline. OAuth flow removed (July 2026). See [[figma-url-import-july-2026]] in memory for details.
 - **429 retry logic** — All AI provider and Figma API calls have retry logic with `Retry-After` header support. `RateLimitError` exception surfaces `retry_after` seconds to the frontend.
-
-### Not Started
-- ZIP export endpoint
-- Design Upload, Download Button
-- Tests
+- **ZIP export** — `GET /api/projects/{id}/export` returns an in-memory ZIP archive of all project files. Handles binary files (base64 → raw bytes), sanitizes filenames. Download button in the project toolbar.
+- **Design Upload** — Two-stage pipeline: vision model analyzes the uploaded image → structured `DesignSpec`, then main model generates code. Separate `DESIGN_UPLOAD_*` env vars for a dedicated vision provider. UI in landing page + toolbar modal. Image auto-resized for small vision model context windows.
+- **Multi-user auth system** — Login/register pages, JWT-based auth, `AuthContext` provider, user dropdown in sidebar.
+- **User settings page** — Profile (username/email), password change, theme toggle, account info, danger zone (delete account).
+- **React framework support** — Sandpack React template, framework toggle in project creation, AI prompt tailored for React (ES modules, JSX, no index.html).
+- **UI polish** — Dark mode toggle, viewport presets (Fluid/Desktop/Tablet/Mobile), toast notifications, keyboard shortcuts, skeleton loading states, responsive mobile layout, accessibility (ARIA, focus rings, reduced motion), file explorer with tree view, split view mode, animations.
 
 ## Dependencies
 

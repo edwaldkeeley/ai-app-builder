@@ -63,7 +63,7 @@ export default function Home() {
   const [activeFilePath, setActiveFilePath] = useState<string | null>(null);
   const [isMobile, setIsMobile] = useState(false);
   const [viewMode, setViewMode] = useState<"preview" | "code" | "split">("preview");
-  const [framework, setFramework] = useState<"vanilla" | "react">("vanilla");
+  const [framework, setFramework] = useState<"vanilla" | "react">(activeProject?.framework ?? "vanilla");
   const [showMobileSidebar, setShowMobileSidebar] = useState(false);
   const [filesLoading, setFilesLoading] = useState(false);
   const filesRef = useRef(files);
@@ -101,7 +101,7 @@ export default function Home() {
       // eslint-disable-next-line react-hooks/set-state-in-effect
       setFramework(activeProject.framework);
     }
-  }, [activeProject]);
+  }, [activeProject, activeProject?.framework]);
 
   // Responsive: detect mobile width and auto-collapse panels
   useEffect(() => {
@@ -248,6 +248,16 @@ export default function Home() {
     setChatMode(false);
   }, [setActiveProjectId, setChatMode]);
 
+  const handleRenameProject = useCallback(async (id: string, name: string) => {
+    try {
+      await api.updateProject(id, { name });
+      fetchProjects();
+      showToast("success", `Renamed to "${name}"`);
+    } catch {
+      showToast("error", "Failed to rename project");
+    }
+  }, [fetchProjects, showToast]);
+
   const handleFigmaImportComplete = useCallback((projectId: string) => {
     fetchProjects();
     selectProject(projectId);
@@ -291,6 +301,7 @@ export default function Home() {
           onSelectProject={handleSelectProject}
           onNewProject={handleCreateProject}
           onDeleteProject={handleDeleteProject}
+          onRenameProject={handleRenameProject}
           creating={creating}
           deleting={deleting}
           chatMode={chatMode}

@@ -16,6 +16,7 @@ interface SidebarProps {
   onSelectProject: (id: string) => void;
   onNewProject: () => void;
   onDeleteProject: (id: string) => void;
+  onRenameProject?: (id: string, name: string) => void;
   creating: boolean;
   deleting: string | null;
   chatMode: boolean;
@@ -52,6 +53,7 @@ const Sidebar = memo(function Sidebar({
   onCloseMobileSidebar,
   onFigmaImportComplete,
   onDesignUploadComplete,
+  onRenameProject,
 }: SidebarProps) {
   const [collapsed, setCollapsed] = useState(isMobile);
   // Sync collapsed state when transitioning between mobile and desktop
@@ -65,6 +67,9 @@ const Sidebar = memo(function Sidebar({
   // On mobile, collapsed state is derived from showMobileSidebar
   const effectiveCollapsed = isMobile ? !showMobileSidebar : collapsed;
   const [confirmDelete, setConfirmDelete] = useState<string | null>(null);
+  const [renamingProject, setRenamingProject] = useState<string | null>(null);
+  const [renameValue, setRenameValue] = useState("");
+  const renameInputRef = useRef<HTMLInputElement>(null);
   const [showUserMenu, setShowUserMenu] = useState(false);
   const [showShortcuts, setShowShortcuts] = useState(false);
   const sidebarRef = useRef<HTMLDivElement>(null);
@@ -113,6 +118,33 @@ const Sidebar = memo(function Sidebar({
       onDeleteProject(id);
     } else {
       setConfirmDelete(id);
+    }
+  };
+
+  const handleStartRename = (id: string, currentName: string) => {
+    setRenamingProject(id);
+    setRenameValue(currentName);
+    // Focus the input after render
+    setTimeout(() => renameInputRef.current?.focus(), 0);
+  };
+
+  const handleFinishRename = () => {
+    const id = renamingProject;
+    const name = renameValue.trim();
+    setRenamingProject(null);
+    setRenameValue("");
+    if (id && name && onRenameProject) {
+      onRenameProject(id, name);
+    }
+  };
+
+  const handleRenameKeyDown = (e: React.KeyboardEvent) => {
+    if (e.key === "Enter") {
+      e.preventDefault();
+      handleFinishRename();
+    } else if (e.key === "Escape") {
+      setRenamingProject(null);
+      setRenameValue("");
     }
   };
 
@@ -374,7 +406,28 @@ const Sidebar = memo(function Sidebar({
                   } ${isConfirming ? "opacity-40 pointer-events-none" : ""}`}
                 >
                   <div className="flex items-center justify-between">
-                    <span className="truncate font-medium">{project.name}</span>
+                    {renamingProject === project.id ? (
+                      <input
+                        ref={renameInputRef}
+                        value={renameValue}
+                        onChange={(e) => setRenameValue(e.target.value)}
+                        onBlur={handleFinishRename}
+                        onKeyDown={handleRenameKeyDown}
+                        onClick={(e) => e.stopPropagation()}
+                        className="flex-1 min-w-0 bg-input border border-accent rounded px-1.5 py-0.5 text-sm text-foreground outline-none"
+                      />
+                    ) : (
+                      <span
+                        className="truncate font-medium"
+                        onDoubleClick={(e) => {
+                          e.stopPropagation();
+                          handleStartRename(project.id, project.name);
+                        }}
+                        title="Double-click to rename"
+                      >
+                        {project.name}
+                      </span>
+                    )}
                     <span
                       onClick={(e) => {
                         e.stopPropagation();

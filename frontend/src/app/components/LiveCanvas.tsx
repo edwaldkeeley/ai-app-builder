@@ -140,6 +140,7 @@ const LiveCanvas = memo(function LiveCanvas({ files, framework = "vanilla" }: Li
           }
         >
           <SandpackProvider
+            key={framework}
             template={framework === "react" ? "react" : "static"}
             files={sandpackFiles}
             theme="auto"
