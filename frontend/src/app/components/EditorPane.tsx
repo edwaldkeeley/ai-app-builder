@@ -1,6 +1,6 @@
 "use client";
 
-import { memo, useRef, useCallback, useState, useEffect } from "react";
+import { memo, useRef, useCallback, useState, useEffect, useMemo } from "react";
 import Editor, { type OnMount, type BeforeMount } from "@monaco-editor/react";
 import type { editor } from "monaco-editor";
 import type { ProjectFile } from "../lib/types";
@@ -86,7 +86,10 @@ const EditorPane = memo(function EditorPane({
   }, [activeFilePath]);
 
   const activeFile = files.find((f) => f.path === activeFilePath) ?? files[0];
-  const language = activeFile ? LANGUAGE_MAP[activeFile.file_type] || "plaintext" : "plaintext";
+  const language = useMemo(
+    () => (activeFile ? LANGUAGE_MAP[activeFile.file_type] || "plaintext" : "plaintext"),
+    [activeFile?.path, activeFile?.file_type],
+  );
 
   // ── ResizeObserver instead of automaticLayout ──
   useEffect(() => {
@@ -231,6 +234,7 @@ const EditorPane = memo(function EditorPane({
             {!editorReady && <SkeletonEditor />}
             <div className={editorReady ? "absolute inset-0" : "invisible h-0"}>
               <Editor
+                key={activeFile?.path ?? "no-file"}
                 beforeMount={handleBeforeMount}
                 defaultLanguage={language}
                 language={language}
