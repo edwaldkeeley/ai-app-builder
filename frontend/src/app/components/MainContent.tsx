@@ -342,7 +342,7 @@ const MainContent = memo(function MainContent({
               <div className="absolute inset-y-0 -left-1 -right-1" />
             </div>
             <div className="flex-1 flex flex-col min-w-0 overflow-hidden">
-              <LiveCanvas files={files} framework={framework} />
+              <LiveCanvas files={files} framework={framework} projectId={activeProject.id} />
             </div>
           </div>
         ) : viewMode === "code" ? (

@@ -108,7 +108,7 @@ export default function SettingsPage() {
   const sectionTitleClass = "text-base font-semibold text-foreground";
 
   return (
-    <div className="min-h-dvh bg-background">
+    <div className="fixed inset-0 bg-background overflow-y-auto">
       {/* Header */}
       <header className="border-b border-border bg-surface">
         <div className="max-w-2xl mx-auto px-4 h-12 flex items-center gap-3">
