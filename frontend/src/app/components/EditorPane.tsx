@@ -88,8 +88,11 @@ const EditorPane = memo(function EditorPane({
   const activeFile = files.find((f) => f.path === activeFilePath) ?? files[0];
   const language = useMemo(
     () => (activeFile ? LANGUAGE_MAP[activeFile.file_type] || "plaintext" : "plaintext"),
-    [activeFile?.path, activeFile?.file_type],
+    // eslint-disable-next-line react-hooks/exhaustive-deps -- activeFile is derived from files+activeFilePath; file_type is the only used property
+    [activeFile?.file_type],
   );
+  // Stable reference for effects that need the active file
+  const activeFileKey = activeFile?.path ?? null;
 
   // ── ResizeObserver instead of automaticLayout ──
   useEffect(() => {
@@ -163,7 +166,7 @@ const EditorPane = memo(function EditorPane({
     if (editor.getModel() !== model) {
       editor.setModel(model);
     }
-  }, [activeFile?.path]); // eslint-disable-line react-hooks/exhaustive-deps
+  }, [activeFileKey, language]); // eslint-disable-line react-hooks/exhaustive-deps
 
   // Sync model content when files change externally (e.g., AI streaming)
   // Only push content into the model if it differs AND the model is not the
@@ -190,7 +193,7 @@ const EditorPane = memo(function EditorPane({
       // Push a no-op stack element so undo doesn't jump to the pushed content
       model.pushStackElement();
     }
-  }, [activeFile?.content]); // eslint-disable-line react-hooks/exhaustive-deps
+  }, [activeFileKey, activeFile?.content]); // eslint-disable-line react-hooks/exhaustive-deps
 
   const handleChange = useCallback(
     (value: string | undefined) => {
@@ -234,7 +237,6 @@ const EditorPane = memo(function EditorPane({
             {!editorReady && <SkeletonEditor />}
             <div className={editorReady ? "absolute inset-0" : "invisible h-0"}>
               <Editor
-                key={activeFile?.path ?? "no-file"}
                 beforeMount={handleBeforeMount}
                 defaultLanguage={language}
                 language={language}
