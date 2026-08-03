@@ -1,11 +1,7 @@
 "use client";
 
 import { memo, useMemo, useState, useEffect, useRef } from "react";
-import {
-  SandpackProvider,
-  SandpackPreview,
-  useSandpack,
-} from "@codesandbox/sandpack-react";
+import Babel from "@babel/standalone";
 import type { ProjectFile } from "../lib/types";
 
 interface LiveCanvasProps {
@@ -26,7 +22,9 @@ const VIEWPORT_PRESETS: { key: ViewportPreset; label: string; width: number | nu
 // ── Vanilla: inline CSS/JS into HTML and render via srcdoc iframe ──
 
 function buildPreviewHtml(files: ProjectFile[]): string | null {
-  const htmlFile = files.find((f) => f.path === "index.html" || f.path === "/index.html" || f.path.endsWith(".html"));
+  const htmlFile = files.find(
+    (f) => f.path === "index.html" || f.path === "/index.html" || f.path.endsWith(".html"),
+  );
   if (!htmlFile) return null;
 
   const cssMap = new Map<string, string>();
@@ -83,7 +81,9 @@ function VanillaPreview({ files }: { files: ProjectFile[] }) {
     debounceRef.current = setTimeout(() => {
       setDebouncedFiles(files);
     }, isInitialLoad ? 0 : 400);
-    return () => { if (debounceRef.current) clearTimeout(debounceRef.current); };
+    return () => {
+      if (debounceRef.current) clearTimeout(debounceRef.current);
+    };
   }, [files]);
 
   const htmlContent = useMemo(() => buildPreviewHtml(debouncedFiles), [debouncedFiles]);
@@ -91,7 +91,6 @@ function VanillaPreview({ files }: { files: ProjectFile[] }) {
   // Create blob URL from htmlContent and revoke old ones
   useEffect(() => {
     if (!htmlContent) return;
-    // Revoke previous blob URL
     if (blobUrlRef.current) {
       URL.revokeObjectURL(blobUrlRef.current);
     }
@@ -174,69 +173,197 @@ function VanillaPreview({ files }: { files: ProjectFile[] }) {
   );
 }
 
-// ── React: Sandpack-based preview (needs JSX compilation) ──────
+// ── React: transpile JSX with @babel/standalone and render via iframe ──
 
-function toSandpackFiles(files: ProjectFile[]): Record<string, { code: string }> {
-  const result: Record<string, { code: string }> = {};
-  for (const f of files) {
-    const sandpackPath = f.path.startsWith("/") ? f.path : `/${f.path}`;
-    result[sandpackPath] = { code: f.content };
+/**
+ * Transpile a JSX/JS file using @babel/standalone.
+ * Returns the compiled code, or the original code if it's not JSX.
+ */
+function transpileJsx(code: string, filename: string): string {
+  // Only transpile .jsx files (and .js files that might contain JSX)
+  if (!filename.endsWith(".jsx") && !filename.endsWith(".js")) {
+    return code;
   }
-  return result;
+  try {
+    const result = Babel.transform(code, {
+      presets: [
+        ["react", { runtime: "classic" }],
+      ],
+      filename,
+      retainLines: true,
+      compact: false,
+    });
+    return result.code ?? code;
+  } catch {
+    // If transpilation fails, return the original code
+    return code;
+  }
 }
 
-function FileSyncer({ files }: { files: ProjectFile[] }) {
-  const { sandpack } = useSandpack();
-  const filesRef = useRef(files);
-  const sandpackRef = useRef(sandpack);
+/**
+ * Build a self-contained HTML page for React projects.
+ * Includes React/ReactDOM from CDN, inlined CSS, and transpiled JSX.
+ */
+function buildReactPreviewHtml(files: ProjectFile[]): string | null {
+  // Find JSX/JS files
+  const jsxFiles = files.filter(
+    (f) => f.path.endsWith(".jsx") || f.path.endsWith(".js"),
+  );
+  if (jsxFiles.length === 0) return null;
 
-  useEffect(() => { filesRef.current = files; });
-  useEffect(() => { sandpackRef.current = sandpack; });
+  // Find CSS files
+  const cssFiles = files.filter((f) => f.path.endsWith(".css"));
 
-  useEffect(() => {
-    const sp = sandpackRef.current;
-    for (const f of files) {
-      const sandpackPath = f.path.startsWith("/") ? f.path : `/${f.path}`;
-      const existing = sp.files[sandpackPath];
-      if (!existing || existing.code !== f.content) {
-        sp.updateFile(sandpackPath, f.content);
-      }
+  // Determine entry point: App.jsx > index.jsx > first .jsx > first .js
+  const entry =
+    jsxFiles.find((f) => f.path === "App.jsx" || f.path === "/App.jsx") ??
+    jsxFiles.find((f) => f.path === "index.jsx" || f.path === "/index.jsx") ??
+    jsxFiles.find((f) => f.path.endsWith(".jsx")) ??
+    jsxFiles[0];
+
+  // Transpile all JSX/JS files
+  const transpiled = new Map<string, string>();
+  for (const f of jsxFiles) {
+    const name = f.path.startsWith("/") ? f.path.slice(1) : f.path;
+    try {
+      const code = transpileJsx(f.content, name);
+      transpiled.set(name, code);
+    } catch (e) {
+      transpiled.set(name, `/* Error transpiling ${name}: ${e} */\n${f.content}`);
     }
-  }, [files]);
+  }
 
-  return null;
+  // Build inline CSS
+  const inlineCss = cssFiles.map((f) => f.content).join("\n");
+
+  // Build script tags for each transpiled file
+  const scriptTags: string[] = [];
+  for (const [name, code] of transpiled) {
+    // Skip the entry point — we'll handle it separately
+    const entryName = entry.path.startsWith("/") ? entry.path.slice(1) : entry.path;
+    if (name === entryName) continue;
+    scriptTags.push(`<script>\n${code}\n</script>`);
+  }
+
+  // Build the entry point script — wrap to render into #root
+  const entryName = entry.path.startsWith("/") ? entry.path.slice(1) : entry.path;
+  const entryCode = transpiled.get(entryName) ?? entry.content;
+
+  // Try to detect the component name from the entry file
+  // We use React.createElement with the first exported/defined component
+  const renderScript = `
+(function() {
+  ${entryCode}
+
+  // Find the main component (last defined function or variable)
+  var root = document.getElementById('root');
+  if (root) {
+    // Try to find the component by looking for common patterns
+    var component = null;
+    if (typeof App !== 'undefined') component = App;
+    else if (typeof Index !== 'undefined') component = Index;
+    else if (typeof Home !== 'undefined') component = Home;
+    else if (typeof Page !== 'undefined') component = Page;
+
+    if (component) {
+      var reactRoot = ReactDOM.createRoot(root);
+      reactRoot.render(React.createElement(component));
+    } else {
+      // Fallback: try to render whatever was exported
+      root.innerHTML = '<div style="color:red;padding:20px">Error: No React component found. Make sure to define a component (e.g., function App() { ... }).</div>';
+    }
+  }
+})();
+`;
+
+  const html = `<!DOCTYPE html>
+<html>
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <script src="https://unpkg.com/react@18/umd/react.production.min.js" crossorigin></script>
+  <script src="https://unpkg.com/react-dom@18/umd/react-dom.production.min.js" crossorigin></script>
+  ${inlineCss ? `<style>\n${inlineCss}\n</style>` : ""}
+</head>
+<body>
+  <div id="root"></div>
+  ${scriptTags.join("\n  ")}
+  <script>\n${renderScript}\n</script>
+</body>
+</html>`;
+
+  return html;
 }
 
-const ReactPreview = memo(function ReactPreview({
-  files,
-  projectId,
-}: {
-  files: ProjectFile[];
-  projectId?: string;
-}) {
+function ReactPreview({ files }: { files: ProjectFile[] }) {
   const [viewport, setViewport] = useState<ViewportPreset>("fluid");
   const [debouncedFiles, setDebouncedFiles] = useState<ProjectFile[]>(files);
   const debounceRef = useRef<ReturnType<typeof setTimeout> | null>(null);
+  const iframeRef = useRef<HTMLIFrameElement>(null);
+  const blobUrlRef = useRef<string | null>(null);
 
+  // Debounce file updates
   useEffect(() => {
     if (debounceRef.current) clearTimeout(debounceRef.current);
     const isInitialLoad = debouncedFiles.length === 0 && files.length > 0;
     debounceRef.current = setTimeout(() => {
       setDebouncedFiles(files);
     }, isInitialLoad ? 0 : 400);
-    return () => { if (debounceRef.current) clearTimeout(debounceRef.current); };
+    return () => {
+      if (debounceRef.current) clearTimeout(debounceRef.current);
+    };
   }, [files]);
 
-  const sandpackFiles = useMemo(() => toSandpackFiles(debouncedFiles), [debouncedFiles]);
+  // Build HTML from debounced files
+  const htmlContent = useMemo(() => {
+    try {
+      return buildReactPreviewHtml(debouncedFiles);
+    } catch (e) {
+      return { error: String(e) };
+    }
+  }, [debouncedFiles]);
 
-  const hasHtmlFile = files.some(
-    (f) => f.path === "index.html" || f.path === "/index.html" || f.path.endsWith(".html"),
+  // Track errors separately — not inside useMemo
+  const previewError = htmlContent && typeof htmlContent === "object" && "error" in htmlContent
+    ? (htmlContent as { error: string }).error
+    : null;
+  const previewHtml = htmlContent && typeof htmlContent === "string" ? htmlContent : null;
+
+  // Create blob URL from htmlContent and revoke old ones
+  useEffect(() => {
+    if (!previewHtml) return;
+    if (blobUrlRef.current) {
+      URL.revokeObjectURL(blobUrlRef.current);
+    }
+    const blob = new Blob([previewHtml], { type: "text/html" });
+    blobUrlRef.current = URL.createObjectURL(blob);
+    if (iframeRef.current) {
+      iframeRef.current.src = blobUrlRef.current;
+    }
+    return () => {
+      if (blobUrlRef.current) {
+        URL.revokeObjectURL(blobUrlRef.current);
+        blobUrlRef.current = null;
+      }
+    };
+  }, [previewHtml]);
+
+  const hasJsxFile = files.some(
+    (f) => f.path.endsWith(".jsx") || f.path.endsWith(".js"),
   );
 
-  if (!hasHtmlFile) {
+  if (!hasJsxFile) {
     return (
       <div className="flex-1 flex items-center justify-center text-sm text-text-secondary">
-        <p>No HTML file found. Create an index.html to see a preview.</p>
+        <p>No JSX file found. Create an App.jsx to see a preview.</p>
+      </div>
+    );
+  }
+
+  if (previewError) {
+    return (
+      <div className="flex-1 flex items-center justify-center text-sm text-danger">
+        <p>Preview error: {previewError}</p>
       </div>
     );
   }
@@ -270,7 +397,7 @@ const ReactPreview = memo(function ReactPreview({
         )}
       </div>
 
-      {/* Sandpack preview */}
+      {/* Iframe preview */}
       <div className="flex-1 flex items-stretch justify-center min-h-0 overflow-auto bg-preview-bg">
         <div
           className={`h-full transition-all duration-200 ${
@@ -282,45 +409,27 @@ const ReactPreview = memo(function ReactPreview({
               : { width: "100%", minHeight: "100%" }
           }
         >
-          <SandpackProvider
-            key={projectId ?? "react"}
-            template="react"
-            files={sandpackFiles}
-            theme="auto"
-            options={{
-              visibleFiles: [],
-              activeFile: "/App.jsx",
-              recompileMode: "delayed",
-              recompileDelay: 500,
-            }}
-            customSetup={{
-              dependencies: {
-                react: "^18.0.0",
-                "react-dom": "^18.0.0",
-              },
-              entry: "/App.jsx",
-            }}
+          <iframe
+            ref={iframeRef}
+            title="React Preview"
+            sandbox="allow-forms allow-modals allow-popups allow-same-origin allow-scripts"
+            className="w-full h-full border-0"
             style={{ height: "100%", width: "100%" }}
-          >
-            <FileSyncer files={debouncedFiles} />
-            <SandpackPreview
-              showOpenInCodeSandbox={false}
-              showRefreshButton={false}
-              className="!h-full !w-full !border-0"
-              style={{ height: "100%", width: "100%" }}
-            />
-          </SandpackProvider>
+          />
         </div>
       </div>
     </div>
   );
-});
+}
 
-// ── Main component ───────────────────────────────────────────
+// ── Main component ──
 
-const LiveCanvas = memo(function LiveCanvas({ files, framework = "vanilla", projectId }: LiveCanvasProps) {
+const LiveCanvas = memo(function LiveCanvas({
+  files,
+  framework = "vanilla",
+}: LiveCanvasProps) {
   if (framework === "react") {
-    return <ReactPreview files={files} projectId={projectId} />;
+    return <ReactPreview files={files} />;
   }
   return <VanillaPreview files={files} />;
 });

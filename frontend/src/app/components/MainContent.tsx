@@ -362,7 +362,7 @@ const MainContent = memo(function MainContent({
         ) : (
           /* Preview only (default): canvas fills the area */
           <div className="flex-1 flex min-h-0">
-            <LiveCanvas files={files} framework={framework} />
+            <LiveCanvas files={files} framework={framework} projectId={activeProject.id} />
           </div>
         )}
       </div>
