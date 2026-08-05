@@ -1,7 +1,7 @@
 import { describe, it, expect, jest, beforeEach } from "@jest/globals";
 import { render, screen, act } from "@testing-library/react";
-import FileExplorer from "../app/components/FileExplorer";
-import type { ProjectFile } from "../app/lib/types";
+import FileExplorer from "@/features/editor/components/FileExplorer";
+import type { ProjectFile } from "@/app/lib/types";
 
 describe("FileExplorer", () => {
   const defaultProps = {

@@ -1,9 +1,9 @@
 "use client";
 
 import { useState } from "react";
-import { api } from "../lib/api";
-import { useToast } from "./Toast";
-import Modal from "./Modal";
+import { api } from "@/app/lib/api";
+import { useToast } from "@/components/ui/Toast";
+import Modal from "@/components/ui/Modal";
 
 interface FigmaImportProps {
   onImportComplete?: (projectId: string) => void;
@@ -37,7 +37,6 @@ export default function FigmaImport({ onImportComplete, variant = "landing" }: F
     } catch (err) {
       const msg = err instanceof Error ? err.message : "Import failed";
       setErrorMsg(msg);
-      // Check if it's a rate limit error with retry info
       const retryAfter = (err as { retryAfter?: number })?.retryAfter;
       if (retryAfter && retryAfter > 0) {
         const mins = Math.floor(retryAfter / 60);
@@ -51,8 +50,6 @@ export default function FigmaImport({ onImportComplete, variant = "landing" }: F
       setImporting(false);
     }
   };
-
-  // ── Landing page variant ──────────────────────────────────
 
   if (variant === "landing") {
     return (
@@ -114,8 +111,6 @@ export default function FigmaImport({ onImportComplete, variant = "landing" }: F
       </div>
     );
   }
-
-  // ── Toolbar variant (icon button opens URL import modal) ─────
 
   return (
     <>

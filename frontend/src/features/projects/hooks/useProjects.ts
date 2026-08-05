@@ -1,9 +1,9 @@
 "use client";
 
 import { useState, useCallback, useEffect, useRef } from "react";
-import { api } from "../lib/api";
-import type { Project } from "../lib/types";
-import { useToast } from "../components/Toast";
+import { api } from "@/app/lib/api";
+import type { Project } from "@/app/lib/types";
+import { useToast } from "@/components/ui/Toast";
 
 export function useProjects() {
   const [projects, setProjects] = useState<Project[]>([]);

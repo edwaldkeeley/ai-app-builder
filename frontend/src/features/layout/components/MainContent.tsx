@@ -1,13 +1,13 @@
 "use client";
 
 import { useState, useCallback, useRef, useEffect, useMemo, memo } from "react";
-import type { Project, ProjectFile } from "../lib/types";
-import type { SaveStatus } from "../hooks/useFileSave";
-import { Spinner } from "../lib/ui";
-import EditorPane from "./EditorPane";
-import LiveCanvas from "./LiveCanvas";
-import FigmaImport from "./FigmaImport";
-import DesignUpload from "./DesignUpload";
+import type { Project, ProjectFile } from "@/app/lib/types";
+import type { SaveStatus } from "@/features/editor/hooks/useFileSave";
+import { Spinner } from "@/components/ui/Spinner";
+import EditorPane from "@/features/editor/components/EditorPane";
+import LiveCanvas from "@/features/editor/components/LiveCanvas";
+import FigmaImport from "@/features/editor/components/FigmaImport";
+import DesignUpload from "@/features/editor/components/DesignUpload";
 
 type ViewMode = "preview" | "code" | "split";
 

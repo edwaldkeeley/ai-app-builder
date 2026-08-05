@@ -1,8 +1,8 @@
 "use client";
 
 import { memo, useMemo, useState, useEffect, useRef } from "react";
-import Babel from "@babel/standalone";
-import type { ProjectFile } from "../lib/types";
+import * as Babel from "@babel/standalone";
+import type { ProjectFile } from "@/app/lib/types";
 
 interface LiveCanvasProps {
   files: ProjectFile[];

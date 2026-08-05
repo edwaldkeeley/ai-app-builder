@@ -1,9 +1,9 @@
 "use client";
 
 import { useState, useMemo, useRef, useEffect, useCallback, memo } from "react";
-import type { ProjectFile } from "../lib/types";
-import FileIcon from "../lib/fileIcons";
-import { SkeletonExplorer } from "./Skeleton";
+import type { ProjectFile } from "@/app/lib/types";
+import FileIcon from "@/components/icons/FileIcons";
+import { SkeletonExplorer } from "@/components/ui/Skeleton";
 
 interface FileExplorerProps {
   files: ProjectFile[];

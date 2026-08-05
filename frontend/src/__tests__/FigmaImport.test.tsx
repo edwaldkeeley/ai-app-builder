@@ -1,15 +1,15 @@
 import { describe, it, expect, jest, beforeEach } from "@jest/globals";
 import { render, screen, act } from "@testing-library/react";
-import FigmaImport from "../app/components/FigmaImport";
+import FigmaImport from "@/features/editor/components/FigmaImport";
 
 // Mock the API
-jest.mock("../app/lib/api", () => ({
+jest.mock("@/app/lib/api", () => ({
   api: {
     importFigmaUrl: jest.fn(),
   },
 }));
 
-jest.mock("../app/components/Toast", () => ({
+jest.mock("@/components/ui/Toast", () => ({
   useToast: () => ({ showToast: jest.fn() }),
 }));
 
@@ -50,7 +50,7 @@ describe("FigmaImport", () => {
 
   it("calls onImportComplete when import succeeds", async () => {
     const onImportComplete = jest.fn();
-    const { api } = require("../app/lib/api");
+    const { api } = require("@/app/lib/api");
     api.importFigmaUrl.mockResolvedValue({
       project_id: "123",
       project_name: "Figma Import",

@@ -1,6 +1,6 @@
 import { describe, it, expect, jest, beforeEach } from "@jest/globals";
 import { render, screen, act } from "@testing-library/react";
-import { ToastProvider, useToast } from "../app/components/Toast";
+import { ToastProvider, useToast } from "@/components/ui/Toast";
 
 // Helper component to trigger toasts
 function ToastTrigger({ type, message }: { type: "success" | "error" | "info"; message: string }) {

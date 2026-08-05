@@ -1,13 +1,13 @@
 import { describe, it, expect, beforeEach, jest } from "@jest/globals";
 import { renderHook, act, waitFor } from "@testing-library/react";
-import { useProjects } from "../app/hooks/useProjects";
-import { useFileSave } from "../app/hooks/useFileSave";
-import { api } from "../app/lib/api";
-import type { Project, ProjectDetail, ProjectFile } from "../app/lib/types";
+import { useProjects } from "@/features/projects/hooks/useProjects";
+import { useFileSave } from "@/features/editor/hooks/useFileSave";
+import { api } from "@/app/lib/api";
+import type { Project, ProjectDetail, ProjectFile } from "@/app/lib/types";
 
 // ── Mock dependencies ──────────────────────────────────────
 
-jest.mock("../app/lib/api", () => ({
+jest.mock("@/app/lib/api", () => ({
   api: {
     listProjects: jest.fn(),
     createProject: jest.fn(),
@@ -24,7 +24,7 @@ jest.mock("../app/lib/api", () => ({
   })),
 }));
 
-jest.mock("../app/components/Toast", () => ({
+jest.mock("@/components/ui/Toast", () => ({
   useToast: () => ({ showToast: jest.fn() }),
 }));
 
@@ -222,7 +222,7 @@ describe("useChat", () => {
   });
 
   it("initializes with empty messages", () => {
-    const { useChat } = require("../app/hooks/useChat");
+    const { useChat } = require("@/features/chat/hooks/useChat");
     const { result } = renderHook(() => useChat());
     expect(result.current.chatMessages).toEqual([]);
     expect(result.current.generating).toBe(false);
@@ -235,7 +235,7 @@ describe("useChat", () => {
     ];
     (api.getChatMessages as jest.Mock).mockResolvedValue(mockMessages);
 
-    const { useChat } = require("../app/hooks/useChat");
+    const { useChat } = require("@/features/chat/hooks/useChat");
     const { result } = renderHook(() => useChat());
 
     await act(async () => {
@@ -247,7 +247,7 @@ describe("useChat", () => {
   });
 
   it("clears chat messages", () => {
-    const { useChat } = require("../app/hooks/useChat");
+    const { useChat } = require("@/features/chat/hooks/useChat");
     const { result } = renderHook(() => useChat());
 
     act(() => {

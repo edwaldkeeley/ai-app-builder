@@ -2,11 +2,11 @@
 
 import { useState, useEffect } from "react";
 import { useRouter } from "next/navigation";
-import { useAuth } from "../contexts/AuthContext";
-import { useTheme } from "../contexts/ThemeContext";
-import { useToast } from "../components/Toast";
-import { api } from "../lib/api";
-import Modal from "../components/Modal";
+import { useAuth } from "@/app/(auth)/contexts/AuthContext";
+import { useTheme } from "@/features/layout/contexts/ThemeContext";
+import { useToast } from "@/components/ui/Toast";
+import { api } from "@/app/lib/api";
+import Modal from "@/components/ui/Modal";
 
 export default function SettingsPage() {
   const { user, loading: authLoading, logout } = useAuth();

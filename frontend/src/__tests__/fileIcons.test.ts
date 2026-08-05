@@ -1,5 +1,5 @@
 import { describe, it, expect } from "@jest/globals";
-import { getFileIcon, default as FileIcon } from "../app/lib/fileIcons";
+import { getFileIcon, default as FileIcon } from "@/components/icons/FileIcons";
 import type { ReactNode } from "react";
 
 describe("getFileIcon", () => {

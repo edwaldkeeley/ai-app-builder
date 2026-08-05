@@ -3,10 +3,10 @@
 import { memo, useRef, useCallback, useState, useEffect, useMemo } from "react";
 import Editor, { type OnMount, type BeforeMount } from "@monaco-editor/react";
 import type { editor } from "monaco-editor";
-import type { ProjectFile } from "../lib/types";
-import FileExplorer from "./FileExplorer";
-import { SkeletonEditor } from "./Skeleton";
-import { useTheme } from "../contexts/ThemeContext";
+import type { ProjectFile } from "@/app/lib/types";
+import FileExplorer from "@/features/editor/components/FileExplorer";
+import { SkeletonEditor } from "@/components/ui/Skeleton";
+import { useTheme } from "@/features/layout/contexts/ThemeContext";
 
 interface EditorPaneProps {
   files: ProjectFile[];
@@ -32,9 +32,6 @@ const LANGUAGE_MAP: Record<string, string> = {
   svg: "xml",
 };
 
-// ── Monaco performance optimizations ──────────────────────────
-
-/** Default editor options — tuned for performance. */
 const EDITOR_OPTIONS: editor.IStandaloneEditorConstructionOptions = {
   fontSize: 13,
   fontFamily: "var(--font-geist-mono), monospace",
@@ -42,9 +39,8 @@ const EDITOR_OPTIONS: editor.IStandaloneEditorConstructionOptions = {
   scrollBeyondLastLine: false,
   lineNumbers: "on",
   tabSize: 2,
-  automaticLayout: false, // We use ResizeObserver instead (cheaper)
+  automaticLayout: false,
   padding: { top: 8 },
-  // Performance: disable features we don't need
   suggest: { showKeywords: false, showSnippets: false },
   hover: { enabled: true, delay: 500 },
   folding: true,
@@ -54,7 +50,6 @@ const EDITOR_OPTIONS: editor.IStandaloneEditorConstructionOptions = {
   selectionHighlight: true,
   codeLens: false,
   colorDecorators: false,
-  // Reduce CPU usage on large files
   maxTokenizationLineLength: 2000,
 };
 
@@ -77,7 +72,6 @@ const EditorPane = memo(function EditorPane({
   const containerRef = useRef<HTMLDivElement>(null);
   const { theme } = useTheme();
 
-  // Keep refs in sync with props
   useEffect(() => {
     filesRef.current = files;
   }, [files]);
@@ -88,18 +82,15 @@ const EditorPane = memo(function EditorPane({
   const activeFile = files.find((f) => f.path === activeFilePath) ?? files[0];
   const language = useMemo(
     () => (activeFile ? LANGUAGE_MAP[activeFile.file_type] || "plaintext" : "plaintext"),
-    // eslint-disable-next-line react-hooks/exhaustive-deps -- activeFile is derived from files+activeFilePath; file_type is the only used property
+    // eslint-disable-next-line react-hooks/exhaustive-deps
     [activeFile?.file_type],
   );
-  // Stable reference for effects that need the active file
   const activeFileKey = activeFile?.path ?? null;
 
-  // ── ResizeObserver instead of automaticLayout ──
   useEffect(() => {
     const editor = editorRef.current;
     const container = containerRef.current;
     if (!editor || !container) return;
-
     const observer = new ResizeObserver(() => {
       editor.layout();
     });
@@ -107,13 +98,10 @@ const EditorPane = memo(function EditorPane({
     return () => observer.disconnect();
   }, [editorReady]);
 
-  // ── Clean up models for deleted files ──
   useEffect(() => {
     const monaco = monacoRef.current;
     if (!monaco) return;
-    // Get all tracked URIs from current files
     const activePaths = new Set(files.map((f) => f.path));
-    // Dispose models that no longer have a corresponding file
     for (const model of monaco.editor.getModels()) {
       const modelPath = (model.uri as { path?: string }).path?.replace(/^file:\/\//, "") || "";
       if (modelPath && !activePaths.has(modelPath)) {
@@ -122,17 +110,11 @@ const EditorPane = memo(function EditorPane({
     }
   }, [files]);
 
-  // ── Configure Monaco before mounting ──
   const handleBeforeMount: BeforeMount = useCallback((monaco) => {
-    // Disable colorizer for better performance
-    // The `editor` namespace may not expose setColorDecorationsEnabled in all versions,
-    // so guard against it being undefined
     if (typeof monaco.editor.setColorDecorationsEnabled === "function") {
       monaco.editor.setColorDecorationsEnabled(false);
     }
   }, []);
-
-  // ── Monaco model management ──
 
   const handleEditorDidMount: OnMount = useCallback((editorInstance, monaco) => {
     editorRef.current = editorInstance;
@@ -152,12 +134,10 @@ const EditorPane = memo(function EditorPane({
     }
   }, []);
 
-  // Switch models when active file changes
   useEffect(() => {
     const editor = editorRef.current;
     const monaco = monacoRef.current;
     if (!editor || !monaco || !activeFile) return;
-
     const uri = monaco.Uri.parse(`file:///${activeFile.path}`);
     let model = monaco.editor.getModel(uri);
     if (!model) {
@@ -168,18 +148,13 @@ const EditorPane = memo(function EditorPane({
     }
   }, [activeFileKey, language]); // eslint-disable-line react-hooks/exhaustive-deps
 
-  // Sync model content when files change externally (e.g., AI streaming)
-  // Only push content into the model if it differs AND the model is not the
-  // source of the change (avoids loop between model.setValue → onChange → parent setState → re-render)
   useEffect(() => {
     const editor = editorRef.current;
     const monaco = monacoRef.current;
     if (!editor || !monaco || !activeFile) return;
-
     const uri = monaco.Uri.parse(`file:///${activeFile.path}`);
     const model = monaco.editor.getModel(uri);
     if (model && model.getValue() !== activeFile.content) {
-      // Push the new content without triggering onChange
       model.pushEditOperations(
         [],
         [
@@ -190,7 +165,6 @@ const EditorPane = memo(function EditorPane({
         ],
         () => null,
       );
-      // Push a no-op stack element so undo doesn't jump to the pushed content
       model.pushStackElement();
     }
   }, [activeFileKey, activeFile?.content]); // eslint-disable-line react-hooks/exhaustive-deps
@@ -207,9 +181,7 @@ const EditorPane = memo(function EditorPane({
 
   return (
     <div className="flex-1 flex flex-col min-h-0">
-      {/* File explorer + editor side by side */}
       <div className="flex-1 flex min-h-0">
-        {/* Code Files panel (embedded FileExplorer) */}
         <FileExplorer
           files={files}
           activeFilePath={activeFilePath}
@@ -219,10 +191,7 @@ const EditorPane = memo(function EditorPane({
           onRenameFile={onRenameFile}
           dirtyFiles={dirtyFiles}
         />
-
-        {/* Editor column: filename bar on top, editor below */}
         <div className="flex-1 flex flex-col min-w-0">
-          {/* Filename bar — shows the active file name */}
           <div className="flex items-center gap-2 px-3 py-1.5 bg-sidebar border-b border-border text-xs text-text-secondary animate-slide-down">
             <span className="font-medium text-foreground truncate">
               {activeFile?.path || "No file selected"}
@@ -231,8 +200,6 @@ const EditorPane = memo(function EditorPane({
               <span className="w-1.5 h-1.5 rounded-full bg-accent flex-shrink-0" title="Unsaved changes" />
             )}
           </div>
-
-          {/* Monaco editor */}
           <div ref={containerRef} className="flex-1 min-h-0 relative">
             {!editorReady && <SkeletonEditor />}
             <div className={editorReady ? "absolute inset-0" : "invisible h-0"}>

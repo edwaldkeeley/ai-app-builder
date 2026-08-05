@@ -3,11 +3,13 @@
 import { useState, useRef, useEffect, memo } from "react";
 import ReactMarkdown from "react-markdown";
 import remarkGfm from "remark-gfm";
-import type { ChatMessage } from "../lib/types";
-import type { WritingStatus } from "../hooks/useChat";
-import { Spinner, BouncingDots } from "../lib/ui";
-import FigmaImport from "./FigmaImport";
-import DesignUpload from "./DesignUpload";
+import type { ChatMessage } from "@/app/lib/types";
+import type { WritingStatus } from "@/features/chat/hooks/useChat";
+
+import { Spinner } from "@/components/ui/Spinner";
+import { BouncingDots } from "@/components/ui/BouncingDots";
+import FigmaImport from "@/features/editor/components/FigmaImport";
+import DesignUpload from "@/features/editor/components/DesignUpload";
 
 interface ChatPanelProps {
   messages: ChatMessage[];

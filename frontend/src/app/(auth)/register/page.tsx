@@ -3,25 +3,40 @@
 import { useState, FormEvent } from "react";
 import { useRouter } from "next/navigation";
 import Link from "next/link";
-import { useAuth } from "../contexts/AuthContext";
+import { useAuth } from "@/app/(auth)/contexts/AuthContext";
 
-export default function LoginPage() {
+export default function RegisterPage() {
   const router = useRouter();
-  const { login } = useAuth();
+  const { register } = useAuth();
   const [email, setEmail] = useState("");
+  const [username, setUsername] = useState("");
   const [password, setPassword] = useState("");
+  const [confirmPassword, setConfirmPassword] = useState("");
   const [error, setError] = useState<string | null>(null);
   const [submitting, setSubmitting] = useState(false);
 
   const handleSubmit = async (e: FormEvent) => {
     e.preventDefault();
     setError(null);
+
+    // Basic email format validation
+    const emailRegex = /^[^\s@]+@[^\s@]+\.[^\s@]+$/;
+    if (!emailRegex.test(email)) {
+      setError("Please enter a valid email address");
+      return;
+    }
+
+    if (password !== confirmPassword) {
+      setError("Passwords do not match");
+      return;
+    }
+
     setSubmitting(true);
     try {
-      await login(email, password);
+      await register(email, username, password);
       router.push("/");
     } catch (err) {
-      setError(err instanceof Error ? err.message : "Login failed");
+      setError(err instanceof Error ? err.message : "Registration failed");
     } finally {
       setSubmitting(false);
     }
@@ -39,7 +54,7 @@ export default function LoginPage() {
           </div>
         </div>
 
-        <h1 className="text-xl font-semibold text-center text-foreground mb-6">Sign in to your account</h1>
+        <h1 className="text-xl font-semibold text-center text-foreground mb-6">Create your account</h1>
 
         <form onSubmit={handleSubmit} className="space-y-4">
           <div>
@@ -55,12 +70,38 @@ export default function LoginPage() {
             />
           </div>
           <div>
+            <label htmlFor="username" className="block text-sm font-medium text-foreground mb-1">Username</label>
+            <input
+              id="username"
+              type="text"
+              value={username}
+              onChange={(e) => setUsername(e.target.value)}
+              required
+              minLength={1}
+              className="w-full bg-input border border-border rounded-lg px-3 py-2 text-sm text-foreground placeholder-text-secondary outline-none focus:border-accent/50 focus:ring-1 focus:ring-accent/20"
+              placeholder="yourname"
+            />
+          </div>
+          <div>
             <label htmlFor="password" className="block text-sm font-medium text-foreground mb-1">Password</label>
             <input
               id="password"
               type="password"
               value={password}
               onChange={(e) => setPassword(e.target.value)}
+              required
+              minLength={6}
+              className="w-full bg-input border border-border rounded-lg px-3 py-2 text-sm text-foreground placeholder-text-secondary outline-none focus:border-accent/50 focus:ring-1 focus:ring-accent/20"
+              placeholder="••••••••"
+            />
+          </div>
+          <div>
+            <label htmlFor="confirmPassword" className="block text-sm font-medium text-foreground mb-1">Confirm password</label>
+            <input
+              id="confirmPassword"
+              type="password"
+              value={confirmPassword}
+              onChange={(e) => setConfirmPassword(e.target.value)}
               required
               minLength={6}
               className="w-full bg-input border border-border rounded-lg px-3 py-2 text-sm text-foreground placeholder-text-secondary outline-none focus:border-accent/50 focus:ring-1 focus:ring-accent/20"
@@ -77,13 +118,13 @@ export default function LoginPage() {
             disabled={submitting}
             className="w-full py-2 text-sm font-medium rounded-lg bg-accent text-white hover:bg-accent-hover disabled:opacity-40 disabled:cursor-not-allowed transition-colors"
           >
-            {submitting ? "Signing in..." : "Sign in"}
+            {submitting ? "Creating account..." : "Create account"}
           </button>
         </form>
 
         <p className="text-sm text-text-secondary text-center mt-6">
-          Don&apos;t have an account?{" "}
-          <Link href="/register" className="text-accent hover:underline">Create one</Link>
+          Already have an account?{" "}
+          <Link href="/login" className="text-accent hover:underline">Sign in</Link>
         </p>
       </div>
     </div>

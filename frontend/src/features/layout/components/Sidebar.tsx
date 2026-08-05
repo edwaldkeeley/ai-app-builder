@@ -2,13 +2,13 @@
 
 import { useState, useEffect, useRef, memo } from "react";
 import { useRouter } from "next/navigation";
-import type { ChatMessage, Project } from "../lib/types";
-import type { WritingStatus } from "../hooks/useChat";
-import { useAuth } from "../contexts/AuthContext";
-import { useTheme } from "../contexts/ThemeContext";
-import ChatPanel from "./ChatPanel";
-import { SkeletonSidebar } from "./Skeleton";
-import ShortcutsModal from "./ShortcutsModal";
+import type { ChatMessage, Project } from "@/app/lib/types";
+import type { WritingStatus } from "@/features/chat/hooks/useChat";
+import { useAuth } from "@/app/(auth)/contexts/AuthContext";
+import { useTheme } from "@/features/layout/contexts/ThemeContext";
+import ChatPanel from "@/features/chat/components/ChatPanel";
+import { SkeletonSidebar } from "@/components/ui/Skeleton";
+import ShortcutsModal from "@/features/layout/components/ShortcutsModal";
 
 interface SidebarProps {
   projects: Project[];

@@ -1,9 +1,9 @@
 "use client";
 
 import { useState, useCallback, useRef } from "react";
-import { api, generateStream } from "../lib/api";
-import type { ChatMessage, ProjectFile } from "../lib/types";
-import { useToast } from "../components/Toast";
+import { api, generateStream } from "@/app/lib/api";
+import type { ChatMessage, ProjectFile } from "@/app/lib/types";
+import { useToast } from "@/components/ui/Toast";
 
 // Use a ref-based counter per hook instance instead of module-level
 // to avoid key collision across projects and page navigations

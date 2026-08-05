@@ -1,9 +1,9 @@
 "use client";
 
 import { useState, useCallback, useRef, useEffect } from "react";
-import { api } from "../lib/api";
-import type { ProjectFile } from "../lib/types";
-import { useToast } from "../components/Toast";
+import { api } from "@/app/lib/api";
+import type { ProjectFile } from "@/app/lib/types";
+import { useToast } from "@/components/ui/Toast";
 
 const SAVE_DEBOUNCE_MS = 800;
 

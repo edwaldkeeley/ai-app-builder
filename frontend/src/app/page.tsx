@@ -4,17 +4,17 @@ import { useState, useEffect, useCallback, useRef, Suspense } from "react";
 import dynamic from "next/dynamic";
 import { useRouter } from "next/navigation";
 import { api } from "./lib/api";
-import { useAuth } from "./contexts/AuthContext";
-import { useProjects } from "./hooks/useProjects";
-import { useChat } from "./hooks/useChat";
-import { useFileSave } from "./hooks/useFileSave";
-import { useKeyboardShortcuts } from "./hooks/useKeyboardShortcuts";
-import { useToast } from "./components/Toast";
-import { SkeletonSidebar, SkeletonEditor } from "./components/Skeleton";
+import { useAuth } from "@/app/(auth)/contexts/AuthContext";
+import { useProjects } from "@/features/projects/hooks/useProjects";
+import { useChat } from "@/features/chat/hooks/useChat";
+import { useFileSave } from "@/features/editor/hooks/useFileSave";
+import { useKeyboardShortcuts } from "@/features/layout/hooks/useKeyboardShortcuts";
+import { useToast } from "@/components/ui/Toast";
+import { SkeletonSidebar, SkeletonEditor } from "@/components/ui/Skeleton";
 
 // Dynamic imports for heavy components — loaded only when needed
-const Sidebar = dynamic(() => import("./components/Sidebar"), { ssr: false });
-const MainContent = dynamic(() => import("./components/MainContent"), { ssr: false });
+const Sidebar = dynamic(() => import("@/features/layout/components/Sidebar"), { ssr: false });
+const MainContent = dynamic(() => import("@/features/layout/components/MainContent"), { ssr: false });
 
 export default function Home() {
   const { showToast } = useToast();

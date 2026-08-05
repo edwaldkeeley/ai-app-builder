@@ -1,6 +1,6 @@
 import { describe, it, expect } from "@jest/globals";
 import { render, screen } from "@testing-library/react";
-import { SkeletonSidebar, SkeletonExplorer, SkeletonEditor } from "../app/components/Skeleton";
+import { SkeletonSidebar, SkeletonExplorer, SkeletonEditor } from "@/components/ui/Skeleton";
 
 describe("SkeletonSidebar", () => {
   it("renders skeleton items", () => {

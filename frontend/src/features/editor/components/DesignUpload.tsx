@@ -2,9 +2,9 @@
 
 import { useState, useRef } from "react";
 import Image from "next/image";
-import { api } from "../lib/api";
-import { useToast } from "./Toast";
-import Modal from "./Modal";
+import { api } from "@/app/lib/api";
+import { useToast } from "@/components/ui/Toast";
+import Modal from "@/components/ui/Modal";
 
 interface DesignUploadProps {
   projectId?: string;

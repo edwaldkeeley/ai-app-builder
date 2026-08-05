@@ -1,7 +1,7 @@
 "use client";
 
 import { createContext, useContext, useState, useCallback, useEffect, type ReactNode } from "react";
-import type { User } from "../lib/types";
+import type { User } from "@/app/lib/types";
 
 const BASE = process.env.NEXT_PUBLIC_API_URL || "http://localhost:8000";
 

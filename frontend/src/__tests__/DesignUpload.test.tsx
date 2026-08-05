@@ -1,6 +1,6 @@
 import { describe, it, expect, jest, beforeEach } from "@jest/globals";
 import { render, screen, act } from "@testing-library/react";
-import DesignUpload from "../app/components/DesignUpload";
+import DesignUpload from "@/features/editor/components/DesignUpload";
 
 // Mock the API
 jest.mock("../app/lib/api", () => ({
@@ -9,7 +9,7 @@ jest.mock("../app/lib/api", () => ({
   },
 }));
 
-jest.mock("../app/components/Toast", () => ({
+jest.mock("@/components/ui/Toast", () => ({
   useToast: () => ({ showToast: jest.fn() }),
 }));
 

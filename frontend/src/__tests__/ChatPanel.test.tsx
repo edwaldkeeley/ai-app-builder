@@ -1,8 +1,8 @@
 import { describe, it, expect, jest, beforeEach } from "@jest/globals";
 import { render, screen, fireEvent } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
-import ChatPanel from "../app/components/ChatPanel";
-import type { ChatMessage } from "../app/lib/types";
+import ChatPanel from "@/features/chat/components/ChatPanel";
+import type { ChatMessage } from "@/app/lib/types";
 
 // ── Mock dependencies ─────────────────────────────────────
 jest.mock("react-markdown", () => ({
@@ -12,12 +12,12 @@ jest.mock("react-markdown", () => ({
 
 jest.mock("remark-gfm", () => () => {});
 
-jest.mock("../app/components/FigmaImport", () => ({
+jest.mock("@/features/editor/components/FigmaImport", () => ({
   __esModule: true,
   default: () => <div data-testid="figma-import" />,
 }));
 
-jest.mock("../app/components/DesignUpload", () => ({
+jest.mock("@/features/editor/components/DesignUpload", () => ({
   __esModule: true,
   default: () => <div data-testid="design-upload" />,
 }));
