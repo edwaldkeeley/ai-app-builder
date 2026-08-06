@@ -79,7 +79,10 @@ const EditorPane = memo(function EditorPane({
     activeFilePathRef.current = activeFilePath;
   }, [activeFilePath]);
 
-  const activeFile = files.find((f) => f.path === activeFilePath) ?? files[0];
+  const activeFile = useMemo(
+    () => files.find((f) => f.path === activeFilePath) ?? files[0],
+    [files, activeFilePath],
+  );
   const language = useMemo(
     () => (activeFile ? LANGUAGE_MAP[activeFile.file_type] || "plaintext" : "plaintext"),
     // eslint-disable-next-line react-hooks/exhaustive-deps
@@ -98,12 +101,21 @@ const EditorPane = memo(function EditorPane({
     return () => observer.disconnect();
   }, [editorReady]);
 
+  const prevPathSetRef = useRef<string[] | null>(null);
+
   useEffect(() => {
     const monaco = monacoRef.current;
     if (!monaco) return;
-    const activePaths = new Set(files.map((f) => f.path));
+    const paths = files.map((f) => f.path);
+    const prev = prevPathSetRef.current;
+    // Only dispose models when the SET of paths actually changes (skip on content-only updates)
+    if (prev && prev.length === paths.length && prev.every((p, i) => p === paths[i])) {
+      return;
+    }
+    prevPathSetRef.current = paths;
+    const activePaths = new Set(paths);
     for (const model of monaco.editor.getModels()) {
-      const modelPath = (model.uri as { path?: string }).path?.replace(/^file:\/\//, "") || "";
+      const modelPath = (model.uri as { path?: string }).path?.replace(/^\//, "") || "";
       if (modelPath && !activePaths.has(modelPath)) {
         model.dispose();
       }
