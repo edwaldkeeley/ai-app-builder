@@ -124,13 +124,6 @@ class GenerateResponse(BaseModel):
     files: list[ProjectFile] = []
 
 
-class DesignUploadResponse(BaseModel):
-    """Response after uploading a design image for conversion."""
-
-    project_id: UUID
-    message: str
-    files: list[ProjectFile] = []
-
 
 # ── Figma ──────────────────────────────────────────────────
 
@@ -156,15 +149,6 @@ class FigmaUrlImportRequest(BaseModel):
 
 
 
-
-# ── Export ─────────────────────────────────────────────────
-
-
-class ExportResponse(BaseModel):
-    """Response containing the ZIP download URL."""
-
-    download_url: str
-    project_id: UUID
 
 
 # ── Chat ────────────────────────────────────────────────────
