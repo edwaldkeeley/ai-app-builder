@@ -1,7 +1,8 @@
 "use client";
 
 import { useState, useCallback, useRef } from "react";
-import { api, generateStream } from "@/app/lib/api";
+import { api } from "@/app/lib/api";
+import { generateStream } from "@/app/lib/ws";
 import type { ChatMessage, ProjectFile } from "@/app/lib/types";
 import { useToast } from "@/components/ui/Toast";
 

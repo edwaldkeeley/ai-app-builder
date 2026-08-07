@@ -1,23 +1,15 @@
 "use client";
 
-import { memo, useMemo, useState, useEffect, useRef } from "react";
+import { memo, useCallback } from "react";
 import * as Babel from "@babel/standalone";
 import type { ProjectFile } from "@/app/lib/types";
+import PreviewShell from "@/features/editor/components/PreviewShell";
 
 interface LiveCanvasProps {
   files: ProjectFile[];
   framework?: "vanilla" | "react";
   projectId?: string;
 }
-
-type ViewportPreset = "fluid" | "desktop" | "tablet" | "mobile";
-
-const VIEWPORT_PRESETS: { key: ViewportPreset; label: string; width: number | null }[] = [
-  { key: "fluid", label: "Fluid", width: null },
-  { key: "desktop", label: "Desktop", width: 1280 },
-  { key: "tablet", label: "Tablet", width: 768 },
-  { key: "mobile", label: "Mobile", width: 375 },
-];
 
 // ── Vanilla: inline CSS/JS into HTML and render via srcdoc iframe ──
 
@@ -68,108 +60,19 @@ function buildPreviewHtml(files: ProjectFile[]): string | null {
 }
 
 function VanillaPreview({ files }: { files: ProjectFile[] }) {
-  const [viewport, setViewport] = useState<ViewportPreset>("fluid");
-  const [debouncedFiles, setDebouncedFiles] = useState<ProjectFile[]>(files);
-  const debounceRef = useRef<ReturnType<typeof setTimeout> | null>(null);
-  const iframeRef = useRef<HTMLIFrameElement>(null);
-  const blobUrlRef = useRef<string | null>(null);
-
-  // Debounce file updates
-  useEffect(() => {
-    if (debounceRef.current) clearTimeout(debounceRef.current);
-    const isInitialLoad = debouncedFiles.length === 0 && files.length > 0;
-    debounceRef.current = setTimeout(() => {
-      setDebouncedFiles(files);
-    }, isInitialLoad ? 0 : 400);
-    return () => {
-      if (debounceRef.current) clearTimeout(debounceRef.current);
-    };
-  }, [files]);
-
-  const htmlContent = useMemo(() => buildPreviewHtml(debouncedFiles), [debouncedFiles]);
-
-  // Create blob URL from htmlContent and revoke old ones
-  useEffect(() => {
-    if (!htmlContent) return;
-    if (blobUrlRef.current) {
-      URL.revokeObjectURL(blobUrlRef.current);
-    }
-    const blob = new Blob([htmlContent], { type: "text/html" });
-    blobUrlRef.current = URL.createObjectURL(blob);
-    if (iframeRef.current) {
-      iframeRef.current.src = blobUrlRef.current;
-    }
-    return () => {
-      if (blobUrlRef.current) {
-        URL.revokeObjectURL(blobUrlRef.current);
-        blobUrlRef.current = null;
-      }
-    };
-  }, [htmlContent]);
-
   const hasHtmlFile = files.some(
     (f) => f.path === "index.html" || f.path === "/index.html" || f.path.endsWith(".html"),
   );
 
-  if (!hasHtmlFile) {
-    return (
-      <div className="flex-1 flex items-center justify-center text-sm text-text-secondary">
-        <p>No HTML file found. Create an index.html to see a preview.</p>
-      </div>
-    );
-  }
-
-  const preset = VIEWPORT_PRESETS.find((p) => p.key === viewport)!;
-  const isConstrained = preset.width !== null;
+  const buildFn = useCallback((debouncedFiles: ProjectFile[]) => buildPreviewHtml(debouncedFiles), []);
 
   return (
-    <div className="flex-1 flex flex-col min-h-0 bg-background">
-      {/* Toolbar */}
-      <div className="flex items-center justify-between px-3 py-1.5 bg-sidebar border-b border-border text-xs text-text-secondary">
-        <div className="flex items-center gap-1">
-          {VIEWPORT_PRESETS.map((p, i) => (
-            <button
-              key={p.key}
-              onClick={() => setViewport(p.key)}
-              className={`px-2 py-1 rounded-md text-xs font-medium transition-all ${
-                viewport === p.key
-                  ? "bg-accent text-white"
-                  : "text-text-secondary hover:text-foreground hover:bg-surface"
-              }`}
-              style={{ animationDelay: `${i * 30}ms` }}
-              title={`${p.label}${p.width ? ` — ${p.width}px` : ""}`}
-            >
-              {p.label}
-            </button>
-          ))}
-        </div>
-        {isConstrained && (
-          <span className="text-text-secondary hidden sm:inline">{preset.width}px</span>
-        )}
-      </div>
-
-      {/* Iframe preview */}
-      <div className="flex-1 flex items-stretch justify-center min-h-0 overflow-auto bg-preview-bg">
-        <div
-          className={`h-full transition-all duration-200 ${
-            isConstrained ? "bg-white shadow-2xl my-0 flex-shrink-0" : "w-full"
-          }`}
-          style={
-            isConstrained
-              ? { width: `${preset.width}px`, maxWidth: "100%", minHeight: "100%" }
-              : { width: "100%", minHeight: "100%" }
-          }
-        >
-          <iframe
-            ref={iframeRef}
-            title="Preview"
-            sandbox="allow-forms allow-modals allow-popups allow-same-origin allow-scripts"
-            className="w-full h-full border-0"
-            style={{ height: "100%", width: "100%" }}
-          />
-        </div>
-      </div>
-    </div>
+    <PreviewShell
+      files={files}
+      onBuildHtml={buildFn}
+      noFileMessage="No HTML file found. Create an index.html to see a preview."
+      hasRequiredFile={hasHtmlFile}
+    />
   );
 }
 
@@ -204,7 +107,7 @@ function transpileJsx(code: string, filename: string): string {
  * Build a self-contained HTML page for React projects.
  * Includes React/ReactDOM from CDN, inlined CSS, and transpiled JSX.
  */
-function buildReactPreviewHtml(files: ProjectFile[]): string | null {
+function buildReactPreviewHtml(files: ProjectFile[]): string | { error: string } | null {
   // Find JSX/JS files
   const jsxFiles = files.filter(
     (f) => f.path.endsWith(".jsx") || f.path.endsWith(".js"),
@@ -250,7 +153,6 @@ function buildReactPreviewHtml(files: ProjectFile[]): string | null {
   const entryCode = transpiled.get(entryName) ?? entry.content;
 
   // Try to detect the component name from the entry file
-  // We use React.createElement with the first exported/defined component
   const renderScript = `
 (function() {
   ${entryCode}
@@ -296,129 +198,25 @@ function buildReactPreviewHtml(files: ProjectFile[]): string | null {
 }
 
 function ReactPreview({ files }: { files: ProjectFile[] }) {
-  const [viewport, setViewport] = useState<ViewportPreset>("fluid");
-  const [debouncedFiles, setDebouncedFiles] = useState<ProjectFile[]>(files);
-  const debounceRef = useRef<ReturnType<typeof setTimeout> | null>(null);
-  const iframeRef = useRef<HTMLIFrameElement>(null);
-  const blobUrlRef = useRef<string | null>(null);
+  const hasJsxFile = files.some(
+    (f) => f.path.endsWith(".jsx") || f.path.endsWith(".js"),
+  );
 
-  // Debounce file updates
-  useEffect(() => {
-    if (debounceRef.current) clearTimeout(debounceRef.current);
-    const isInitialLoad = debouncedFiles.length === 0 && files.length > 0;
-    debounceRef.current = setTimeout(() => {
-      setDebouncedFiles(files);
-    }, isInitialLoad ? 0 : 400);
-    return () => {
-      if (debounceRef.current) clearTimeout(debounceRef.current);
-    };
-  }, [files]);
-
-  // Build HTML from debounced files
-  const htmlContent = useMemo(() => {
+  const buildFn = useCallback((debouncedFiles: ProjectFile[]) => {
     try {
       return buildReactPreviewHtml(debouncedFiles);
     } catch (e) {
       return { error: String(e) };
     }
-  }, [debouncedFiles]);
-
-  // Track errors separately — not inside useMemo
-  const previewError = htmlContent && typeof htmlContent === "object" && "error" in htmlContent
-    ? (htmlContent as { error: string }).error
-    : null;
-  const previewHtml = htmlContent && typeof htmlContent === "string" ? htmlContent : null;
-
-  // Create blob URL from htmlContent and revoke old ones
-  useEffect(() => {
-    if (!previewHtml) return;
-    if (blobUrlRef.current) {
-      URL.revokeObjectURL(blobUrlRef.current);
-    }
-    const blob = new Blob([previewHtml], { type: "text/html" });
-    blobUrlRef.current = URL.createObjectURL(blob);
-    if (iframeRef.current) {
-      iframeRef.current.src = blobUrlRef.current;
-    }
-    return () => {
-      if (blobUrlRef.current) {
-        URL.revokeObjectURL(blobUrlRef.current);
-        blobUrlRef.current = null;
-      }
-    };
-  }, [previewHtml]);
-
-  const hasJsxFile = files.some(
-    (f) => f.path.endsWith(".jsx") || f.path.endsWith(".js"),
-  );
-
-  if (!hasJsxFile) {
-    return (
-      <div className="flex-1 flex items-center justify-center text-sm text-text-secondary">
-        <p>No JSX file found. Create an App.jsx to see a preview.</p>
-      </div>
-    );
-  }
-
-  if (previewError) {
-    return (
-      <div className="flex-1 flex items-center justify-center text-sm text-danger">
-        <p>Preview error: {previewError}</p>
-      </div>
-    );
-  }
-
-  const preset = VIEWPORT_PRESETS.find((p) => p.key === viewport)!;
-  const isConstrained = preset.width !== null;
+  }, []);
 
   return (
-    <div className="flex-1 flex flex-col min-h-0 bg-background">
-      {/* Toolbar */}
-      <div className="flex items-center justify-between px-3 py-1.5 bg-sidebar border-b border-border text-xs text-text-secondary">
-        <div className="flex items-center gap-1">
-          {VIEWPORT_PRESETS.map((p, i) => (
-            <button
-              key={p.key}
-              onClick={() => setViewport(p.key)}
-              className={`px-2 py-1 rounded-md text-xs font-medium transition-all ${
-                viewport === p.key
-                  ? "bg-accent text-white"
-                  : "text-text-secondary hover:text-foreground hover:bg-surface"
-              }`}
-              style={{ animationDelay: `${i * 30}ms` }}
-              title={`${p.label}${p.width ? ` — ${p.width}px` : ""}`}
-            >
-              {p.label}
-            </button>
-          ))}
-        </div>
-        {isConstrained && (
-          <span className="text-text-secondary hidden sm:inline">{preset.width}px</span>
-        )}
-      </div>
-
-      {/* Iframe preview */}
-      <div className="flex-1 flex items-stretch justify-center min-h-0 overflow-auto bg-preview-bg">
-        <div
-          className={`h-full transition-all duration-200 ${
-            isConstrained ? "bg-white shadow-2xl my-0 flex-shrink-0" : "w-full"
-          }`}
-          style={
-            isConstrained
-              ? { width: `${preset.width}px`, maxWidth: "100%", minHeight: "100%" }
-              : { width: "100%", minHeight: "100%" }
-          }
-        >
-          <iframe
-            ref={iframeRef}
-            title="React Preview"
-            sandbox="allow-forms allow-modals allow-popups allow-same-origin allow-scripts"
-            className="w-full h-full border-0"
-            style={{ height: "100%", width: "100%" }}
-          />
-        </div>
-      </div>
-    </div>
+    <PreviewShell
+      files={files}
+      onBuildHtml={buildFn}
+      noFileMessage="No JSX file found. Create an App.jsx to see a preview."
+      hasRequiredFile={hasJsxFile}
+    />
   );
 }
 

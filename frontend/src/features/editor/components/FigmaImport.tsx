@@ -1,22 +1,34 @@
 "use client";
 
-import { useState } from "react";
+import { useState, forwardRef, useImperativeHandle } from "react";
 import { api } from "@/app/lib/api";
 import { useToast } from "@/components/ui/Toast";
 import Modal from "@/components/ui/Modal";
 
 interface FigmaImportProps {
   onImportComplete?: (projectId: string) => void;
-  variant?: "landing" | "toolbar" | "inline";
+  variant?: "landing" | "toolbar" | "inline" | "modal-only";
 }
 
-export default function FigmaImport({ onImportComplete, variant = "landing" }: FigmaImportProps) {
+export interface FigmaImportHandle {
+  open: () => void;
+}
+
+const FigmaImport = forwardRef<FigmaImportHandle, FigmaImportProps>(function FigmaImport(
+  { onImportComplete, variant = "landing" },
+  ref,
+) {
   const [figmaUrl, setFigmaUrl] = useState("");
   const [accessToken, setAccessToken] = useState("");
   const [importing, setImporting] = useState(false);
   const [errorMsg, setErrorMsg] = useState<string | null>(null);
   const [showModal, setShowModal] = useState(false);
   const { showToast } = useToast();
+
+  // Expose open() so parent components can open the modal imperatively
+  useImperativeHandle(ref, () => ({
+    open: () => setShowModal(true),
+  }));
 
   const handleUrlImport = async () => {
     const url = figmaUrl.trim();
@@ -112,6 +124,80 @@ export default function FigmaImport({ onImportComplete, variant = "landing" }: F
     );
   }
 
+  // ── Modal-only variant (no button, just the modal — for imperative ref use) ─────
+  if (variant === "modal-only") {
+    return (
+      <>
+        {showModal && (
+          <Modal open={showModal} onClose={() => { setShowModal(false); setErrorMsg(null); }}>
+            <div className="flex items-center gap-3 mb-4">
+              <div className="w-10 h-10 rounded-xl bg-accent/10 flex items-center justify-center">
+                <svg className="w-5 h-5 text-accent" viewBox="0 0 24 24" fill="currentColor">
+                  <path d="M12 2C6.477 2 2 6.477 2 12s4.477 10 10 10 10-4.477 10-10S17.523 2 12 2zm0 18a8 8 0 110-16 8 8 0 010 16zm1-12h-2v4H7v2h4v4h2v-4h4v-2h-4V8z" />
+                </svg>
+              </div>
+              <div>
+                <h3 className="text-sm font-semibold text-foreground">Import from Figma</h3>
+                <p className="text-xs text-text-secondary">Paste a Figma URL and your personal access token</p>
+              </div>
+            </div>
+            <div className="space-y-3">
+              <input
+                type="text"
+                value={figmaUrl}
+                onChange={(e) => setFigmaUrl(e.target.value)}
+                placeholder="https://www.figma.com/file/ABC123/My-Design"
+                className="w-full bg-input border border-border rounded-lg px-3 py-2 text-sm text-foreground placeholder-text-secondary outline-none focus:border-accent/50"
+              />
+              <div className="relative">
+                <input
+                  type="password"
+                  value={accessToken}
+                  onChange={(e) => setAccessToken(e.target.value)}
+                  placeholder="Figma personal access token (required)"
+                  className="w-full bg-input border border-border rounded-lg px-3 py-2 text-sm text-foreground placeholder-text-secondary outline-none focus:border-accent/50 pr-20"
+                />
+                <a
+                  href="https://www.figma.com/settings"
+                  target="_blank"
+                  rel="noopener noreferrer"
+                  className="absolute right-2 top-1/2 -translate-y-1/2 text-xs text-accent hover:text-accent-hover underline"
+                >
+                  Get token
+                </a>
+              </div>
+              {errorMsg && (
+                <p className="text-xs text-danger">{errorMsg}</p>
+              )}
+              <div className="flex gap-2 pt-1">
+                <button
+                  onClick={() => { setShowModal(false); setErrorMsg(null); }}
+                  className="flex-1 px-3 py-2 text-sm font-medium rounded-lg border border-border text-foreground hover:bg-surface transition-colors"
+                >
+                  Cancel
+                </button>
+                <button
+                  onClick={handleUrlImport}
+                  disabled={!figmaUrl.trim() || !accessToken.trim() || importing}
+                  className="flex-1 px-3 py-2 text-sm font-medium rounded-lg bg-accent text-white hover:bg-accent-hover disabled:opacity-40 disabled:cursor-not-allowed transition-colors"
+                >
+                  {importing ? (
+                    <span className="flex items-center justify-center gap-2">
+                      <div className="w-4 h-4 border-2 border-white border-t-transparent rounded-full animate-spin" />
+                      Importing...
+                    </span>
+                  ) : (
+                    "Import"
+                  )}
+                </button>
+              </div>
+            </div>
+          </Modal>
+        )}
+      </>
+    );
+  }
+
   return (
     <>
       <button
@@ -192,4 +278,6 @@ export default function FigmaImport({ onImportComplete, variant = "landing" }: F
       )}
     </>
   );
-}
+});
+
+export default FigmaImport;

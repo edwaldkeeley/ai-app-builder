@@ -13,10 +13,13 @@ export function useFileSave(activeProjectId: string | null) {
   const [files, setFiles] = useState<ProjectFile[]>([]);
   const [dirtyFiles, setDirtyFiles] = useState<Set<string>>(new Set());
   const [saveStatus, setSaveStatus] = useState<SaveStatus>("idle");
+  // Start as true so the first render shows loading even before the effect fires
+  const [loadingFiles, setLoadingFiles] = useState(!!activeProjectId);
   const saveTimersRef = useRef<Map<string, ReturnType<typeof setTimeout>>>(new Map());
   const projectIdRef = useRef<string | null>(null);
   const filesRef = useRef(files);
   const savedTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
+  const fetchRequestRef = useRef(0);
   const { showToast } = useToast();
 
   // Wrap setFiles to also sync filesRef synchronously (no lag)
@@ -28,17 +31,43 @@ export function useFileSave(activeProjectId: string | null) {
     });
   }, []);
 
-  // Track current project ID and clear pending saves when switching projects
+  // Track current project ID, clear pending saves, and fetch files when switching projects
   useEffect(() => {
     projectIdRef.current = activeProjectId;
     saveTimersRef.current.forEach((timer) => clearTimeout(timer));
     saveTimersRef.current.clear();
-    const timer = setTimeout(() => setDirtyFiles(new Set()), 0);
+    const clearTimer = setTimeout(() => setDirtyFiles(new Set()), 0);
+    // Also clear the "saved" status timer
+    if (savedTimerRef.current) clearTimeout(savedTimerRef.current);
+    savedTimerRef.current = null;
+
+    if (!activeProjectId) {
+      setTimeout(() => setFiles([]), 0);
+      return;
+    }
+
+    // Fetch project files — use a request counter to discard stale responses
+    const requestId = ++fetchRequestRef.current;
+    // eslint-disable-next-line react-hooks/set-state-in-effect
+    setLoadingFiles(true);
+    api.getProject(activeProjectId).then((detail) => {
+      if (requestId !== fetchRequestRef.current) return;
+      setFilesAndRef(detail.files);
+    }).catch((err) => {
+      if (requestId !== fetchRequestRef.current) return;
+      console.error("Failed to fetch project files:", err);
+      showToast("error", "Failed to load project files");
+    }).finally(() => {
+      if (requestId === fetchRequestRef.current) {
+        setLoadingFiles(false);
+      }
+    });
+
     return () => {
-      clearTimeout(timer);
-      // Also clear the "saved" status timer on unmount
+      clearTimeout(clearTimer);
       if (savedTimerRef.current) clearTimeout(savedTimerRef.current);
     };
+  // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [activeProjectId]);
 
   const handleAddFile = useCallback(async (path: string) => {
@@ -147,6 +176,7 @@ export function useFileSave(activeProjectId: string | null) {
     setFiles: setFilesAndRef,
     dirtyFiles,
     saveStatus,
+    loadingFiles,
     handleFilesChange,
     handleAddFile,
     handleDeleteFile,

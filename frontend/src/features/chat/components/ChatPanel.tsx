@@ -1,6 +1,6 @@
 "use client";
 
-import { useState, useRef, useEffect, memo } from "react";
+import { useState, useRef, useEffect, memo, useCallback } from "react";
 import ReactMarkdown from "react-markdown";
 import remarkGfm from "remark-gfm";
 import type { ChatMessage } from "@/app/lib/types";
@@ -9,7 +9,9 @@ import type { WritingStatus } from "@/features/chat/hooks/useChat";
 import { Spinner } from "@/components/ui/Spinner";
 import { BouncingDots } from "@/components/ui/BouncingDots";
 import FigmaImport from "@/features/editor/components/FigmaImport";
+import type { FigmaImportHandle } from "@/features/editor/components/FigmaImport";
 import DesignUpload from "@/features/editor/components/DesignUpload";
+import type { DesignUploadHandle } from "@/features/editor/components/DesignUpload";
 
 interface ChatPanelProps {
   messages: ChatMessage[];
@@ -98,8 +100,8 @@ const ChatPanel = memo(function ChatPanel({
   const userScrolledUp = useRef(false);
   const [showAddMenu, setShowAddMenu] = useState(false);
   const addMenuRef = useRef<HTMLDivElement>(null);
-  const figmaWrapperRef = useRef<HTMLDivElement>(null);
-  const designWrapperRef = useRef<HTMLDivElement>(null);
+  const figmaRef = useRef<FigmaImportHandle>(null);
+  const designRef = useRef<DesignUploadHandle>(null);
 
   const handleScroll = (e: React.UIEvent<HTMLDivElement>) => {
     const el = e.currentTarget;
@@ -146,18 +148,15 @@ const ChatPanel = memo(function ChatPanel({
     }
   };
 
-  const openFigma = () => {
+  const openFigma = useCallback(() => {
     setShowAddMenu(false);
-    // Click the hidden FigmaImport toolbar button to open its modal
-    const btn = figmaWrapperRef.current?.querySelector("button");
-    btn?.click();
-  };
+    figmaRef.current?.open();
+  }, []);
 
-  const openDesignUpload = () => {
+  const openDesignUpload = useCallback(() => {
     setShowAddMenu(false);
-    const btn = designWrapperRef.current?.querySelector("button");
-    btn?.click();
-  };
+    designRef.current?.open();
+  }, []);
 
   return (
     <div className="flex-1 flex flex-col min-h-0 bg-sidebar">
@@ -295,13 +294,9 @@ const ChatPanel = memo(function ChatPanel({
           </p>
         </div>
 
-      {/* Hidden toolbar buttons — their modals are triggered by the + menu */}
-      <div ref={figmaWrapperRef} className="absolute -left-[9999px]" aria-hidden="true">
-        <FigmaImport variant="toolbar" onImportComplete={onFigmaImportComplete} />
-      </div>
-      <div ref={designWrapperRef} className="absolute -left-[9999px]" aria-hidden="true">
-        <DesignUpload projectId={projectId || ""} variant="toolbar" onUploadComplete={onDesignUploadComplete} />
-      </div>
+      {/* Imperative modals — always rendered but invisible until opened */}
+      <FigmaImport ref={figmaRef} variant="modal-only" onImportComplete={onFigmaImportComplete} />
+      <DesignUpload ref={designRef} projectId={projectId || ""} variant="modal-only" onUploadComplete={onDesignUploadComplete} />
     </div>
   );
 });

@@ -108,6 +108,7 @@ export function useAppState(): AppState {
     setFiles,
     dirtyFiles,
     saveStatus,
+    loadingFiles: filesLoading,
     handleFilesChange,
     handleAddFile,
     handleDeleteFile,
@@ -119,8 +120,6 @@ export function useAppState(): AppState {
   const [viewMode, setViewMode] = useState<"preview" | "code" | "split">("preview");
   const [framework, setFramework] = useState<"vanilla" | "react">(activeProject?.framework ?? "vanilla");
   const [showMobileSidebar, setShowMobileSidebar] = useState(false);
-  const [filesLoading, setFilesLoading] = useState(false);
-
   // Refs for use in callbacks (avoid stale closures)
   const filesRef = useRef(files);
   const activeProjectIdRef = useRef(activeProjectId);
@@ -168,25 +167,7 @@ export function useAppState(): AppState {
     return () => window.removeEventListener("beforeunload", handler);
   }, [dirtyFiles.size]);
 
-  // Fetch project files when active project changes
-  useEffect(() => {
-    if (!activeProjectId) {
-      setFiles([]);
-      return;
-    }
-    // eslint-disable-next-line react-hooks/set-state-in-effect
-    setFilesLoading(true);
-    api.getProject(activeProjectId).then((detail) => {
-      setFiles(detail.files);
-    }).catch((err) => {
-      console.error("Failed to fetch project files:", err);
-      showToast("error", "Failed to load project files");
-      setError("Failed to load project files. Please try again.");
-    }).finally(() => {
-      setFilesLoading(false);
-    });
-  // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [activeProjectId]);
+  // File fetching is now handled inside useFileSave — no duplicate effect needed
 
   // ── Orchestration callbacks ───────────────────────────────────
 
