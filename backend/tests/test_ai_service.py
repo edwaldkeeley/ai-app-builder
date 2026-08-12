@@ -13,19 +13,14 @@ import httpx
 import pytest
 
 from app.models.schemas import FileType, ProjectFile
-from app.services.ai_service import (
-    _FIGMA_SYSTEM_PROMPT,
-    _REACT_SYSTEM_PROMPT,
-    _SYSTEM_PROMPT,
-    _build_payload,
-    _fix_react_imports,
-    _parse_final_json,
-    _validate_generated_files,
-)
+from app.services.ai_service import _build_payload
+from app.services.file_validator import fix_react_imports, validate_generated_files
+from app.services.json_parser import parse_final_json
+from app.services.prompts import _FIGMA_SYSTEM_PROMPT, _REACT_SYSTEM_PROMPT, _SYSTEM_PROMPT
 from app.services.utils import parse_retry_after as _parse_retry_after
 
 
-# ── _parse_final_json tests ───────────────────────────────────
+# ── parse_final_json tests ───────────────────────────────────
 
 
 class TestParseFinalJson:
@@ -37,7 +32,7 @@ class TestParseFinalJson:
                 {"path": "style.css", "content": "body {}", "file_type": "css"},
             ],
         })
-        message, files = _parse_final_json(content)
+        message, files = parse_final_json(content)
         assert message == "Created a page."
         assert len(files) == 2
         assert files[0].path == "index.html"
@@ -45,13 +40,13 @@ class TestParseFinalJson:
 
     def test_parse_with_markdown_code_block(self):
         content = "```json\n{\"message\": \"Hi\", \"files\": []}\n```"
-        message, files = _parse_final_json(content)
+        message, files = parse_final_json(content)
         assert message == "Hi"
         assert files == []
 
     def test_parse_with_extra_text(self):
         content = "Here's the code:\n{\"message\": \"Done\", \"files\": []}\nLet me know if you need changes."
-        message, files = _parse_final_json(content)
+        message, files = parse_final_json(content)
         assert message == "Done"
 
     def test_parse_merges_with_existing_files(self):
@@ -64,7 +59,7 @@ class TestParseFinalJson:
                 {"path": "new.html", "content": "<!-- new -->", "file_type": "html"},
             ],
         })
-        message, files = _parse_final_json(content, existing)
+        message, files = parse_final_json(content, existing)
         paths = {f.path for f in files}
         assert "keep.html" in paths  # existing file preserved
         assert "new.html" in paths  # new file added
@@ -79,7 +74,7 @@ class TestParseFinalJson:
                 {"path": "index.html", "content": "<!-- new -->", "file_type": "html"},
             ],
         })
-        message, files = _parse_final_json(content, existing)
+        message, files = parse_final_json(content, existing)
         index = next(f for f in files if f.path == "index.html")
         assert index.content == "<!-- new -->"  # AI content wins
 
@@ -90,23 +85,23 @@ class TestParseFinalJson:
                 {"path": "data.txt", "content": "data", "file_type": "text"},
             ],
         })
-        message, files = _parse_final_json(content)
+        message, files = parse_final_json(content)
         assert files[0].file_type == FileType.other
 
     def test_parse_empty_files_array(self):
         content = json.dumps({"message": "No files", "files": []})
-        message, files = _parse_final_json(content)
+        message, files = parse_final_json(content)
         assert message == "No files"
         assert files == []
 
     def test_parse_no_files_key(self):
         content = json.dumps({"message": "No files key"})
-        message, files = _parse_final_json(content)
+        message, files = parse_final_json(content)
         assert message == "No files key"
         assert files == []
 
 
-# ── _validate_generated_files tests ───────────────────────────
+# ── validate_generated_files tests ───────────────────────────
 
 
 class TestFixReactImports:
@@ -115,7 +110,7 @@ class TestFixReactImports:
             ProjectFile(path="style.css", content="body {}", file_type=FileType.css),
             ProjectFile(path="script.js", content="// js", file_type=FileType.js),
         ]
-        result = _fix_react_imports(files)
+        result = fix_react_imports(files)
         assert len(result) == 2
         assert result[0].content == "body {}"
         assert result[1].content == "// js"
@@ -124,7 +119,7 @@ class TestFixReactImports:
         files = [
             ProjectFile(path="App.jsx", content='const { useState, useEffect } = React;\n', file_type=FileType.jsx),
         ]
-        result = _fix_react_imports(files)
+        result = fix_react_imports(files)
         assert 'import React, { useState, useEffect } from "react";' in result[0].content
         assert "const {" not in result[0].content
 
@@ -132,7 +127,7 @@ class TestFixReactImports:
         files = [
             ProjectFile(path="App.jsx", content='const root = ReactDOM.createRoot(document.getElementById("root"));\nroot.render(<App />);\n', file_type=FileType.jsx),
         ]
-        result = _fix_react_imports(files)
+        result = fix_react_imports(files)
         assert 'import { createRoot } from "react-dom/client";' in result[0].content
         assert "ReactDOM.createRoot" not in result[0].content
         assert "createRoot(" in result[0].content
@@ -141,7 +136,7 @@ class TestFixReactImports:
         files = [
             ProjectFile(path="App.jsx", content="const [count, setCount] = React.useState(0);\nReact.useEffect(() => {}, []);\n", file_type=FileType.jsx),
         ]
-        result = _fix_react_imports(files)
+        result = fix_react_imports(files)
         assert "React.useState" not in result[0].content
         assert "React.useEffect" not in result[0].content
         assert "useState(0)" in result[0].content
@@ -156,7 +151,7 @@ class TestFixReactImports:
         files = [
             ProjectFile(path="App.jsx", content=content, file_type=FileType.jsx),
         ]
-        result = _fix_react_imports(files)
+        result = fix_react_imports(files)
         assert 'import React, { useState } from "react";' in result[0].content
         assert 'import { createRoot } from "react-dom/client";' in result[0].content
         assert "ReactDOM.createRoot" not in result[0].content
@@ -167,7 +162,7 @@ class TestFixReactImports:
         files = [
             ProjectFile(path="App.jsx", content=content, file_type=FileType.jsx),
         ]
-        result = _fix_react_imports(files)
+        result = fix_react_imports(files)
         assert result[0].content == content
 
 
@@ -178,21 +173,21 @@ class TestValidateGeneratedFiles:
             ProjectFile(path="style.css", content="body { color: red; margin: 0; padding: 0; font-family: sans-serif; }", file_type=FileType.css),
             ProjectFile(path="script.js", content="// js", file_type=FileType.js),
         ]
-        warnings = _validate_generated_files(files)
+        warnings = validate_generated_files(files)
         assert len(warnings) == 0
 
     def test_missing_index_html(self):
         files = [
             ProjectFile(path="style.css", content="body {}", file_type=FileType.css),
         ]
-        warnings = _validate_generated_files(files)
+        warnings = validate_generated_files(files)
         assert any("Missing required file: index.html" in w for w in warnings)
 
     def test_missing_style_css(self):
         files = [
             ProjectFile(path="index.html", content="<html></html>", file_type=FileType.html),
         ]
-        warnings = _validate_generated_files(files)
+        warnings = validate_generated_files(files)
         assert any("Missing required file: style.css" in w for w in warnings)
 
     def test_missing_script_js(self):
@@ -200,7 +195,7 @@ class TestValidateGeneratedFiles:
             ProjectFile(path="index.html", content="<html></html>", file_type=FileType.html),
             ProjectFile(path="style.css", content="body {}", file_type=FileType.css),
         ]
-        warnings = _validate_generated_files(files)
+        warnings = validate_generated_files(files)
         assert any("Missing required file: script.js" in w for w in warnings)
 
     def test_html_missing_body_tag(self):
@@ -209,7 +204,7 @@ class TestValidateGeneratedFiles:
             ProjectFile(path="style.css", content="body {}", file_type=FileType.css),
             ProjectFile(path="script.js", content="// js", file_type=FileType.js),
         ]
-        warnings = _validate_generated_files(files)
+        warnings = validate_generated_files(files)
         assert any("missing <body> tag" in w for w in warnings)
 
     def test_html_missing_title_tag(self):
@@ -218,7 +213,7 @@ class TestValidateGeneratedFiles:
             ProjectFile(path="style.css", content="body {}", file_type=FileType.css),
             ProjectFile(path="script.js", content="// js", file_type=FileType.js),
         ]
-        warnings = _validate_generated_files(files)
+        warnings = validate_generated_files(files)
         assert any("missing <title> tag" in w for w in warnings)
 
     def test_html_missing_css_link(self):
@@ -227,7 +222,7 @@ class TestValidateGeneratedFiles:
             ProjectFile(path="style.css", content="body {}", file_type=FileType.css),
             ProjectFile(path="script.js", content="// js", file_type=FileType.js),
         ]
-        warnings = _validate_generated_files(files)
+        warnings = validate_generated_files(files)
         assert any("does not link to style.css" in w for w in warnings)
 
     def test_empty_css_warning(self):
@@ -236,7 +231,7 @@ class TestValidateGeneratedFiles:
             ProjectFile(path="style.css", content="", file_type=FileType.css),
             ProjectFile(path="script.js", content="// js", file_type=FileType.js),
         ]
-        warnings = _validate_generated_files(files)
+        warnings = validate_generated_files(files)
         assert any("style.css is empty" in w for w in warnings)
 
     def test_short_css_warning(self):
@@ -245,7 +240,7 @@ class TestValidateGeneratedFiles:
             ProjectFile(path="style.css", content="a {}", file_type=FileType.css),
             ProjectFile(path="script.js", content="// js", file_type=FileType.js),
         ]
-        warnings = _validate_generated_files(files)
+        warnings = validate_generated_files(files)
         assert any("style.css seems too short" in w for w in warnings)
 
     # ── React framework validation ─────────────────────────────
@@ -254,7 +249,7 @@ class TestValidateGeneratedFiles:
         files = [
             ProjectFile(path="style.css", content="body {}", file_type=FileType.css),
         ]
-        warnings = _validate_generated_files(files, framework="react")
+        warnings = validate_generated_files(files, framework="react")
         assert any("Missing required file: App.jsx" in w for w in warnings)
 
     def test_react_has_app_jsx(self):
@@ -262,7 +257,7 @@ class TestValidateGeneratedFiles:
             ProjectFile(path="App.jsx", content='import React from "react";', file_type=FileType.jsx),
             ProjectFile(path="style.css", content="body {}", file_type=FileType.css),
         ]
-        warnings = _validate_generated_files(files, framework="react")
+        warnings = validate_generated_files(files, framework="react")
         assert not any("App.jsx" in w for w in warnings)
 
     def test_react_does_not_require_index_html(self):
@@ -270,7 +265,7 @@ class TestValidateGeneratedFiles:
             ProjectFile(path="App.jsx", content='import React from "react";', file_type=FileType.jsx),
             ProjectFile(path="style.css", content="body {}", file_type=FileType.css),
         ]
-        warnings = _validate_generated_files(files, framework="react")
+        warnings = validate_generated_files(files, framework="react")
         assert not any("index.html" in w for w in warnings)
 
     def test_react_does_not_require_script_js(self):
@@ -278,14 +273,14 @@ class TestValidateGeneratedFiles:
             ProjectFile(path="App.jsx", content='import React from "react";', file_type=FileType.jsx),
             ProjectFile(path="style.css", content="body {}", file_type=FileType.css),
         ]
-        warnings = _validate_generated_files(files, framework="react")
+        warnings = validate_generated_files(files, framework="react")
         assert not any("script.js" in w for w in warnings)
 
     def test_react_still_requires_style_css(self):
         files = [
             ProjectFile(path="App.jsx", content='import React from "react";', file_type=FileType.jsx),
         ]
-        warnings = _validate_generated_files(files, framework="react")
+        warnings = validate_generated_files(files, framework="react")
         assert any("Missing required file: style.css" in w for w in warnings)
 
     def test_react_vanilla_still_validates_normally(self):
@@ -294,7 +289,7 @@ class TestValidateGeneratedFiles:
             ProjectFile(path="style.css", content="body { color: red; margin: 0; padding: 0; font-family: sans-serif; }", file_type=FileType.css),
             ProjectFile(path="script.js", content="// js", file_type=FileType.js),
         ]
-        warnings = _validate_generated_files(files, framework="vanilla")
+        warnings = validate_generated_files(files, framework="vanilla")
         assert len(warnings) == 0
 
 

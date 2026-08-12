@@ -47,7 +47,11 @@ API docs: `http://localhost:8000/docs`
 | `backend/app/routers/upload.py` | Design image upload + two-stage vision pipeline |
 | `backend/app/routers/auth.py` | Auth endpoints |
 | `backend/app/services/project_service.py` | PostgreSQL-backed project + file + chat management (asyncpg) |
-| `backend/app/services/ai_service.py` | Abstract BaseAIProvider + HttpAIProvider (OpenAI-compatible) |
+| `backend/app/services/ai_service.py` | Abstract BaseAIProvider + HttpAIProvider + StreamingHttpAIProvider |
+| `backend/app/services/prompts.py` | All system prompt templates (vanilla, React, design upload, Figma) |
+| `backend/app/services/json_parser.py` | JSON/markdown parsing with repair strategies for LLM output |
+| `backend/app/services/file_validator.py` | React import fixing + generated file validation |
+| `backend/app/services/figma_service.py` | Figma REST API client + design prompt builder |
 | `backend/app/services/figma_service.py` | Figma REST API client + design prompt builder |
 | `backend/app/services/auth_service.py` | JWT + password hashing + user CRUD |
 | `backend/app/db/database.py` | asyncpg pool manager + migration runner |

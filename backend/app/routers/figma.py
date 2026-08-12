@@ -17,7 +17,8 @@ from app.models.schemas import (
     ProjectCreate,
 )
 from app.routers.dependencies import get_current_user
-from app.services.ai_service import BaseAIProvider, RateLimitError, _FIGMA_SYSTEM_PROMPT
+from app.services.ai_service import BaseAIProvider, RateLimitError
+from app.services.prompts import _FIGMA_SYSTEM_PROMPT
 from app.services.figma_service import FigmaApiError, FigmaRateLimitError, FigmaService
 from app.services.project_service import ProjectService
 
