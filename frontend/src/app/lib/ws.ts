@@ -19,9 +19,23 @@ export interface StreamSession {
 
 const WS_BASE = process.env.NEXT_PUBLIC_WS_URL || "ws://localhost:8000";
 
+/** Number of reconnection attempts before giving up. */
+const MAX_RECONNECT_ATTEMPTS = 3;
+/** Delay between reconnection attempts (milliseconds). */
+const RECONNECT_DELAY_MS = 1500;
+
 export function generateStream(callbacks: StreamCallbacks): StreamSession {
   let ws: WebSocket | null = null;
   let closed = false;
+  let reconnectAttempts = 0;
+  let reconnectTimer: ReturnType<typeof setTimeout> | null = null;
+
+  const cleanup = () => {
+    if (reconnectTimer) {
+      clearTimeout(reconnectTimer);
+      reconnectTimer = null;
+    }
+  };
 
   const connect = (prompt: string, projectId?: string, framework?: string) => {
     if (closed) return;
@@ -29,12 +43,16 @@ export function generateStream(callbacks: StreamCallbacks): StreamSession {
     ws = new WebSocket(`${WS_BASE}/api/ai/ws/generate`);
 
     ws.onopen = () => {
-      ws?.send(JSON.stringify({
-        type: "generate",
-        prompt,
-        project_id: projectId || null,
-        framework: framework || "vanilla",
-      }));
+      // Reset reconnect counter on successful connection
+      reconnectAttempts = 0;
+      ws?.send(
+        JSON.stringify({
+          type: "generate",
+          prompt,
+          project_id: projectId || null,
+          framework: framework || "vanilla",
+        }),
+      );
     };
 
     ws.onmessage = (event) => {
@@ -58,9 +76,11 @@ export function generateStream(callbacks: StreamCallbacks): StreamSession {
             callbacks.onProject?.(msg.project_id, msg.project_name);
             break;
           case "done":
+            cleanup();
             callbacks.onDone?.(msg.message, msg.files);
             break;
           case "error":
+            cleanup();
             callbacks.onError?.(msg.detail, msg.retry_after);
             break;
         }
@@ -70,13 +90,31 @@ export function generateStream(callbacks: StreamCallbacks): StreamSession {
     };
 
     ws.onerror = () => {
-      if (!closed) {
-        callbacks.onError?.("WebSocket connection failed. Falling back to REST.");
-      }
+      // onerror fires before onclose, so we handle reconnection in onclose
     };
 
-    ws.onclose = () => {
-      // No-op; session is done
+    ws.onclose = (event) => {
+      if (closed) return; // intentional close — no reconnect
+      if (event.code === 1000) return; // normal closure — no reconnect
+
+      // If we already received a "done" or "error" event, don't reconnect
+      // (the WS closes normally after those events are sent).
+      // Unexpected close: attempt reconnection.
+      if (reconnectAttempts < MAX_RECONNECT_ATTEMPTS) {
+        reconnectAttempts++;
+        console.warn(
+          `WebSocket closed unexpectedly (code=${event.code}). Reconnecting in ${RECONNECT_DELAY_MS}ms (attempt ${reconnectAttempts}/${MAX_RECONNECT_ATTEMPTS})...`,
+        );
+        reconnectTimer = setTimeout(
+          () => connect(prompt, projectId, framework),
+          RECONNECT_DELAY_MS,
+        );
+      } else {
+        cleanup();
+        callbacks.onError?.(
+          `WebSocket connection failed after ${MAX_RECONNECT_ATTEMPTS} attempts. Falling back to REST.`,
+        );
+      }
     };
   };
 
@@ -86,6 +124,7 @@ export function generateStream(callbacks: StreamCallbacks): StreamSession {
     },
     close: () => {
       closed = true;
+      cleanup();
       ws?.close();
       ws = null;
     },

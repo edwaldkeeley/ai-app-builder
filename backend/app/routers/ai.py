@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import asyncio
 import json
 from uuid import UUID
 
@@ -221,12 +222,33 @@ async def ws_generate(websocket: WebSocket, token: str | None = None):
         if done_event and project_id:
             done_files_data = done_event.get("files", [])
             done_files = [ProjectFile(**f) for f in done_files_data]
-            await _service.upsert_files_transactional(project_id, done_files)
 
-            # Save chat messages
-            await _service.save_chat_message(project_id, "user", prompt)
-            done_message = done_event.get("message", "")
-            await _service.save_chat_message(project_id, "assistant", done_message, done_files)
+            # Retry persistence on transient DB failures (e.g. connection blip)
+            max_persist_retries = 3
+            persist_success = False
+            for persist_attempt in range(max_persist_retries):
+                try:
+                    await _service.upsert_files_transactional(project_id, done_files)
+                    await _service.save_chat_message(project_id, "user", prompt)
+                    done_message = done_event.get("message", "")
+                    await _service.save_chat_message(project_id, "assistant", done_message, done_files)
+                    persist_success = True
+                    break
+                except Exception as pe:
+                    if persist_attempt < max_persist_retries - 1:
+                        logger.warning("DB persistence failed (attempt %d/%d), retrying in 1s: %s",
+                                        persist_attempt + 1, max_persist_retries, pe)
+                        await asyncio.sleep(1)
+                    else:
+                        logger.error("DB persistence failed after %d attempts: %s", max_persist_retries, pe)
+                        # Notify the client that files are in their UI but may not survive reload
+                        try:
+                            await websocket.send_json({
+                                "type": "error",
+                                "detail": "Code generated successfully but failed to save to database. Please try again.",
+                            })
+                        except WebSocketDisconnect:
+                            pass
 
     except WebSocketDisconnect:
         return

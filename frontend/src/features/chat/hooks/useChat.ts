@@ -220,9 +220,8 @@ export function useChat() {
 
       // Fall back to REST if WebSocket failed
       if (streamError) {
-        showToast("info", "WebSocket timed out, falling back to REST...");
+        setWritingStatus({ type: "thinking", message: "Generating..." });
         try {
-          setWritingStatus({ type: "thinking", message: "Falling back to REST..." });
           const result = await api.generate(prompt, resolvedProjectId, framework);
           const finalContent = result.message || `Generated ${result.files.length} file${result.files.length !== 1 ? "s" : ""}`;
           setChatMessagesWithRef((prev) => {

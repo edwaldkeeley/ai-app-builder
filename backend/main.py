@@ -18,9 +18,16 @@ from pathlib import Path
 
 logger = logging.getLogger(__name__)
 
-from fastapi import FastAPI
+from fastapi import FastAPI, Request, status
+from fastapi.exceptions import RequestValidationError
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.middleware.gzip import GZipMiddleware
+from fastapi.responses import JSONResponse
+
+# Ensure the backend package is importable when running from the project root
+_backend_dir = Path(__file__).resolve().parent
+if str(_backend_dir) not in sys.path:
+    sys.path.insert(0, str(_backend_dir))
 
 # Ensure the backend package is importable when running from the project root
 _backend_dir = Path(__file__).resolve().parent
@@ -109,6 +116,45 @@ app.add_middleware(
 
 # ── GZip compression for API responses ────────────────────
 app.add_middleware(GZipMiddleware, minimum_size=1000)
+
+# ── Global exception handlers ─────────────────────────────
+# These ensure the API always returns structured JSON errors
+# instead of raw HTML or opaque 500s.
+
+
+@app.exception_handler(RequestValidationError)
+async def validation_exception_handler(request: Request, exc: RequestValidationError):
+    """Handle Pydantic validation errors — return 422 with field-level details."""
+    return JSONResponse(
+        status_code=status.HTTP_422_UNPROCESSABLE_ENTITY,
+        content={
+            "detail": "Request validation failed",
+            "errors": exc.errors(),
+        },
+    )
+
+
+@app.exception_handler(ValueError)
+async def value_error_handler(request: Request, exc: ValueError):
+    """Handle business-logic ValueErrors as 400 Bad Request."""
+    return JSONResponse(
+        status_code=status.HTTP_400_BAD_REQUEST,
+        content={"detail": str(exc)},
+    )
+
+
+@app.exception_handler(Exception)
+async def global_exception_handler(request: Request, exc: Exception):
+    """Catch-all for any unhandled exception — returns 500 JSON.
+
+    Logs the full traceback for debugging but only returns a safe
+    message to the client (no stack traces in production responses).
+    """
+    logger.exception("Unhandled exception on %s %s: %s", request.method, request.url.path, exc)
+    return JSONResponse(
+        status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
+        content={"detail": "An internal server error occurred. Please try again later."},
+    )
 
 # ── Routers ───────────────────────────────────────────────
 app.include_router(projects.router)

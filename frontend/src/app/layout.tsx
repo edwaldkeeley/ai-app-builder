@@ -4,6 +4,7 @@ import "./globals.css";
 import { AuthProvider } from "@/app/(auth)/contexts/AuthContext";
 import { ToastProvider } from "@/components/ui/Toast";
 import { ThemeProvider } from "@/features/layout/contexts/ThemeContext";
+import { ErrorBoundary } from "@/components/ui/ErrorBoundary";
 
 const geistSans = Geist({
   variable: "--font-geist-sans",
@@ -59,7 +60,9 @@ export default function RootLayout({
       <body className="h-dvh overflow-hidden">
         <ThemeProvider>
           <ToastProvider>
-            <AuthProvider>{children}</AuthProvider>
+            <AuthProvider>
+              <ErrorBoundary>{children}</ErrorBoundary>
+            </AuthProvider>
           </ToastProvider>
         </ThemeProvider>
       </body>
