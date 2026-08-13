@@ -52,7 +52,6 @@ API docs: `http://localhost:8000/docs`
 | `backend/app/services/json_parser.py` | JSON/markdown parsing with repair strategies for LLM output |
 | `backend/app/services/file_validator.py` | React import fixing + generated file validation |
 | `backend/app/services/figma_service.py` | Figma REST API client + design prompt builder |
-| `backend/app/services/figma_service.py` | Figma REST API client + design prompt builder |
 | `backend/app/services/auth_service.py` | JWT + password hashing + user CRUD |
 | `backend/app/db/database.py` | asyncpg pool manager + migration runner |
 | `backend/app/db/migrations/` | Append-only SQL migration files |
@@ -117,7 +116,7 @@ New projects get boilerplate: `index.html`, `style.css`, `script.js` (vanilla) o
 | `JWT_TOKEN` | (required) | AI provider JWT bearer token |
 | `MODEL` | (required) | AI model identifier |
 | `MAX_TOKENS` | `16384` | Max output tokens |
-| `TIMEOUT_SECONDS` | `600` | AI provider request timeout |
+| `TIMEOUT_SECONDS` | `1200` | AI provider request timeout |
 | `DESIGN_UPLOAD_TARGET_URL` | (falls back to TARGET_URL) | Optional separate endpoint for vision model |
 | `DESIGN_UPLOAD_JWT_TOKEN` | (falls back to JWT_TOKEN) | Optional separate JWT for vision |
 | `DESIGN_UPLOAD_MODEL` | (falls back to MODEL) | Optional separate model for vision |

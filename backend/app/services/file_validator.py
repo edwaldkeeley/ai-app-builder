@@ -19,7 +19,8 @@ def fix_react_imports(files: list[ProjectFile]) -> list[ProjectFile]:
     instead of proper ES module imports:
       import React, { useState } from "react";
 
-    This function rewrites the imports to the correct ES module syntax.
+    This function rewrites the imports to the correct ES module syntax,
+    handling both top-level and indented (inside function body) patterns.
     """
     fixed: list[ProjectFile] = []
     for f in files:
@@ -29,15 +30,36 @@ def fix_react_imports(files: list[ProjectFile]) -> list[ProjectFile]:
 
         content = f.content
 
-        # Pattern 1: const { useState, useEffect } = React;
+        # Pattern 1: const { useState, useEffect } = React; (with or without indent)
         # -> import React, { useState, useEffect } from "react";
+        # The import must be placed at the TOP of the file (no indent), even if
+        # the original const assignment was inside a function body.
         import_pattern = re.compile(
-            r'const\s*\{\s*([^}]+)\s*\}\s*=\s*React\s*;?\s*\n?'
+            r'^[ \t]*const\s*\{\s*([^}]+)\s*\}\s*=\s*React\s*;?\s*\n?',
+            re.MULTILINE,
         )
-        content = import_pattern.sub(
-            lambda m: f'import React, {{ {m.group(1).strip()} }} from "react";\n',
-            content,
-        )
+        imports_found = []
+        def _collect_import(m: re.Match) -> str:
+            hooks = m.group(1).strip()
+            imports_found.append(hooks)
+            return ""  # remove the line entirely
+
+        content = import_pattern.sub(_collect_import, content)
+        if imports_found:
+            # Collect all unique hooks
+            all_hooks = []
+            seen = set()
+            for hooks in imports_found:
+                for h in [x.strip() for x in hooks.split(",")]:
+                    if h and h not in seen:
+                        seen.add(h)
+                        all_hooks.append(h)
+
+            hook_list = ", ".join(all_hooks)
+            import_line = f'import React, {{ {hook_list} }} from "react";\n'
+            # Only add the import if it's not already present
+            if f'from "react"' not in content and "from 'react'" not in content:
+                content = import_line + content.lstrip()
 
         # Pattern 2: const root = ReactDOM.createRoot(...)
         # -> import { createRoot } from "react-dom/client";
@@ -47,9 +69,17 @@ def fix_react_imports(files: list[ProjectFile]) -> list[ProjectFile]:
             if 'from "react-dom/client"' not in content and "from 'react-dom/client'" not in content:
                 content = 'import { createRoot } from "react-dom/client";\n' + content
 
-        # Pattern 3: React.useState, React.useEffect, etc.
-        # -> useState, useEffect (already imported via pattern 1)
-        content = re.sub(r'React\.(\w+)', r'\1', content)
+        # Pattern 3: React.X used in JSX/JS expressions (but not inside string literals).
+        # After Pattern 1, React is imported so React.useState() is valid JS.
+        # But some tools/transpilers prefer bare hook names. Only replace when
+        # the React.X token appears as actual code (not inside a string or comment).
+        # Heuristic: React. followed by a word boundary, NOT preceded by a quote
+        # character (i.e. not inside a string literal).
+        content = re.sub(
+            r'(?<!["\'`])React\.(\w+)',
+            r'\1',
+            content,
+        )
 
         fixed.append(ProjectFile(path=f.path, content=content, file_type=f.file_type))
 

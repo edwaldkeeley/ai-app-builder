@@ -104,18 +104,52 @@ def _code_blocks_to_files(
     return message, list(merged_map.values())
 
 
+def _replace_single_quote_json(s: str) -> str:
+    """Replace single quotes used as JSON string delimiters, NOT apostrophes.
+
+    Strategy: walk through the string character by character. Track whether
+    we're inside a double-quoted string. A single quote is a JSON delimiter
+    only when we are NOT inside a double-quoted string. Apostrophes inside
+    double-quoted values are left untouched.
+
+    This is imperfect — it can't distinguish a JSON value quoted with single
+    quotes from a ``don't`` in unquoted text — but it's far better than the
+    blanket replacement.
+    """
+    result = []
+    in_double = False
+    escaped = False
+    for ch in s:
+        if escaped:
+            result.append(ch)
+            escaped = False
+            continue
+        if ch == '\\':
+            result.append(ch)
+            escaped = True
+            continue
+        if ch == '"':
+            in_double = not in_double
+            result.append(ch)
+            continue
+        if ch == "'" and not in_double:
+            result.append('"')
+            continue
+        result.append(ch)
+    return ''.join(result)
+
+
 def _repair_json(content: str) -> str:
     """Attempt to repair common JSON issues from LLM output.
 
     Handles:
-    - Single quotes instead of double quotes
+    - Single quotes instead of double quotes (preserves apostrophes)
     - Trailing commas before ``]`` or ``}``
     - Missing commas between key-value pairs or array elements
     - Unquoted string values (e.g. ``true``, ``null`` — these are valid JSON)
     """
-    # Replace single quotes with double quotes FIRST so all subsequent regexes
-    # can rely on double-quote patterns
-    content = content.replace("'", '"')
+    # Replace single quotes used as JSON delimiters, NOT apostrophes inside words
+    content = _replace_single_quote_json(content)
 
     # Strip trailing commas before ] or }
     content = re.sub(r",\s*([}\]])", r"\1", content)
@@ -142,57 +176,6 @@ def _repair_json(content: str) -> str:
     content = re.sub(r'"\s*\{', r'", {', content)
 
     return content
-
-
-def try_parse_json(content: str) -> dict | None:
-    """Try multiple strategies to parse JSON from LLM output.
-
-    Returns the parsed dict on success, or ``None`` if all strategies fail.
-    """
-    strategies = [
-        ("basic trailing comma fix", lambda c: re.sub(r",\s*([}\]])", r"\1", c)),
-        ("comprehensive repair", _repair_json),
-    ]
-
-    for name, fixer in strategies:
-        try:
-            fixed = fixer(content)
-            return json.loads(fixed)
-        except json.JSONDecodeError as e:
-            logger.debug("Strategy '%s' failed at line %d col %d: %s",
-                          name, e.lineno, e.colno, e.msg)
-            continue
-
-    # Last resort: try ast.literal_eval after converting JSON literals to Python
-    try:
-        import ast as _ast
-        py_content = content
-        py_content = py_content.replace("true", "True")
-        py_content = py_content.replace("false", "False")
-        py_content = py_content.replace("null", "None")
-        result = _ast.literal_eval(py_content)
-        if isinstance(result, dict):
-            return result
-    except (SyntaxError, ValueError) as e:
-        logger.debug("ast.literal_eval failed: %s", e)
-
-    # Absolute last resort: use raw_decode to find the first valid JSON object.
-    # This handles cases where the model appends extra text after valid JSON.
-    try:
-        decoder = json.JSONDecoder()
-        for fixer_name, fixer in strategies:
-            fixed = fixer(content)
-            try:
-                obj, _ = decoder.raw_decode(fixed)
-                if isinstance(obj, dict):
-                    logger.debug("raw_decode succeeded after '%s'", fixer_name)
-                    return obj
-            except json.JSONDecodeError:
-                continue
-    except Exception:
-        pass
-
-    return None
 
 
 def parse_final_json(
@@ -252,8 +235,8 @@ def parse_final_json(
         except ValueError:
             file_type = FileType.other
 
-        ai_files_map[f["path"]] = ProjectFile(
-            path=f["path"],
+        ai_files_map[f.get("path", "")] = ProjectFile(
+            path=f.get("path", ""),
             content=f.get("content", ""),
             file_type=file_type,
         )

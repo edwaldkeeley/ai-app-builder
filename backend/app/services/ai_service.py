@@ -748,15 +748,28 @@ class StreamingHttpAIProvider(BaseAIProvider):
                                     yield {"type": "message_chunk", "delta": new_part}
 
                         # --- Try to parse partial JSON for file content ---
-                        partial = re.sub(r"^```(?:json)?\s*", "", accumulated_content.strip())
-                        partial = re.sub(r"\s*```$", "", partial)
-                        first_brace = partial.find("{")
-                        last_brace = partial.rfind("}")
+                        # Extract JSON from the accumulated content for partial
+                        # parsing. We work on a COPY so we don't corrupt the
+                        # accumulated_content used later for final parsing.
+                        partial_copy = accumulated_content.strip()
+                        # Only strip outer ``` fences if the ENTIRE content
+                        # is wrapped in a single code block — otherwise the
+                        # regex could strip the closing fence from the last
+                        # block in multi-block content.
+                        if (
+                            partial_copy.startswith("```")
+                            and partial_copy.rstrip().endswith("```")
+                        ):
+                            partial_copy = re.sub(r"^```(?:json)?\s*", "", partial_copy)
+                            if partial_copy.rstrip().endswith("```"):
+                                partial_copy = re.sub(r"\s*```$", "", partial_copy)
+                        first_brace = partial_copy.find("{")
+                        last_brace = partial_copy.rfind("}")
                         if first_brace != -1 and last_brace != -1 and last_brace > first_brace:
-                            partial = partial[first_brace : last_brace + 1]
+                            partial_copy = partial_copy[first_brace : last_brace + 1]
 
                         try:
-                            parsed = json.loads(partial)
+                            parsed = json.loads(partial_copy)
                             raw_files = parsed.get("files", [])
                             for f in raw_files:
                                 fpath = f.get("path", "")

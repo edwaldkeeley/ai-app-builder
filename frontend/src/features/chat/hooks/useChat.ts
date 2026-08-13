@@ -204,14 +204,14 @@ export function useChat() {
           },
         });
 
-        // Timeout: if WebSocket doesn't complete in 10 minutes, fall back to REST
+        // Timeout: if WebSocket doesn't complete in 20 minutes, fall back to REST
         const timeoutId = setTimeout(() => {
           if (completed) return; // already resolved by onDone/onError
           completed = true;
           streamError = streamError || "WebSocket timed out";
           session.close();
           resolve();
-        }, 600000);
+        }, 1200000);
 
         session.send(prompt, projectId, framework);
       });

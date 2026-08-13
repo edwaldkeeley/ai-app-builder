@@ -29,7 +29,7 @@ class Settings(BaseSettings):
     design_upload_jwt_token: str = ""   # Optional: separate JWT for design upload
     design_upload_model: str = ""       # Optional: separate model for design upload
     max_tokens: int = 0  # 0 = use provider default (provider says no token limits)
-    timeout_seconds: int = 600  # AI provider request timeout (default 10 min)
+    timeout_seconds: int = 1200  # AI provider request timeout (default 20 min)
 
     # ── Upload ────────────────────────────────────────────
     max_upload_size_mb: int = 10  # Max design upload file size in MB

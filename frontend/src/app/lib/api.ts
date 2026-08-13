@@ -17,7 +17,7 @@ class ApiError extends Error {
   }
 }
 
-async function request<T>(path: string, options?: RequestInit, timeoutMs = 120000): Promise<T> {
+async function request<T>(path: string, options?: RequestInit, timeoutMs = 600000): Promise<T> {
   const controller = new AbortController();
   const timeoutId = setTimeout(() => controller.abort(), timeoutMs);
 
@@ -220,7 +220,7 @@ export const api = {
     return request("/api/figma/import-url", {
       method: "POST",
       body: JSON.stringify({ figma_url: figmaUrl, access_token: accessToken }),
-    }, 300000); // 5 min timeout — Figma fetch + AI generation
+    }, 600000); // 10 min timeout — Figma fetch + AI generation
   },
 
   // ── Auth ──────────────────────────────────────────────────
