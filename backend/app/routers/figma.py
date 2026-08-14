@@ -18,9 +18,12 @@ from app.models.schemas import (
 )
 from app.routers.dependencies import get_current_user
 from app.services.ai_service import BaseAIProvider, RateLimitError
-from app.services.prompts import _FIGMA_SYSTEM_PROMPT
-from app.services.figma_service import FigmaApiError, FigmaRateLimitError, FigmaService
+from app.services.figma_filter import extract_file_key
+from app.services.figma_service import FigmaService
+from app.services.figma_types import FigmaApiError, FigmaRateLimitError
+from app.services.figma_tree_walker import build_design_prompt
 from app.services.project_service import ProjectService
+from app.services.prompts import _FIGMA_SYSTEM_PROMPT
 
 logger = logging.getLogger(__name__)
 
@@ -63,7 +66,7 @@ async def import_figma_url(body: FigmaUrlImportRequest, current_user: dict = Dep
 
     # Extract the file key from the URL
     try:
-        file_key = FigmaService.extract_file_key(body.figma_url)
+        file_key = extract_file_key(body.figma_url)
     except ValueError as e:
         raise HTTPException(status_code=400, detail=str(e))
 
@@ -107,7 +110,7 @@ async def import_figma_url(body: FigmaUrlImportRequest, current_user: dict = Dep
         )
 
     # Build a structured design prompt from the Figma data
-    design_prompt = _figma.build_design_prompt(file_data)
+    design_prompt = build_design_prompt(file_data)
     design_name = file_data.get("name", "Figma Import")
 
     # Create a new project
