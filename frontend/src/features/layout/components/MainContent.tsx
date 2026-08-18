@@ -30,6 +30,7 @@ interface MainContentProps {
   onViewModeChange: (mode: ViewMode) => void;
   onFigmaImportComplete?: (projectId: string) => void;
   onDesignUploadComplete?: (projectId: string) => void;
+  onCreateFromTemplate?: (templateId: string) => void;
   isMobile?: boolean;
   dirtyFiles?: Set<string>;
   framework: "vanilla" | "react";
@@ -61,6 +62,7 @@ const MainContent = memo(function MainContent({
   onViewModeChange,
   onFigmaImportComplete,
   onDesignUploadComplete,
+  onCreateFromTemplate,
   isMobile,
   dirtyFiles,
   framework,
@@ -294,6 +296,7 @@ const MainContent = memo(function MainContent({
       onFrameworkChange={onFrameworkChange}
       onFigmaImportComplete={onFigmaImportComplete}
       onDesignUploadComplete={onDesignUploadComplete}
+      onCreateFromTemplate={onCreateFromTemplate}
     />
   );
 });

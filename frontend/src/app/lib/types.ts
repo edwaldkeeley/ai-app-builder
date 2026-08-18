@@ -68,6 +68,14 @@ export interface RegisterRequest {
   password: string;
 }
 
+export interface Template {
+  id: string;
+  name: string;
+  description: string;
+  frameworks: string[];
+  preview_snippet: string;
+}
+
 export interface ChatMessageSchema {
   id: number;
   project_id: string;

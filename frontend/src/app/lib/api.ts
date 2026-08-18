@@ -1,4 +1,4 @@
-import type { ChatMessageSchema, GenerateResponse, Project, ProjectDetail, ProjectFile, SandboxState, User } from "./types";
+import type { ChatMessageSchema, GenerateResponse, Project, ProjectDetail, ProjectFile, SandboxState, Template, User } from "./types";
 
 const BASE = process.env.NEXT_PUBLIC_API_URL || "http://localhost:8000";
 
@@ -141,15 +141,19 @@ export const api = {
     return withCache("projects", () => request<Project[]>("/api/projects/"));
   },
 
+  listTemplates(): Promise<Template[]> {
+    return request<Template[]>("/api/templates");
+  },
+
   getProject(id: string): Promise<ProjectDetail> {
     return withCache(`project:${id}`, () => request<ProjectDetail>(`/api/projects/${id}`));
   },
 
-  createProject(name: string, description = ""): Promise<ProjectDetail> {
+  createProject(name: string, description = "", template?: string, framework?: string): Promise<ProjectDetail> {
     invalidateCache("projects");
     return request("/api/projects/", {
       method: "POST",
-      body: JSON.stringify({ name, description }),
+      body: JSON.stringify({ name, description, template, framework }),
     });
   },
 

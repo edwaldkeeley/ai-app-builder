@@ -29,17 +29,13 @@ _backend_dir = Path(__file__).resolve().parent
 if str(_backend_dir) not in sys.path:
     sys.path.insert(0, str(_backend_dir))
 
-# Ensure the backend package is importable when running from the project root
-_backend_dir = Path(__file__).resolve().parent
-if str(_backend_dir) not in sys.path:
-    sys.path.insert(0, str(_backend_dir))
-
 from app.config import settings  # noqa: E402
 from app.db.database import close_pool, init_pool, run_migrations  # noqa: E402
 from app.routers import ai, auth, chat, figma, projects, sandbox, upload  # noqa: E402
 from app.services.ai_service import create_design_upload_provider, create_provider  # noqa: E402
 from app.services.figma_service import FigmaService  # noqa: E402
 from app.services.project_service import ProjectService  # noqa: E402
+from app.services.templates import list_templates  # noqa: E402
 
 
 @asynccontextmanager
@@ -164,6 +160,15 @@ app.include_router(chat.router)
 app.include_router(figma.router)
 app.include_router(upload.router)
 app.include_router(auth.router)
+
+
+# ── Templates (public, no auth) ───────────────────────────────
+
+
+@app.get("/api/templates")
+async def get_templates():
+    """List all available starter templates."""
+    return list_templates()
 
 
 @app.get("/api/health")

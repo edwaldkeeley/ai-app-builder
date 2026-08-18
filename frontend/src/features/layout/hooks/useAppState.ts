@@ -60,6 +60,7 @@ export interface AppState {
   handleFrameworkChange: (framework: "vanilla" | "react") => void;
   handleBackToProjects: () => void;
   handleRenameProject: (id: string, name: string) => void;
+  handleCreateFromTemplate: (templateId: string) => void;
   handleFigmaImportComplete: (projectId: string) => void;
   handleDesignUploadComplete: (projectId: string) => void;
   handleDuplicateProject: (id: string) => void;
@@ -248,6 +249,24 @@ export function useAppState(): AppState {
     }
   }, [fetchProjects, showToast, selectProject, setChatMode]);
 
+  const handleCreateFromTemplate = useCallback(async (templateId: string) => {
+    try {
+      const project = await api.createProject(
+        `New ${templateId.replace("-", " ")}`,
+        "",
+        templateId,
+        framework,
+      );
+      setFiles(project.files);
+      fetchProjects();
+      selectProject(project.id);
+      setChatMode(true);
+      showToast("success", `Created "${project.name}"`);
+    } catch {
+      showToast("error", "Failed to create project from template");
+    }
+  }, [fetchProjects, selectProject, setChatMode, setFiles, framework, showToast]);
+
   const handleFigmaImportComplete = useCallback((projectId: string) => {
     fetchProjects();
     selectProject(projectId);
@@ -343,6 +362,7 @@ export function useAppState(): AppState {
     handleFrameworkChange,
     handleBackToProjects,
     handleRenameProject,
+    handleCreateFromTemplate,
     handleFigmaImportComplete,
     handleDesignUploadComplete,
     handleDuplicateProject,

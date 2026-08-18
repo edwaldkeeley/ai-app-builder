@@ -6,6 +6,8 @@ import FigmaImport from "@/features/editor/components/FigmaImport";
 import type { FigmaImportHandle } from "@/features/editor/components/FigmaImport";
 import DesignUpload from "@/features/editor/components/DesignUpload";
 import type { DesignUploadHandle } from "@/features/editor/components/DesignUpload";
+import TemplateGallery from "@/features/projects/components/TemplateGallery";
+import type { TemplateGalleryHandle } from "@/features/projects/components/TemplateGallery";
 
 interface LandingPageProps {
   generating: boolean;
@@ -14,6 +16,7 @@ interface LandingPageProps {
   onFrameworkChange: (framework: "vanilla" | "react") => void;
   onFigmaImportComplete?: (projectId: string) => void;
   onDesignUploadComplete?: (projectId: string) => void;
+  onCreateFromTemplate?: (templateId: string) => void;
 }
 
 /**
@@ -26,6 +29,7 @@ const LandingPage = memo(function LandingPage({
   onFrameworkChange,
   onFigmaImportComplete,
   onDesignUploadComplete,
+  onCreateFromTemplate,
 }: LandingPageProps) {
   const [promptValue, setPromptValue] = useState("");
   const [showLandingMenu, setShowLandingMenu] = useState(false);
@@ -33,6 +37,7 @@ const LandingPage = memo(function LandingPage({
   const landingMenuRef = useRef<HTMLDivElement>(null);
   const figmaRef = useRef<FigmaImportHandle>(null);
   const designRef = useRef<DesignUploadHandle>(null);
+  const templateRef = useRef<TemplateGalleryHandle>(null);
 
   // Auto-resize landing prompt textarea
   useEffect(() => {
@@ -105,6 +110,20 @@ const LandingPage = memo(function LandingPage({
               <div className="absolute bottom-full left-0 mb-2 w-56 bg-panel border border-border rounded-xl shadow-xl overflow-hidden z-50 animate-scale-in" role="menu">
                 <div className="p-3 space-y-1">
                   <p className="text-[11px] font-semibold text-text-secondary uppercase tracking-wider px-1 pb-1">Import</p>
+                  <button
+                    onClick={() => { setShowLandingMenu(false); templateRef.current?.open(); }}
+                    className="w-full flex items-center gap-2.5 px-3 py-2 rounded-lg hover:bg-surface transition-colors text-left"
+                    role="menuitem"
+                  >
+                    <svg className="w-4 h-4 text-accent flex-shrink-0" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2}>
+                      <path strokeLinecap="round" strokeLinejoin="round" d="M4 6h16M4 12h16M4 18h7" />
+                    </svg>
+                    <div className="min-w-0">
+                      <div className="text-xs font-medium text-foreground">From Template</div>
+                      <div className="text-[10px] text-text-secondary truncate">Start with a pre-built starter</div>
+                    </div>
+                  </button>
+                  <hr className="border-border my-1" />
                   <button
                     onClick={() => { setShowLandingMenu(false); figmaRef.current?.open(); }}
                     className="w-full flex items-center gap-2.5 px-3 py-2 rounded-lg hover:bg-surface transition-colors text-left"
@@ -185,12 +204,24 @@ const LandingPage = memo(function LandingPage({
           </button>
         </div>
 
+        {/* Browse Templates button */}
+        <button
+          onClick={() => templateRef.current?.open()}
+          className="flex items-center gap-1.5 text-xs text-accent hover:text-accent-hover transition-colors"
+        >
+          <svg className="w-3.5 h-3.5" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2}>
+            <path strokeLinecap="round" strokeLinejoin="round" d="M4 6h16M4 12h16M4 18h7" />
+          </svg>
+          Browse Templates
+        </button>
+
         <p className="text-xs text-text-secondary text-center">
           AI-generated code may not always be perfect. Review and test before using.
         </p>
       </div>
 
-      {/* Imperative modals for landing page import/upload — always rendered but invisible */}
+      {/* Imperative modals for landing page — always rendered but invisible */}
+      <TemplateGallery ref={templateRef} framework={framework} onSelectTemplate={(id) => onCreateFromTemplate?.(id)} />
       <FigmaImport ref={figmaRef} variant="modal-only" onImportComplete={onFigmaImportComplete} />
       <DesignUpload ref={designRef} projectId="" variant="modal-only" onUploadComplete={onDesignUploadComplete} />
     </div>

@@ -83,18 +83,17 @@ class ProjectService:
                     data.framework.value,
                 )
 
-                if data.framework.value == "react":
-                    boilerplate = [
-                        ("App.jsx", REACT_APP_BOILERPLATE, "jsx"),
-                        ("style.css", CSS_BOILERPLATE, "css"),
-                    ]
+                if data.template:
+                    from app.services.templates import get_template_files
+                    template_files = get_template_files(data.template, data.framework.value)
+                    if template_files:
+                        files_to_insert = template_files
+                    else:
+                        files_to_insert = _get_boilerplate(data.framework.value)
                 else:
-                    boilerplate = [
-                        ("index.html", HTML_BOILERPLATE, "html"),
-                        ("style.css", CSS_BOILERPLATE, "css"),
-                        ("script.js", JS_BOILERPLATE, "javascript"),
-                    ]
-                for path, content, file_type in boilerplate:
+                    files_to_insert = _get_boilerplate(data.framework.value)
+
+                for path, content, file_type in files_to_insert:
                     await conn.execute(
                         """
                         INSERT INTO files (project_id, path, content, file_type)
@@ -569,3 +568,17 @@ function App() {
 const root = createRoot(document.getElementById("root"));
 root.render(<App />);
 """
+
+
+def _get_boilerplate(framework: str) -> list[tuple[str, str, str]]:
+    """Return the standard boilerplate file list for a given framework."""
+    if framework == "react":
+        return [
+            ("App.jsx", REACT_APP_BOILERPLATE, "jsx"),
+            ("style.css", CSS_BOILERPLATE, "css"),
+        ]
+    return [
+        ("index.html", HTML_BOILERPLATE, "html"),
+        ("style.css", CSS_BOILERPLATE, "css"),
+        ("script.js", JS_BOILERPLATE, "javascript"),
+    ]

@@ -52,6 +52,7 @@ class ProjectCreate(BaseModel):
     name: str = Field(..., min_length=1, max_length=128, description="Human-readable project name")
     description: str = ""
     framework: Framework = Framework.vanilla
+    template: str | None = Field(None, max_length=64, description="Template name from the gallery; replaces boilerplate")
 
 
 class ProjectUpdate(BaseModel):

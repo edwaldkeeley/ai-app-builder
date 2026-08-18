@@ -122,6 +122,7 @@ export default function Home() {
             onViewModeChange={app.setViewMode}
             onFigmaImportComplete={app.handleFigmaImportComplete}
             onDesignUploadComplete={app.handleDesignUploadComplete}
+            onCreateFromTemplate={app.handleCreateFromTemplate}
             isMobile={app.isMobile}
             dirtyFiles={app.dirtyFiles}
             framework={app.framework}
