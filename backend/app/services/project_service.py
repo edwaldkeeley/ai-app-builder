@@ -115,6 +115,82 @@ class ProjectService:
 
         return self._row_to_project(row, file_rows)
 
+    async def duplicate(self, project_id: UUID, user_id: UUID | None = None) -> Project | None:
+        """Duplicate a project and all its files as a new project.
+
+        The new project's name is ``"{original name} (copy)"``.
+        All operations happen in a single transaction.
+        Returns ``None`` if the original project does not exist.
+        """
+        pool = get_pool()
+        conn = await acquire_with_retry(pool)
+        try:
+            async with conn.transaction():
+                row = await conn.fetchrow(
+                    "SELECT id, name, description, status, framework FROM projects WHERE id = $1",
+                    project_id,
+                )
+                if row is None:
+                    return None
+
+                # Stay within the 128-char name limit
+                base = row["name"]
+                suffix = " (copy)"
+                max_base = 128 - len(suffix)
+                new_name = (base[:max_base] + suffix) if len(base) > max_base else base + suffix
+
+                new_row = await conn.fetchrow(
+                    """
+                    INSERT INTO projects (name, description, user_id, framework, status)
+                    VALUES ($1, $2, $3, $4, $5)
+                    RETURNING id, name, description, status, framework, user_id, created_at, updated_at
+                    """,
+                    new_name,
+                    row["description"],
+                    user_id,
+                    row["framework"],
+                    row["status"],
+                )
+
+                # Copy all files
+                file_rows = await conn.fetch(
+                    "SELECT path, content, file_type FROM files WHERE project_id = $1 ORDER BY path",
+                    project_id,
+                )
+                for fr in file_rows:
+                    await conn.execute(
+                        """
+                        INSERT INTO files (project_id, path, content, file_type)
+                        VALUES ($1, $2, $3, $4)
+                        """,
+                        new_row["id"],
+                        fr["path"],
+                        fr["content"],
+                        fr["file_type"],
+                    )
+
+                copied_files = await conn.fetch(
+                    "SELECT path, content, file_type FROM files WHERE project_id = $1 ORDER BY path",
+                    new_row["id"],
+                )
+        finally:
+            await pool.release(conn)
+
+        return Project(
+            id=new_row["id"],
+            name=new_row["name"],
+            description=new_row["description"],
+            status=new_row["status"],
+            framework=new_row["framework"],
+            user_id=new_row.get("user_id"),
+            files=[
+                ProjectFile(path=r["path"], content=r["content"], file_type=r["file_type"])
+                for r in copied_files
+            ],
+            created_at=new_row["created_at"],
+            updated_at=new_row["updated_at"],
+        )
+
     async def get(self, project_id: UUID) -> Project | None:
         pool = get_pool()
         conn = await acquire_with_retry(pool)

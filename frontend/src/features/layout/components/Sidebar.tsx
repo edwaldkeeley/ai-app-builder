@@ -13,6 +13,7 @@ interface SidebarProps {
   onSelectProject: (id: string) => void;
   onNewProject: () => void;
   onDeleteProject: (id: string) => void;
+  onDuplicateProject?: (id: string) => void;
   onRenameProject?: (id: string, name: string) => void;
   creating: boolean;
   deleting: string | null;
@@ -36,6 +37,7 @@ const Sidebar = memo(function Sidebar({
   onSelectProject,
   onNewProject,
   onDeleteProject,
+  onDuplicateProject,
   creating,
   deleting,
   chatMode,
@@ -218,6 +220,7 @@ const Sidebar = memo(function Sidebar({
       onSelectProject={onSelectProject}
       onNewProject={onNewProject}
       onDeleteProject={onDeleteProject}
+      onDuplicateProject={onDuplicateProject}
       onRenameProject={onRenameProject}
       creating={creating}
       deleting={deleting}

@@ -62,6 +62,7 @@ export interface AppState {
   handleRenameProject: (id: string, name: string) => void;
   handleFigmaImportComplete: (projectId: string) => void;
   handleDesignUploadComplete: (projectId: string) => void;
+  handleDuplicateProject: (id: string) => void;
   handleSave: () => void;
   handleCycleFiles: () => void;
   handleCycleFilesBackward: () => void;
@@ -184,12 +185,24 @@ export function useAppState(): AppState {
     }
   }, [handleNewProject, setChatMode, setFiles]);
 
+  const generateProjectName = useCallback((prompt: string): string => {
+    const name = prompt
+      .trim()
+      // Take first sentence
+      .split(/[.!?](?:\s|$)/)[0]
+      .trim()
+      .slice(0, 50)
+      .trim();
+    return name || "New Project";
+  }, []);
+
   const handlePrompt = useCallback(async (prompt: string) => {
     if (generating) return;
 
     let projectId = activeProjectIdRef.current;
     if (!projectId) {
-      const project = await handleNewProject();
+      const projectName = generateProjectName(prompt);
+      const project = await handleNewProject(projectName);
       if (!project) return;
       projectId = project.id;
       setChatMode(true);
@@ -197,7 +210,7 @@ export function useAppState(): AppState {
 
     if (!projectId) return;
     generate(prompt, projectId, filesRef.current, setFiles, fetchProjects, setError, framework);
-  }, [generating, handleNewProject, setChatMode, setFiles, fetchProjects, setError, generate, framework]);
+  }, [generating, handleNewProject, setChatMode, setFiles, fetchProjects, setError, generate, framework, generateProjectName]);
 
   const handleFrameworkChange = useCallback((newFramework: "vanilla" | "react") => {
     setFramework(newFramework);
@@ -221,6 +234,19 @@ export function useAppState(): AppState {
       showToast("error", "Failed to rename project");
     }
   }, [fetchProjects, showToast]);
+
+  // selectProject is already destructured via useProjects
+  const handleDuplicateProject = useCallback(async (id: string) => {
+    try {
+      const project = await api.duplicateProject(id);
+      fetchProjects();
+      showToast("success", `Duplicated as "${project.name}"`);
+      selectProject(project.id);
+      setChatMode(true);
+    } catch {
+      showToast("error", "Failed to duplicate project");
+    }
+  }, [fetchProjects, showToast, selectProject, setChatMode]);
 
   const handleFigmaImportComplete = useCallback((projectId: string) => {
     fetchProjects();
@@ -319,6 +345,7 @@ export function useAppState(): AppState {
     handleRenameProject,
     handleFigmaImportComplete,
     handleDesignUploadComplete,
+    handleDuplicateProject,
 
     // Keyboard shortcut helpers (exposed for page.tsx to wire up)
     handleSave,

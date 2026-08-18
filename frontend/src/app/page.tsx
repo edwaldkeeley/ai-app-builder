@@ -81,6 +81,7 @@ export default function Home() {
           isMobile={app.isMobile}
           showMobileSidebar={app.showMobileSidebar}
           onCloseMobileSidebar={() => app.setShowMobileSidebar(false)}
+          onDuplicateProject={app.handleDuplicateProject}
           onFigmaImportComplete={app.handleFigmaImportComplete}
           onDesignUploadComplete={app.handleDesignUploadComplete}
         />

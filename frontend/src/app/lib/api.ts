@@ -168,6 +168,11 @@ export const api = {
     return request(`/api/projects/${id}`, { method: "DELETE" });
   },
 
+  duplicateProject(id: string): Promise<ProjectDetail> {
+    invalidateCache("projects");
+    return request(`/api/projects/${id}/duplicate`, { method: "POST" });
+  },
+
   // ── Sandbox / Files ───────────────────────────────────────
 
   getSandboxState(projectId: string): Promise<SandboxState> {

@@ -34,12 +34,12 @@ export function useProjects() {
     return () => clearTimeout(timer);
   }, [fetchProjects]);
 
-  const handleNewProject = useCallback(async () => {
+  const handleNewProject = useCallback(async (name?: string) => {
     if (creating) return;
     setCreating(true);
     try {
-      const count = ++projectCounterRef.current;
-      const project = await api.createProject(`Project ${count}`);
+      const projectName = name?.trim() ? name.trim().slice(0, 128) : `Project ${++projectCounterRef.current}`;
+      const project = await api.createProject(projectName);
       const projectSummary: Project = {
         id: project.id,
         name: project.name,

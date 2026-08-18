@@ -92,3 +92,19 @@ async def export_project(project_id: UUID, current_user: dict = Depends(get_curr
             "Content-Length": str(len(zip_bytes)),
         },
     )
+
+
+@router.post("/{project_id}/duplicate", response_model=Project, status_code=status.HTTP_201_CREATED)
+async def duplicate_project(project_id: UUID, current_user: dict = Depends(get_current_user)):
+    """Duplicate an existing project including all its files."""
+    svc = get_service()
+    project = await svc.get(project_id)
+    if project is None:
+        raise HTTPException(status_code=404, detail="Project not found")
+    if project.user_id is not None and project.user_id != current_user["id"]:
+        raise HTTPException(status_code=403, detail="Not authorized")
+
+    new_project = await svc.duplicate(project_id, user_id=current_user["id"])
+    if new_project is None:
+        raise HTTPException(status_code=404, detail="Project not found")
+    return new_project
