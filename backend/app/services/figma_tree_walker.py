@@ -137,6 +137,15 @@ def walk_nodes(
     return lines
 
 
+def count_nodes(node: dict) -> int:
+    """Count total nodes in a node tree (including the node itself and all descendants)."""
+    count = 1
+    for child in node.get("children", []):
+        if isinstance(child, dict):
+            count += count_nodes(child)
+    return count
+
+
 def build_design_prompt(
     file_data: dict[str, Any],
 ) -> str:
@@ -175,6 +184,18 @@ def build_design_prompt(
     all_same_type = len(unique_types) <= 1 and len(canvases) > 1
     has_multiple = len(canvases) > 1
 
+    # ── Log canvas/node diagnostics ─────────────────────────
+
+    for i, canvas in enumerate(canvases):
+        node_count = count_nodes(canvas)
+        label = canvas_labels.get(i, "unknown")
+        cname = canvas.get("name", f"Canvas {i}")
+        w, h = get_canvas_dimensions(canvas)
+        logger.info(
+            "Canvas[%d] \"%s\" type=%s dims=%.0fx%.0f nodes=%d",
+            i, cname, label, w, h, node_count,
+        )
+
     # ── Part 1: Design Tree Summary ─────────────────────────
 
     lines: list[str] = []
@@ -197,10 +218,19 @@ def build_design_prompt(
         lines.append(f"### Canvas: \"{canvas_name}\" ({label}, {w:.0f}x{h:.0f}px)")
         lines.append("")
         tree_lines = walk_nodes(canvas)
-        # Cap tree summary at 100k chars to keep total prompt manageable
         tree_text = "\n".join(tree_lines)
-        if len(tree_text) > 100_000:
+        tree_capped = len(tree_text) > 100_000
+        if tree_capped:
             tree_text = tree_text[:100_000] + "\n  // ... [tree truncated]"
+            logger.info(
+                "Canvas[%d] tree summary CAPPED: %d nodes produced %d chars, truncated to 100k",
+                i, len(tree_lines), len(tree_text),
+            )
+        else:
+            logger.info(
+                "Canvas[%d] tree summary: %d nodes, %d chars",
+                i, len(tree_lines), len(tree_text),
+            )
         lines.append(tree_text)
         lines.append("")
 

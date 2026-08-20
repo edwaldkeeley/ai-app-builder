@@ -152,6 +152,21 @@ class FigmaUrlImportRequest(BaseModel):
 
 
 
+class FigmaDebugPromptResponse(BaseModel):
+    """Response for the Figma debug-prompt endpoint (no AI call)."""
+
+    figma_file_name: str = Field("", description="Figma file name from the API")
+    figma_file_key: str = Field("", description="Extracted Figma file key")
+    tree_node_count: int = Field(0, description="Total nodes walked across all canvases")
+    tree_capped: bool = Field(False, description="Whether the tree summary was truncated at 100k chars")
+    filtered_json_size: int = Field(0, description="Size of filtered Figma JSON before truncation")
+    filtered_json_capped: bool = Field(False, description="Whether the JSON was truncated at 40k chars")
+    total_chars: int = Field(0, description="Total prompt character count")
+    estimated_tokens: int = Field(0, description="Estimated tokens (chars // 3)")
+    canvas_info: list[dict] = Field(default_factory=list, description="Per-canvas type/dimensions/node_count")
+    prompt_text: str = Field("", description="The full prompt that would be sent to the AI")
+
+
 # ── Chat ────────────────────────────────────────────────────
 
 
