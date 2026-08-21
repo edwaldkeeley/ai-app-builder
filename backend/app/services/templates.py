@@ -538,6 +538,119 @@ body {
 }
 """
 
+# ── Portfolio (React) ────────────────────────────────────────────
+
+_PORTFOLIO_REACT_APP = """\
+import React, { useState } from "react";
+import { createRoot } from "react-dom/client";
+
+function Header() {
+  const [menuOpen, setMenuOpen] = useState(false);
+
+  return (
+    <nav className="navbar">
+      <div className="nav-container">
+        <div className="logo">Alex Rivera</div>
+        <button className="nav-toggle" aria-label="Menu" onClick={() => setMenuOpen((p) => !p)}>
+          &#9776;
+        </button>
+        <ul className={"nav-links" + (menuOpen ? " open" : "")}>
+          <li><a href="#work" onClick={() => setMenuOpen(false)}>Work</a></li>
+          <li><a href="#about" onClick={() => setMenuOpen(false)}>About</a></li>
+          <li><a href="#contact" onClick={() => setMenuOpen(false)}>Contact</a></li>
+        </ul>
+      </div>
+    </nav>
+  );
+}
+
+function Hero() {
+  return (
+    <section id="hero" className="hero">
+      <div className="hero-content">
+        <p className="hero-tag">Design &amp; Code</p>
+        <h1>I build digital experiences that people love.</h1>
+        <p>Full-stack designer &amp; developer specializing in web apps and interactive design.</p>
+        <div className="hero-actions">
+          <a href="#work" className="btn btn-primary">View Projects</a>
+          <a href="#contact" className="btn btn-secondary">Get in Touch</a>
+        </div>
+      </div>
+    </section>
+  );
+}
+
+const projects = [
+  { tag: "Web App", title: "Flow Dashboard", desc: "Analytics dashboard with real-time data visualization and team collaboration tools.", color: "#667eea" },
+  { tag: "E-commerce", title: "Marketplace", desc: "A modern marketplace platform with smart search, filters, and seamless checkout.", color: "#e86f6f" },
+  { tag: "Mobile", title: "Weather App", desc: "Minimal weather app with location-based forecasts and beautiful animations.", color: "#4ecdc4" },
+];
+
+function Work() {
+  return (
+    <section id="work" className="work">
+      <h2>Selected Work</h2>
+      <div className="work-grid">
+        {projects.map((p, i) => (
+          <div className="work-card" key={i}>
+            <div className="work-card-img" style={{ background: p.color }}>&nbsp;</div>
+            <div className="work-card-body">
+              <span className="work-tag">{p.tag}</span>
+              <h3>{p.title}</h3>
+              <p>{p.desc}</p>
+            </div>
+          </div>
+        ))}
+      </div>
+    </section>
+  );
+}
+
+function About() {
+  return (
+    <section id="about" className="about">
+      <div className="about-content">
+        <h2>About Me</h2>
+        <p>I'm a designer and developer with 8+ years of experience building products for startups and enterprise clients. I focus on creating interfaces that are both beautiful and functional.</p>
+        <div className="about-stats">
+          <div className="about-stat"><strong>50+</strong> Projects</div>
+          <div className="about-stat"><strong>30+</strong> Clients</div>
+          <div className="about-stat"><strong>12</strong> Awards</div>
+        </div>
+      </div>
+    </section>
+  );
+}
+
+function Contact() {
+  return (
+    <section id="contact" className="contact">
+      <h2>Let&#8217;s work together</h2>
+      <p>Have a project in mind? Let's talk about it.</p>
+      <a href="mailto:hello@alexrivera.dev" className="btn btn-primary">hello@alexrivera.dev</a>
+    </section>
+  );
+}
+
+function App() {
+  return (
+    <>
+      <Header />
+      <Hero />
+      <Work />
+      <About />
+      <Contact />
+      <footer className="footer">
+        <p>&copy; 2026 Alex Rivera. All rights reserved.</p>
+      </footer>
+    </>
+  );
+}
+
+const root = createRoot(document.getElementById("root"));
+root.render(<App />);
+"""
+
 # ── Blog (Vanilla) ──────────────────────────────────────────────
 
 _BLOG_HTML = """\
@@ -718,6 +831,102 @@ _BLOG_JS = """\
 document.querySelector('.nav-toggle')?.addEventListener('click', () => {
   document.querySelector('.nav-links')?.classList.toggle('open');
 });
+"""
+
+# ── Blog (React) ────────────────────────────────────────────────
+
+_BLOG_REACT_APP = """\
+import React, { useState } from "react";
+import { createRoot } from "react-dom/client";
+
+function Header() {
+  const [menuOpen, setMenuOpen] = useState(false);
+
+  return (
+    <nav className="navbar">
+      <div className="nav-container">
+        <div className="logo">The Daily Byte</div>
+        <button className="nav-toggle" aria-label="Menu" onClick={() => setMenuOpen((p) => !p)}>
+          &#9776;
+        </button>
+        <ul className={"nav-links" + (menuOpen ? " open" : "")}>
+          <li><a href="#articles" className="active" onClick={() => setMenuOpen(false)}>Articles</a></li>
+          <li><a href="#" onClick={() => setMenuOpen(false)}>Topics</a></li>
+          <li><a href="#" onClick={() => setMenuOpen(false)}>About</a></li>
+        </ul>
+      </div>
+    </nav>
+  );
+}
+
+const articles = [
+  { category: "Design", date: "Aug 15, 2026", title: "Building a Design System from Scratch", desc: "A practical guide to creating a scalable design system that your team will actually use.", author: "Sarah Chen", read: "8 min read" },
+  { category: "Engineering", date: "Aug 10, 2026", title: "The State of Web Performance in 2026", desc: "New metrics, tools, and techniques for keeping your web apps fast and responsive.", author: "Marcus Johnson", read: "12 min read" },
+  { category: "Product", date: "Aug 5, 2026", title: "Why MVPs Still Matter", desc: "How to ship a minimum viable product that validates your ideas without cutting corners.", author: "Priya Patel", read: "6 min read" },
+  { category: "Design", date: "Jul 28, 2026", title: "Accessibility-First Design Patterns", desc: "Inclusive design patterns that make your products better for everyone.", author: "Alex Rivera", read: "10 min read" },
+];
+
+function ArticleCard({ article }) {
+  return (
+    <article className="article-card">
+      <div className="article-meta">
+        <span className="article-category">{article.category}</span>
+        <span className="article-date">{article.date}</span>
+      </div>
+      <h2><a href="#">{article.title}</a></h2>
+      <p>{article.desc}</p>
+      <div className="article-footer">
+        <span className="article-author">By {article.author}</span>
+        <span className="article-read">{article.read}</span>
+      </div>
+    </article>
+  );
+}
+
+function Newsletter() {
+  const [email, setEmail] = useState("");
+
+  const handleSubmit = (e) => {
+    e.preventDefault();
+    alert("Thanks for subscribing!");
+    setEmail("");
+  };
+
+  return (
+    <aside className="newsletter">
+      <div className="newsletter-content">
+        <h2>Stay updated</h2>
+        <p>Get the latest articles delivered to your inbox weekly.</p>
+        <form className="newsletter-form" onSubmit={handleSubmit}>
+          <input type="email" placeholder="Enter your email" required aria-label="Email address" value={email} onChange={(e) => setEmail(e.target.value)} />
+          <button type="submit">Subscribe</button>
+        </form>
+      </div>
+    </aside>
+  );
+}
+
+function App() {
+  return (
+    <>
+      <Header />
+      <header className="blog-header">
+        <h1>Thoughts on design, code, and product.</h1>
+        <p>Exploring the intersection of technology and creativity.</p>
+      </header>
+      <main id="articles" className="articles">
+        {articles.map((a, i) => <ArticleCard article={a} key={i} />)}
+      </main>
+      <Newsletter />
+      <footer className="footer">
+        <p>&copy; 2026 The Daily Byte. All rights reserved.</p>
+      </footer>
+    </>
+  );
+}
+
+const root = createRoot(document.getElementById("root"));
+root.render(<App />);
 """
 
 # ── Pricing (Vanilla) ──────────────────────────────────────────
@@ -946,6 +1155,111 @@ toggle?.addEventListener('change', () => {
 });
 """
 
+# ── Pricing (React) ──────────────────────────────────────────
+
+_PRICING_REACT_APP = """\
+import React, { useState } from "react";
+import { createRoot } from "react-dom/client";
+
+const plans = [
+  { name: "Starter", monthly: 19, yearly: 15, desc: "Perfect for individuals and side projects.", features: ["5 projects", "10GB storage", "Basic analytics", "Email support"], cta: "Get Started", featured: false },
+  { name: "Professional", monthly: 49, yearly: 39, desc: "For growing teams and businesses.", features: ["Unlimited projects", "100GB storage", "Advanced analytics", "Priority support", "Custom domains"], cta: "Get Started", featured: true },
+  { name: "Enterprise", monthly: 99, yearly: 79, desc: "For large organizations with advanced needs.", features: ["Everything in Professional", "Unlimited storage", "Custom integrations", "24/7 phone support", "SLA guarantee", "Dedicated account manager"], cta: "Contact Sales", featured: false },
+];
+
+function Header() {
+  const [menuOpen, setMenuOpen] = useState(false);
+
+  return (
+    <nav className="navbar">
+      <div className="nav-container">
+        <div className="logo">SaaSify</div>
+        <button className="nav-toggle" aria-label="Menu" onClick={() => setMenuOpen((p) => !p)}>
+          &#9776;
+        </button>
+        <ul className={"nav-links" + (menuOpen ? " open" : "")}>
+          <li><a href="#pricing" onClick={() => setMenuOpen(false)}>Pricing</a></li>
+          <li><a href="#features" onClick={() => setMenuOpen(false)}>Features</a></li>
+          <li><a href="#faq" onClick={() => setMenuOpen(false)}>FAQ</a></li>
+        </ul>
+      </div>
+    </nav>
+  );
+}
+
+function PricingCard({ plan, yearly }) {
+  const amount = yearly ? plan.yearly : plan.monthly;
+  return (
+    <div className={"pricing-card" + (plan.featured ? " featured" : "")}>
+      {plan.featured && <div className="featured-badge">Most Popular</div>}
+      <h3>{plan.name}</h3>
+      <div className="price"><span className="price-amount">${amount}</span> <span className="price-period">/month</span></div>
+      <p className="price-desc">{plan.desc}</p>
+      <ul className="price-features">
+        {plan.features.map((f, i) => <li key={i}>&#10003; {f}</li>)}
+      </ul>
+      <a href="#" className={"btn " + (plan.featured ? "btn-primary" : "btn-secondary")}>{plan.cta}</a>
+    </div>
+  );
+}
+
+function FAQ() {
+  const [open, setOpen] = useState(null);
+
+  const faqs = [
+    { q: "Can I change my plan later?", a: "Yes, you can upgrade or downgrade at any time. Changes take effect immediately." },
+    { q: "Is there a free trial?", a: "Yes, all plans come with a 14-day free trial. No credit card required." },
+    { q: "What payment methods do you accept?", a: "We accept all major credit cards, PayPal, and wire transfers for enterprise plans." },
+  ];
+
+  return (
+    <section id="faq" className="faq">
+      <h2>Frequently asked questions</h2>
+      <div className="faq-list">
+        {faqs.map((faq, i) => (
+          <details key={i} open={open === i} onClick={() => setOpen(open === i ? null : i)}>
+            <summary>{faq.q}</summary>
+            <p>{faq.a}</p>
+          </details>
+        ))}
+      </div>
+    </section>
+  );
+}
+
+function App() {
+  const [yearly, setYearly] = useState(false);
+
+  return (
+    <>
+      <Header />
+      <header className="pricing-header">
+        <h1>Simple, transparent pricing</h1>
+        <p>No hidden fees. No surprises. Upgrade or cancel anytime.</p>
+        <div className="billing-toggle">
+          <span className={"toggle-label" + (yearly ? "" : " active")}>Monthly</span>
+          <label className="toggle-switch">
+            <input type="checkbox" checked={yearly} onChange={() => setYearly((p) => !p)} />
+            <span className="toggle-slider"></span>
+          </label>
+          <span className={"toggle-label" + (yearly ? " active" : "")}>Yearly <span className="toggle-badge">Save 20%</span></span>
+        </div>
+      </header>
+      <section id="pricing" className="pricing-grid">
+        {plans.map((p, i) => <PricingCard plan={p} yearly={yearly} key={i} />)}
+      </section>
+      <FAQ />
+      <footer className="footer">
+        <p>&copy; 2026 SaaSify. All rights reserved.</p>
+      </footer>
+    </>
+  );
+}
+
+const root = createRoot(document.getElementById("root"));
+root.render(<App />);
+"""
+
 # ── Template Registry ──────────────────────────────────────────
 
 TEMPLATES: dict[str, dict] = {
@@ -978,7 +1292,7 @@ TEMPLATES: dict[str, dict] = {
     "portfolio": {
         "name": "Portfolio",
         "description": "Clean portfolio with project cards, about section, stats, and contact area — for designers and developers.",
-        "frameworks": ["vanilla"],
+        "frameworks": ["vanilla", "react"],
         "preview_snippet": "<h1>Portfolio</h1><p>Projects + about + contact</p>",
         "files": {
             "vanilla": [
@@ -986,12 +1300,16 @@ TEMPLATES: dict[str, dict] = {
                 ("style.css", _PORTFOLIO_CSS, "css"),
                 ("script.js", _LANDING_JS, "javascript"),
             ],
+            "react": [
+                ("App.jsx", _PORTFOLIO_REACT_APP, "jsx"),
+                ("style.css", _PORTFOLIO_CSS, "css"),
+            ],
         },
     },
     "blog": {
         "name": "Blog",
         "description": "Serif-style blog layout with article cards, categories, newsletter signup, and responsive design.",
-        "frameworks": ["vanilla"],
+        "frameworks": ["vanilla", "react"],
         "preview_snippet": "<h1>Blog</h1><p>Articles + newsletter + footer</p>",
         "files": {
             "vanilla": [
@@ -999,18 +1317,26 @@ TEMPLATES: dict[str, dict] = {
                 ("style.css", _BLOG_CSS, "css"),
                 ("script.js", _BLOG_JS, "javascript"),
             ],
+            "react": [
+                ("App.jsx", _BLOG_REACT_APP, "jsx"),
+                ("style.css", _BLOG_CSS, "css"),
+            ],
         },
     },
     "pricing": {
         "name": "Pricing",
         "description": "Three-tier pricing page with monthly/yearly toggle, feature lists, FAQ accordion, and call-to-action.",
-        "frameworks": ["vanilla"],
+        "frameworks": ["vanilla", "react"],
         "preview_snippet": "<h1>Pricing</h1><p>3 plans + FAQ + CTA</p>",
         "files": {
             "vanilla": [
                 ("index.html", _PRICING_HTML, "html"),
                 ("style.css", _PRICING_CSS, "css"),
                 ("script.js", _PRICING_JS, "javascript"),
+            ],
+            "react": [
+                ("App.jsx", _PRICING_REACT_APP, "jsx"),
+                ("style.css", _PRICING_CSS, "css"),
             ],
         },
     },
