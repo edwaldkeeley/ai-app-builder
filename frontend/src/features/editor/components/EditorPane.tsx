@@ -4,9 +4,11 @@ import { memo, useRef, useCallback, useState, useEffect, useMemo } from "react";
 import Editor, { type OnMount, type BeforeMount } from "@monaco-editor/react";
 import type { editor } from "monaco-editor";
 import type { ProjectFile } from "@/app/lib/types";
+import type { EditorSelection } from "@/app/lib/types";
 import FileExplorer from "@/features/editor/components/FileExplorer";
 import { SkeletonEditor } from "@/components/ui/Skeleton";
 import { useTheme } from "@/features/layout/contexts/ThemeContext";
+import { setEditorSelection } from "@/features/editor/stores/editorSelection";
 
 interface EditorPaneProps {
   files: ProjectFile[];
@@ -17,6 +19,8 @@ interface EditorPaneProps {
   onDeleteFile: (path: string) => void;
   onRenameFile: (oldPath: string, newPath: string) => void;
   dirtyFiles?: Set<string>;
+  /** Called when the user selects code and triggers "Edit with AI" from context menu. */
+  onEditWithAI?: (selection: EditorSelection) => void;
 }
 
 const LANGUAGE_MAP: Record<string, string> = {
@@ -62,6 +66,7 @@ const EditorPane = memo(function EditorPane({
   onDeleteFile,
   onRenameFile,
   dirtyFiles,
+  onEditWithAI,
 }: EditorPaneProps) {
   const editorRef = useRef<editor.IStandaloneCodeEditor | null>(null);
   // eslint-disable-next-line @typescript-eslint/no-explicit-any
@@ -144,7 +149,52 @@ const EditorPane = memo(function EditorPane({
       }
       editorInstance.setModel(model);
     }
-  }, []);
+
+    // Track text selections for AI editing context
+    editorInstance.onDidChangeCursorSelection((e) => {
+      const model = editorInstance.getModel();
+      if (!model) return;
+
+      const sel = e.selection;
+      if (sel.isEmpty()) {
+        setEditorSelection(null);
+        return;
+      }
+
+      const modelPath = (model.uri as { path?: string }).path?.replace(/^\//, "") || "";
+      setEditorSelection({
+        filePath: modelPath,
+        startLine: sel.startLineNumber,
+        endLine: sel.endLineNumber,
+        selectedText: model.getValueInRange(sel),
+      });
+    });
+
+    // Register "Edit with AI" context menu action
+    editorInstance.addAction({
+      id: "ai-edit-selection",
+      label: "Edit with AI",
+      contextMenuGroupId: "modification",
+      contextMenuOrder: 1.5,
+      precondition: "editorHasSelection",
+      keybindings: [monaco.KeyMod.CtrlCmd | monaco.KeyMod.Shift | monaco.KeyCode.KeyK],
+      run: (ed) => {
+        const selection = ed.getSelection();
+        const model = ed.getModel();
+        if (!selection || selection.isEmpty() || !model) return;
+
+        const modelPath = (model.uri as { path?: string }).path?.replace(/^\//, "") || "";
+        const selectedText = model.getValueInRange(selection);
+
+        onEditWithAI?.({
+          filePath: modelPath,
+          startLine: selection.startLineNumber,
+          endLine: selection.endLineNumber,
+          selectedText,
+        });
+      },
+    });
+  }, [onEditWithAI]);
 
   useEffect(() => {
     const editor = editorRef.current;

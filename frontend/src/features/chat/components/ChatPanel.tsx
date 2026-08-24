@@ -1,10 +1,11 @@
 "use client";
 
-import { useState, useRef, useEffect, memo, useCallback } from "react";
+import { useState, useRef, useEffect, memo, useCallback, useSyncExternalStore } from "react";
 import ReactMarkdown from "react-markdown";
 import remarkGfm from "remark-gfm";
 import type { ChatMessage } from "@/app/lib/types";
 import type { WritingStatus } from "@/features/chat/hooks/useChat";
+import { getEditorSelection, subscribeToEditorSelection } from "@/features/editor/stores/editorSelection";
 
 import { Spinner } from "@/components/ui/Spinner";
 import { BouncingDots } from "@/components/ui/BouncingDots";
@@ -96,6 +97,9 @@ const ChatPanel = memo(function ChatPanel({
 }: ChatPanelProps) {
   const [value, setValue] = useState("");
   const textareaRef = useRef<HTMLTextAreaElement>(null);
+  // Reactive selection badge — shows when the user has selected code in the editor
+  const editorSelection = useSyncExternalStore(subscribeToEditorSelection, getEditorSelection);
+
   const bottomRef = useRef<HTMLDivElement>(null);
   const userScrolledUp = useRef(false);
   const [showAddMenu, setShowAddMenu] = useState(false);
@@ -158,6 +162,13 @@ const ChatPanel = memo(function ChatPanel({
     designRef.current?.open();
   }, []);
 
+  const handleClearSelection = useCallback(() => {
+    // Dynamic import to avoid circular deps; runs only on user click
+    import("@/features/editor/stores/editorSelection").then((m) =>
+      m.setEditorSelection(null),
+    );
+  }, []);
+
   return (
     <div className="flex-1 flex flex-col min-h-0 bg-sidebar">
       {/* Messages */}
@@ -218,7 +229,28 @@ const ChatPanel = memo(function ChatPanel({
 
       {/* Bottom input area — ChatGPT-style */}
       <div className="border-t border-border bg-sidebar px-3 py-2">
-        <div className="flex items-center gap-1.5 bg-input border border-border rounded-lg px-3 py-2 focus-within:border-accent/50 focus-within:ring-1 focus-within:ring-accent/20 transition-all">
+        <div className="flex flex-col gap-1.5 bg-input border border-border rounded-lg px-3 py-2 focus-within:border-accent/50 focus-within:ring-1 focus-within:ring-accent/20 transition-all">
+          {/* Selection badge — shows when user has selected code in the editor */}
+          {editorSelection && (
+            <div className="flex items-center gap-1.5 px-2 py-1 bg-accent/10 rounded-md text-[11px] text-accent font-medium">
+              <svg className="w-3 h-3 flex-shrink-0" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2}>
+                <path strokeLinecap="round" strokeLinejoin="round" d="M10 20l4-16m4 4l4 4-4 4M6 16l-4-4 4-4" />
+              </svg>
+              <span className="truncate">{editorSelection.filePath}:{editorSelection.startLine}-{editorSelection.endLine}</span>
+              <button
+                onClick={handleClearSelection}
+                className="ml-auto flex-shrink-0 w-4 h-4 rounded-full hover:bg-accent/20 flex items-center justify-center transition-colors"
+                title="Clear selection"
+                aria-label="Clear selection"
+              >
+                <svg className="w-2.5 h-2.5" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={3}>
+                  <path strokeLinecap="round" strokeLinejoin="round" d="M6 18L18 6M6 6l12 12" />
+                </svg>
+              </button>
+            </div>
+          )}
+
+          <div className="flex items-center gap-1.5">
             {showAddButton && (
               <div className="relative" ref={addMenuRef}>
                 <button
@@ -273,7 +305,7 @@ const ChatPanel = memo(function ChatPanel({
               value={value}
               onChange={(e) => setValue(e.target.value)}
               onKeyDown={handleKeyDown}
-              placeholder="Describe what you want to build..."
+              placeholder={editorSelection ? `Edit selection in ${editorSelection.filePath}...` : "Describe what you want to build..."}
               rows={1}
               disabled={disabled || generating}
               className="flex-1 bg-transparent text-sm text-foreground placeholder-text-secondary resize-none outline-none focus-visible:outline-none max-h-50 py-0.5"
@@ -293,6 +325,7 @@ const ChatPanel = memo(function ChatPanel({
             AI-generated code may not always be perfect. Review and test before using.
           </p>
         </div>
+      </div>
 
       {/* Imperative modals — always rendered but invisible until opened */}
       <FigmaImport ref={figmaRef} variant="modal-only" onImportComplete={onFigmaImportComplete} />

@@ -1,12 +1,14 @@
 "use client";
 
-import { useEffect, Suspense } from "react";
+import { useEffect, Suspense, useCallback } from "react";
 import dynamic from "next/dynamic";
 import { useRouter } from "next/navigation";
 import { useAuth } from "@/app/(auth)/contexts/AuthContext";
 import { useAppState } from "@/features/layout/hooks/useAppState";
 import { useKeyboardShortcuts } from "@/features/layout/hooks/useKeyboardShortcuts";
 import { SkeletonSidebar, SkeletonEditor } from "@/components/ui/Skeleton";
+import { setEditorSelection } from "@/features/editor/stores/editorSelection";
+import EditPopover from "@/features/editor/components/EditPopover";
 
 // Dynamic imports for heavy components — loaded only when needed
 const Sidebar = dynamic(() => import("@/features/layout/components/Sidebar"), { ssr: false });
@@ -23,6 +25,19 @@ export default function Home() {
       router.push("/login");
     }
   }, [user, authLoading, router]);
+
+  // EditPopover submit handler: sets the editor selection, sends the prompt, closes popover
+  const handleEditSubmit = useCallback(
+    (instruction: string) => {
+      const sel = app.editSelection;
+      if (sel) {
+        setEditorSelection(sel);
+        app.handlePrompt(instruction);
+        app.handleCloseEditPopover();
+      }
+    },
+    [app],
+  );
 
   // Global keyboard shortcuts
   useKeyboardShortcuts({
@@ -123,6 +138,7 @@ export default function Home() {
             onFigmaImportComplete={app.handleFigmaImportComplete}
             onDesignUploadComplete={app.handleDesignUploadComplete}
             onCreateFromTemplate={app.handleCreateFromTemplate}
+            onEditWithAI={app.handleEditWithAI}
             isMobile={app.isMobile}
             dirtyFiles={app.dirtyFiles}
             framework={app.framework}
@@ -130,6 +146,15 @@ export default function Home() {
           />
         </Suspense>
       </main>
+
+      {/* AI Edit popover — appears near Monaco selection on "Edit with AI" */}
+      {app.editSelection && (
+        <EditPopover
+          selection={app.editSelection}
+          onClose={app.handleCloseEditPopover}
+          onSubmit={handleEditSubmit}
+        />
+      )}
     </div>
   );
 }

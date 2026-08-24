@@ -3,11 +3,30 @@
 import { useState, useCallback, useRef } from "react";
 import { api } from "@/app/lib/api";
 import { generateStream } from "@/app/lib/ws";
-import type { ChatMessage, ProjectFile } from "@/app/lib/types";
+import type { ChatMessage, ProjectFile, EditorSelection } from "@/app/lib/types";
 import { useToast } from "@/components/ui/Toast";
+import { getEditorSelection, setEditorSelection } from "@/features/editor/stores/editorSelection";
 
 // Use a ref-based counter per hook instance instead of module-level
 // to avoid key collision across projects and page navigations
+
+/** Map file extension to Monaco language identifier for edit prompts. */
+function getLangFromPath(path: string): string {
+  const ext = path.split(".").pop()?.toLowerCase() || "";
+  const map: Record<string, string> = {
+    html: "html",
+    css: "css",
+    js: "javascript",
+    jsx: "jsx",
+    ts: "typescript",
+    tsx: "tsx",
+    json: "json",
+    py: "python",
+    md: "markdown",
+    svg: "svg",
+  };
+  return map[ext] || "";
+}
 
 export type WritingStatus = {
   type: "thinking" | "writing" | "fixing" | "done";
@@ -94,6 +113,20 @@ export function useChat() {
       if (generatingRef.current) return;
       generatingRef.current = true;
 
+      // If there's an active editor selection, wrap the prompt with selection context
+      let effectivePrompt = prompt;
+      const sel: EditorSelection | null = getEditorSelection();
+      if (sel && sel.selectedText.trim()) {
+        const lang = getLangFromPath(sel.filePath);
+        effectivePrompt =
+          `Edit this code from "${sel.filePath}" (lines ${sel.startLine}-${sel.endLine}):\n` +
+          "```" + lang + "\n" +
+          sel.selectedText + "\n" +
+          "```\n" +
+          `User request: ${prompt}`;
+        setEditorSelection(null); // clear selection after use
+      }
+
       setGenerating(true);
       setWritingStatus({ type: "thinking", message: "Generating response..." });
 
@@ -101,11 +134,11 @@ export function useChat() {
       const userMsg: ChatMessage = {
         id: `chat-${++chatIdCounterRef.current}`,
         role: "user",
-        content: prompt,
+        content: effectivePrompt,
         timestamp: new Date().toISOString(),
       };
       setChatMessagesWithRef((prev) => [...prev, userMsg]);
-      await saveMessage(projectId, "user", prompt);
+      await saveMessage(projectId, "user", effectivePrompt);
 
       // Create a placeholder AI message
       const aiMsgId = `chat-${++chatIdCounterRef.current}`;
@@ -213,7 +246,7 @@ export function useChat() {
           resolve();
         }, 1200000);
 
-        session.send(prompt, projectId, framework);
+        session.send(effectivePrompt, projectId, framework);
       });
 
       await streamComplete;
@@ -222,7 +255,7 @@ export function useChat() {
       if (streamError) {
         setWritingStatus({ type: "thinking", message: "Generating..." });
         try {
-          const result = await api.generate(prompt, resolvedProjectId, framework);
+          const result = await api.generate(effectivePrompt, resolvedProjectId, framework);
           const finalContent = result.message || `Generated ${result.files.length} file${result.files.length !== 1 ? "s" : ""}`;
           setChatMessagesWithRef((prev) => {
             const updated = [...prev];

@@ -7,7 +7,7 @@ import { useChat } from "@/features/chat/hooks/useChat";
 import { useFileSave } from "@/features/editor/hooks/useFileSave";
 import { useIsMobile } from "@/features/layout/hooks/useIsMobile";
 import { useToast } from "@/components/ui/Toast";
-import type { ProjectFile, Project, ChatMessage } from "@/app/lib/types";
+import type { ProjectFile, Project, ChatMessage, EditorSelection } from "@/app/lib/types";
 import type { WritingStatus } from "@/features/chat/hooks/useChat";
 import type { SaveStatus } from "@/features/editor/hooks/useFileSave";
 
@@ -52,6 +52,8 @@ export interface AppState {
   showMobileSidebar: boolean;
   setShowMobileSidebar: (show: boolean) => void;
   filesLoading: boolean;
+  /** AI editing popover state — non-null when "Edit with AI" popover is open. */
+  editSelection: EditorSelection | null;
 
   // Orchestration callbacks
   handleSelectProject: (id: string) => void;
@@ -67,6 +69,9 @@ export interface AppState {
   handleSave: () => void;
   handleCycleFiles: () => void;
   handleCycleFilesBackward: () => void;
+  /** Called when the user triggers "Edit with AI" from the Monaco context menu. */
+  handleEditWithAI: (selection: EditorSelection) => void;
+  handleCloseEditPopover: () => void;
 }
 
 /**
@@ -122,6 +127,8 @@ export function useAppState(): AppState {
   const [viewMode, setViewMode] = useState<"preview" | "code" | "split">("preview");
   const [framework, setFramework] = useState<"vanilla" | "react">(activeProject?.framework ?? "vanilla");
   const [showMobileSidebar, setShowMobileSidebar] = useState(false);
+  // AI editing: selection state for the inline edit popover
+  const [editSelection, setEditSelection] = useState<EditorSelection | null>(null);
   // Refs for use in callbacks (avoid stale closures)
   const filesRef = useRef(files);
   const activeProjectIdRef = useRef(activeProjectId);
@@ -279,6 +286,16 @@ export function useAppState(): AppState {
     setChatMode(true);
   }, [fetchProjects, selectProject, setChatMode]);
 
+  /** Open the AI edit popover with the Monaco editor selection. */
+  const handleEditWithAI = useCallback((selection: EditorSelection) => {
+    setEditSelection(selection);
+  }, []);
+
+  /** Close the AI edit popover. */
+  const handleCloseEditPopover = useCallback(() => {
+    setEditSelection(null);
+  }, []);
+
   // Keyboard shortcut callbacks (washed through refs inside useAppState)
   // These are used only inside page.tsx via useKeyboardShortcuts
   const handleSave = useCallback(async () => {
@@ -355,6 +372,9 @@ export function useAppState(): AppState {
     setShowMobileSidebar,
     filesLoading,
 
+    // AI editing
+    editSelection,
+
     // Callbacks
     handleSelectProject,
     handleCreateProject,
@@ -366,10 +386,12 @@ export function useAppState(): AppState {
     handleFigmaImportComplete,
     handleDesignUploadComplete,
     handleDuplicateProject,
+    handleEditWithAI,
 
     // Keyboard shortcut helpers (exposed for page.tsx to wire up)
     handleSave,
     handleCycleFiles,
     handleCycleFilesBackward,
+    handleCloseEditPopover,
   };
 }

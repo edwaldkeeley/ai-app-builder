@@ -1,7 +1,7 @@
 "use client";
 
 import { useCallback, useRef, useEffect, useMemo, memo } from "react";
-import type { Project, ProjectFile } from "@/app/lib/types";
+import type { Project, ProjectFile, EditorSelection } from "@/app/lib/types";
 import type { SaveStatus } from "@/features/editor/hooks/useFileSave";
 import { Spinner } from "@/components/ui/Spinner";
 import EditorPane from "@/features/editor/components/EditorPane";
@@ -35,6 +35,8 @@ interface MainContentProps {
   dirtyFiles?: Set<string>;
   framework: "vanilla" | "react";
   onFrameworkChange: (framework: "vanilla" | "react") => void;
+  /** Called when the user triggers "Edit with AI" from the editor context menu. */
+  onEditWithAI?: (selection: EditorSelection) => void;
 }
 
 const VIEW_BUTTONS: { mode: ViewMode; label: string }[] = [
@@ -67,6 +69,7 @@ const MainContent = memo(function MainContent({
   dirtyFiles,
   framework,
   onFrameworkChange,
+  onEditWithAI,
 }: MainContentProps) {
   const filesRef = useRef(files);
 
@@ -257,6 +260,7 @@ const MainContent = memo(function MainContent({
                 onDeleteFile={onDeleteFile}
                 onRenameFile={onRenameFile}
                 dirtyFiles={dirtyFiles}
+                onEditWithAI={onEditWithAI}
               />
             }
             right={
@@ -275,6 +279,7 @@ const MainContent = memo(function MainContent({
               onDeleteFile={onDeleteFile}
               onRenameFile={onRenameFile}
               dirtyFiles={dirtyFiles}
+              onEditWithAI={onEditWithAI}
             />
           </div>
         ) : (

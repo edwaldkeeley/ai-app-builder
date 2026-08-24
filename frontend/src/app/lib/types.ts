@@ -85,4 +85,12 @@ export interface ChatMessageSchema {
   created_at: string;
 }
 
+/** Represents a text selection in the Monaco editor for AI editing context. */
+export interface EditorSelection {
+  filePath: string;
+  startLine: number;
+  endLine: number;
+  selectedText: string;
+}
+
 

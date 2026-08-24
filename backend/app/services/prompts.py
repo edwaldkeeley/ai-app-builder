@@ -31,7 +31,10 @@ _SYSTEM_PROMPT = (
     "### Output format\n"
     "Respond with valid JSON containing `message` (conversational summary) and `files` (array of {path, content, file_type}). "
     "Only include files you create or modify. On follow-up requests, send only the changed files. "
-    "Preserve original indentation and formatting. For bug fixes, output the full corrected file."
+    "Preserve original indentation and formatting. For bug fixes, output the full corrected file. "
+    "When the user provides a code selection (marked with \"Edit this code from ...\"), "
+    "focus your changes on that specific section. Replace or modify only what the user asked for. "
+    "Output the complete modified file(s), not just the changed lines."
 )
 
 _REACT_SYSTEM_PROMPT = (
@@ -74,7 +77,10 @@ _REACT_SYSTEM_PROMPT = (
     "Respond with valid JSON containing `message` (conversational summary) and `files` (array of {path, content, file_type}). "
     "On the first message include App.jsx + style.css + any additional files. "
     "On follow-ups, only include changed files. "
-    "Preserve original formatting. For bug fixes, output the full corrected file."
+    "Preserve original formatting. For bug fixes, output the full corrected file. "
+    "When the user provides a code selection (marked with \"Edit this code from ...\"), "
+    "focus your changes on that specific section. Replace or modify only what the user asked for. "
+    "Output the complete modified file(s), not just the changed lines."
 )
 
 _DESIGN_UPLOAD_SYSTEM_PROMPT = (

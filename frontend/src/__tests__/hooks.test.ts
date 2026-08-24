@@ -274,3 +274,43 @@ describe("useChat", () => {
     expect(result.current.chatMessages).toEqual([]);
   });
 });
+
+// ── Editor selection store tests ──────────────────────────
+
+describe("editorSelection store", () => {
+  // Import once at describe level — module-level state is shared but we
+  // reset it in beforeEach.
+  let store: typeof import("@/features/editor/stores/editorSelection");
+  beforeAll(() => {
+    store = require("@/features/editor/stores/editorSelection");
+  });
+  beforeEach(() => {
+    store.setEditorSelection(null);
+  });
+
+  it("stores and retrieves a selection", () => {
+    const sel = { filePath: "style.css", startLine: 10, endLine: 20, selectedText: "body { color: red; }" };
+    store.setEditorSelection(sel);
+    expect(store.getEditorSelection()).toEqual(sel);
+  });
+
+  it("returns null when no selection is set", () => {
+    expect(store.getEditorSelection()).toBeNull();
+  });
+
+  it("clears selection when set to null", () => {
+    store.setEditorSelection({ filePath: "test.js", startLine: 1, endLine: 5, selectedText: "abc" });
+    store.setEditorSelection(null);
+    expect(store.getEditorSelection()).toBeNull();
+  });
+
+  it("notifies subscribers on change", () => {
+    const listener = jest.fn();
+    const unsubscribe = store.subscribeToEditorSelection(listener);
+    store.setEditorSelection({ filePath: "a.js", startLine: 1, endLine: 1, selectedText: "x" });
+    expect(listener).toHaveBeenCalledTimes(1);
+    unsubscribe();
+    store.setEditorSelection(null);
+    expect(listener).toHaveBeenCalledTimes(1); // no longer subscribed
+  });
+});
